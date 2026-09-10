@@ -55,9 +55,42 @@ const STOPWORDS = new Set([
   "which", "while", "who", "whom", "why", "will", "with", "would",
 ]);
 
+function splitIntoClauses(text: string): string[] {
+  // First split by sentence end punctuation
+  const rawSentences = (text.match(/[^.!?]+[.!?]+/g) || [text]).map((s) => s.trim()).filter(Boolean);
+  const units: string[] = [];
+
+  for (const sentence of rawSentences) {
+    // If the sentence contains em-dashes (—, –), double hyphens (--), or semicolons (;), break it into clauses
+    if (/[—–;]|\s--\s/.test(sentence)) {
+      const parts = sentence
+        .split(/\s*(?:[—–;]|\s--\s)\s*/)
+        .map((p) => p.trim())
+        .filter((p) => p.length >= 10);
+      if (parts.length > 1) {
+        units.push(...parts);
+        continue;
+      }
+    }
+    // If a sentence is long (> 70 chars) and contains commas separating distinct thoughts, break down into comma clauses
+    if (sentence.length > 70 && sentence.includes(",")) {
+      const parts = sentence
+        .split(/\s*,\s*/)
+        .map((p) => p.trim())
+        .filter((p) => p.length >= 10);
+      if (parts.length > 1) {
+        units.push(...parts);
+        continue;
+      }
+    }
+    units.push(sentence);
+  }
+  return units.length > 0 ? units : rawSentences;
+}
+
 /**
- * Extracts clean, complete sentence-level quotes matching search terms.
- * Returns complete sentences wrapped in quotation marks rather than chopped mid-sentence chunks.
+ * Extracts clean, complete clause- or sentence-level quote snippets directly matching search terms.
+ * Isolates the single relevant thought rather than dragging along unrelated clauses or multiple sentences.
  */
 export function extractCleanExcerpt(transcript: string, terms: string[]): string {
   const text = transcript.trim();
@@ -69,14 +102,18 @@ export function extractCleanExcerpt(transcript: string, terms: string[]): string
     return `"${firstSentence}"`;
   }
 
-  // Split into complete sentences
-  const sentences = (text.match(/[^.!?]+[.!?]+/g) || [text]).map((s) => s.trim()).filter(Boolean);
+  // Split into fine-grained units (sentences and distinct clauses)
+  const units = splitIntoClauses(text);
 
-  // 1. Direct sentence match with provided terms
-  const directMatches = sentences.filter((s) => normalizedTerms.some((term) => matchesTerm(s, term)));
+  // 1. Direct unit match with provided terms (pick the single unit with highest term matches)
+  const directMatches = units.filter((u) => normalizedTerms.some((term) => matchesTerm(u, term)));
   if (directMatches.length > 0) {
-    const quote = directMatches.slice(0, 3).join(" ");
-    return quote.startsWith('"') ? quote : `"${quote}"`;
+    const best = directMatches.sort((a, b) => {
+      const scoreA = normalizedTerms.reduce((sum, t) => sum + (matchesTerm(a, t) ? 1 : 0), 0);
+      const scoreB = normalizedTerms.reduce((sum, t) => sum + (matchesTerm(b, t) ? 1 : 0), 0);
+      return scoreB - scoreA;
+    })[0];
+    return best.startsWith('"') ? best : `"${best}"`;
   }
 
   // 2. Expand terms: decompose multi-clause phrases (semicolons, commas, dashes) and extract significant keywords
@@ -95,18 +132,17 @@ export function extractCleanExcerpt(transcript: string, terms: string[]): string
   }
 
   if (subTerms.length > 0) {
-    const scored = sentences
-      .map((s) => ({
-        sentence: s,
-        score: subTerms.reduce((sum, term) => sum + (matchesTerm(s, term) ? 1 : 0), 0),
+    const scored = units
+      .map((u) => ({
+        unit: u,
+        score: subTerms.reduce((sum, term) => sum + (matchesTerm(u, term) ? 1 : 0), 0),
       }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score);
 
     if (scored.length > 0) {
-      const matchedSentences = sentences.filter((s) => scored.some((m) => m.sentence === s && m.score > 0));
-      const quote = matchedSentences.slice(0, 3).join(" ");
-      return quote.startsWith('"') ? quote : `"${quote}"`;
+      const best = scored[0].unit;
+      return best.startsWith('"') ? best : `"${best}"`;
     }
   }
 
@@ -115,16 +151,16 @@ export function extractCleanExcerpt(transcript: string, terms: string[]): string
     if (matchesTerm(text, term)) {
       const index = text.toLowerCase().indexOf(term);
       if (index >= 0) {
-        const start = Math.max(0, text.lastIndexOf(" ", Math.max(0, index - 40)));
-        const end = text.indexOf(" ", Math.min(text.length, index + 120));
+        const start = Math.max(0, text.lastIndexOf(" ", Math.max(0, index - 30)));
+        const end = text.indexOf(" ", Math.min(text.length, index + 100));
         const slice = text.slice(start === 0 ? 0 : start + 1, end === -1 ? text.length : end).trim();
         return `"${slice}"`;
       }
     }
   }
 
-  // 4. Clean fallback: return first sentence rather than arbitrary mid-word slice
-  const fallback = sentences[0] || text.slice(0, 120).trim();
+  // 4. Clean fallback: return first unit rather than arbitrary mid-word slice
+  const fallback = units[0] || text.slice(0, 120).trim();
   return `"${fallback}"`;
 }
 

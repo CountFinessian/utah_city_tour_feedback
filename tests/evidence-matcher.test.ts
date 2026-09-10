@@ -109,6 +109,40 @@ describe("evidence-matcher utility", () => {
       expect(noiseQuote.toLowerCase()).not.toContain("bollards");
       expect(noiseQuote.toLowerCase()).not.toContain("motorcycles");
     });
+
+    it("isolates fee transparency clause from unrelated praise about unit aesthetics", () => {
+      const zjanyaTranscript =
+        "Our unit itself is beautiful and management has appeared to be kind and responsive — I think our biggest issue is not seeing if there is a lack of transparency related to monthly fees (like they can't tell us certain things bc of policy versus they just don't want to) OR if it's due to the newness with the community. Also transparency, maybe printing all of the move in stuff and leave it in the apartment?";
+
+      const feeTerms = [
+        "Fees",
+        "fee",
+        "fees",
+        "monthly fee",
+        "transparent",
+        "transparency",
+        "Lack of transparency in monthly fees and utility breakdowns",
+      ];
+      const feeQuote = extractCleanExcerpt(zjanyaTranscript, feeTerms);
+
+      // Quote must be downsized to the actual fee concern
+      expect(feeQuote).toContain("lack of transparency related to monthly fees");
+      // Quote must NOT drag along the unrelated praise before the em-dash
+      expect(feeQuote).not.toContain("Our unit itself is beautiful");
+      expect(feeQuote).not.toContain("management has appeared to be kind");
+    });
+
+    it("isolates trail/park clause without dragging in unrelated amenities or recycling", () => {
+      const puppiesTranscript =
+        "Seeing all the puppies, the Greenline park so close, the communal areas are beautiful and luxurious, future development is exciting, community perks like free Sundance and Racquet Club are top tier and actually useful. I only wish we had recycling in the building, which is very surprising to not have in this day.";
+
+      const trailTerms = ["trails", "trail", "park", "Greenline park is so close"];
+      const trailQuote = extractCleanExcerpt(puppiesTranscript, trailTerms);
+
+      expect(trailQuote.toLowerCase()).toContain("greenline park");
+      expect(trailQuote.toLowerCase()).not.toContain("recycling");
+      expect(trailQuote.toLowerCase()).not.toContain("sundance");
+    });
   });
 
   describe("formatObservationMeta", () => {

@@ -46,9 +46,6 @@ export function EvidencePopover({
                   <blockquote className="border-l-2 border-command-accent/40 pl-3 text-sm italic leading-relaxed text-command-ink">
                     {item.excerpt}
                   </blockquote>
-                  {item.label && item.label !== item.excerpt && (
-                    <p className="mt-2 text-xs leading-relaxed text-command-muted">{item.label}</p>
-                  )}
                   <Link
                     href={`/evidence?highlight=${item.id}`}
                     className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-command-accent hover:underline"
