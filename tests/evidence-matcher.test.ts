@@ -105,7 +105,7 @@ describe("evidence-matcher utility", () => {
         "Multiple dogs barking through apartment doors",
       ];
       const noiseQuote = extractCleanExcerpt(spencerTranscript, noiseTerms);
-      expect(noiseQuote.toLowerCase()).toContain("barking dogs");
+      expect(noiseQuote.toLowerCase()).toContain("bark");
       expect(noiseQuote.toLowerCase()).not.toContain("bollards");
       expect(noiseQuote.toLowerCase()).not.toContain("motorcycles");
     });

@@ -55,113 +55,148 @@ const STOPWORDS = new Set([
   "which", "while", "who", "whom", "why", "will", "with", "would",
 ]);
 
-function splitIntoClauses(text: string): string[] {
-  // First split by sentence end punctuation
-  const rawSentences = (text.match(/[^.!?]+[.!?]+/g) || [text]).map((s) => s.trim()).filter(Boolean);
-  const units: string[] = [];
-
-  for (const sentence of rawSentences) {
-    // If the sentence contains em-dashes (—, –), double hyphens (--), or semicolons (;), break it into clauses
-    if (/[—–;]|\s--\s/.test(sentence)) {
-      const parts = sentence
-        .split(/\s*(?:[—–;]|\s--\s)\s*/)
-        .map((p) => p.trim())
-        .filter((p) => p.length >= 10);
-      if (parts.length > 1) {
-        units.push(...parts);
-        continue;
-      }
-    }
-    // If a sentence is long (> 70 chars) and contains commas separating distinct thoughts, break down into comma clauses
-    if (sentence.length > 70 && sentence.includes(",")) {
-      const parts = sentence
-        .split(/\s*,\s*/)
-        .map((p) => p.trim())
-        .filter((p) => p.length >= 10);
-      if (parts.length > 1) {
-        units.push(...parts);
-        continue;
-      }
-    }
-    units.push(sentence);
-  }
-  return units.length > 0 ? units : rawSentences;
-}
-
 /**
- * Extracts clean, complete clause- or sentence-level quote snippets directly matching search terms.
- * Isolates the single relevant thought rather than dragging along unrelated clauses or multiple sentences.
+ * Extracts clean, concise quote snippets by identifying the local window
+ * of maximum semantic density for the requested category/terms.
+ *
+ * Rather than relying on brittle, corpus-specific punctuation rules, it tokenizes
+ * the text, assigns semantic relevance weights based on the category's conceptual
+ * vocabulary, and isolates the peak-density proposition bounded by natural discourse markers.
  */
 export function extractCleanExcerpt(transcript: string, terms: string[]): string {
-  const text = transcript.trim();
-  if (!text) return "Transcript evidence unavailable.";
+  const cleanText = transcript.trim();
+  if (!cleanText) return "Transcript evidence unavailable.";
 
-  const normalizedTerms = terms.map((t) => t.trim().toLowerCase()).filter(Boolean);
+  const normalizedTerms = terms.map((t) => t.toLowerCase().trim()).filter(Boolean);
   if (normalizedTerms.length === 0) {
-    const firstSentence = text.match(/[^.!?]+[.!?]+/)?.[0]?.trim() || text.slice(0, 140);
-    return `"${firstSentence}"`;
+    const firstSent = cleanText.match(/[^.!?]+[.!?]+/)?.[0]?.trim() || cleanText.slice(0, 140);
+    return `"${firstSent}"`;
   }
 
-  // Split into fine-grained units (sentences and distinct clauses)
-  const units = splitIntoClauses(text);
-
-  // 1. Direct unit match with provided terms (pick the single unit with highest term matches)
-  const directMatches = units.filter((u) => normalizedTerms.some((term) => matchesTerm(u, term)));
-  if (directMatches.length > 0) {
-    const best = directMatches.sort((a, b) => {
-      const scoreA = normalizedTerms.reduce((sum, t) => sum + (matchesTerm(a, t) ? 1 : 0), 0);
-      const scoreB = normalizedTerms.reduce((sum, t) => sum + (matchesTerm(b, t) ? 1 : 0), 0);
-      return scoreB - scoreA;
-    })[0];
-    return best.startsWith('"') ? best : `"${best}"`;
+  // Tokenize text into words with precise character offsets
+  const wordRegex = /[a-zA-Z0-9'’]+(?:-[a-zA-Z0-9'’]+)*/g;
+  type Token = { word: string; start: number; end: number; raw: string };
+  const tokens: Token[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = wordRegex.exec(cleanText)) !== null) {
+    tokens.push({ word: match[0].toLowerCase(), start: match.index, end: match.index + match[0].length, raw: match[0] });
   }
+  if (tokens.length === 0) return `"${cleanText.slice(0, 120)}"`;
 
-  // 2. Expand terms: decompose multi-clause phrases (semicolons, commas, dashes) and extract significant keywords
-  const subTerms: string[] = [];
+  // Build semantic vocabulary from terms (compounds and individual content stems)
+  const exactPhrases: string[] = [];
+  const conceptWords = new Set<string>();
+
   for (const t of normalizedTerms) {
-    if (/[;,\-]/.test(t)) {
-      t.split(/[;,\-]+/)
-        .map((s) => s.trim())
-        .filter((s) => s.length >= 3)
-        .forEach((s) => subTerms.push(s));
-    }
-    const words = t.split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
-    for (const w of words) {
-      subTerms.push(w);
+    if (t.includes(" ")) {
+      exactPhrases.push(t);
+      t.split(/[\s,;—–-]+/)
+        .filter((w) => w.length >= 3 && !STOPWORDS.has(w))
+        .forEach((w) => conceptWords.add(w));
+    } else if (t.length >= 3) {
+      conceptWords.add(t);
     }
   }
 
-  if (subTerms.length > 0) {
-    const scored = units
-      .map((u) => ({
-        unit: u,
-        score: subTerms.reduce((sum, term) => sum + (matchesTerm(u, term) ? 1 : 0), 0),
-      }))
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score);
+  // Score each token by relevance to the category
+  const tokenScores = tokens.map((tok) => {
+    let s = 0;
+    // Check against terms using matchesTerm (handles plurals, hyphenation e.g. e-bikes <-> bikes, word boundaries)
+    for (const t of normalizedTerms) {
+      if (matchesTerm(tok.raw, t)) {
+        s += 5;
+        break;
+      }
+    }
+    if (s === 0) {
+      if (conceptWords.has(tok.word)) {
+        s += 4;
+      } else {
+        for (const cw of conceptWords) {
+          if (matchesTerm(tok.raw, cw) || tok.word.startsWith(cw) || (cw.startsWith(tok.word) && Math.min(tok.word.length, cw.length) >= 4)) {
+            s += 2;
+            break;
+          }
+        }
+      }
+    }
+    return s;
+  });
 
-    if (scored.length > 0) {
-      const best = scored[0].unit;
-      return best.startsWith('"') ? best : `"${best}"`;
+  // Boost exact multi-word phrase matches
+  for (const phrase of exactPhrases) {
+    let idx = cleanText.toLowerCase().indexOf(phrase);
+    while (idx !== -1) {
+      const pEnd = idx + phrase.length;
+      tokens.forEach((tok, i) => {
+        if (tok.start >= idx && tok.end <= pEnd) tokenScores[i] += 5;
+      });
+      idx = cleanText.toLowerCase().indexOf(phrase, idx + 1);
     }
   }
 
-  // 3. Fallback word-boundary window if a sub-term exists anywhere in text
-  for (const term of [...normalizedTerms, ...subTerms]) {
-    if (matchesTerm(text, term)) {
-      const index = text.toLowerCase().indexOf(term);
-      if (index >= 0) {
-        const start = Math.max(0, text.lastIndexOf(" ", Math.max(0, index - 30)));
-        const end = text.indexOf(" ", Math.min(text.length, index + 100));
-        const slice = text.slice(start === 0 ? 0 : start + 1, end === -1 ? text.length : end).trim();
-        return `"${slice}"`;
+  const hitIndices: number[] = [];
+  tokenScores.forEach((score, i) => {
+    if (score > 0) hitIndices.push(i);
+  });
+
+  // Fallback if no concept hits found
+  if (hitIndices.length === 0) {
+    const firstSent = cleanText.match(/[^.!?]+[.!?]+/)?.[0]?.trim() || cleanText.slice(0, 140);
+    return `"${firstSent}"`;
+  }
+
+  // Determine candidate proposition boundaries using natural discourse markers
+  // (sentences, em-dashes, semicolons, commas, and contrastive conjunctions)
+  const isBoundaryAfter = (idx: number) => {
+    if (idx >= tokens.length - 1) return true;
+    const inter = cleanText.slice(tokens[idx].end, tokens[idx + 1].start);
+    if (/[.!?\n—–;]/.test(inter)) return true;
+    if (/,/.test(inter)) return true;
+    if (/\b(?:but|however|although|yet|except)\b/i.test(tokens[idx + 1].word)) return true;
+    return false;
+  };
+
+  const segments: { startToken: number; endToken: number; score: number; len: number }[] = [];
+  let segStart = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    if (isBoundaryAfter(i) || i === tokens.length - 1) {
+      const segTokens = tokens.slice(segStart, i + 1);
+      if (segTokens.length >= 2) {
+        const segScore = tokenScores.slice(segStart, i + 1).reduce((a, b) => a + b, 0);
+        segments.push({ startToken: segStart, endToken: i, score: segScore, len: segTokens.length });
+      }
+      segStart = i + 1;
+    }
+  }
+
+  // Score candidate segments by semantic density: score / (len ^ 0.45)
+  let bestSeg: { startToken: number; endToken: number } | null = null;
+  let bestDensity = -1;
+  for (const seg of segments) {
+    if (seg.score > 0) {
+      const density = seg.score / Math.pow(seg.len, 0.45);
+      if (density > bestDensity) {
+        bestDensity = density;
+        bestSeg = seg;
       }
     }
   }
 
-  // 4. Clean fallback: return first unit rather than arbitrary mid-word slice
-  const fallback = units[0] || text.slice(0, 120).trim();
-  return `"${fallback}"`;
+  if (!bestSeg) {
+    const firstHit = hitIndices[0];
+    bestSeg = { startToken: Math.max(0, firstHit - 5), endToken: Math.min(tokens.length - 1, firstHit + 15) };
+  }
+
+  let endCharPos = tokens[bestSeg.endToken].end;
+  if (endCharPos < cleanText.length && /[.!?]/.test(cleanText[endCharPos])) {
+    endCharPos++;
+  }
+
+  let snippet = cleanText.slice(tokens[bestSeg.startToken].start, endCharPos).trim();
+  snippet = snippet.replace(/[—–,;]$/, "").trim();
+
+  return `"${snippet}"`;
 }
 
 /**
