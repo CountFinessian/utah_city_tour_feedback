@@ -71,6 +71,44 @@ describe("evidence-matcher utility", () => {
       const quote = extractCleanExcerpt(transcript, ["recycling"]);
       expect(quote).toBe('"I only wish we had recycling in the building."');
     });
+
+    it("correctly separates safety from noise in Spencer Nelson's debrief", () => {
+      const spencerTranscript =
+        "Mixed-use, events, walk-ability. Doing more about barking dogs in the complex. There are multiple apartments with dogs that bark at me every time I walk past. Implementing more bollards/speed bumps to curb road speed and bike path speed. I also frequently see motorcycles and golf carts driving in the bike path. It's not a big deal now cause very few people use the bike path but it will be an issue in the future.";
+
+      // Safety extraction
+      const safetyTerms = [
+        "Safety",
+        "safety",
+        "bollard",
+        "bollards",
+        "speed",
+        "speed bumps",
+        "motorcycles",
+        "golf carts",
+        "Motorcycles and golf carts using designated bike paths; needs bollards and speed bumps",
+      ];
+      const safetyQuote = extractCleanExcerpt(spencerTranscript, safetyTerms);
+      expect(safetyQuote.toLowerCase()).toContain("bollards");
+      expect(safetyQuote.toLowerCase()).toContain("bike path");
+      expect(safetyQuote.toLowerCase()).not.toContain("barking");
+      expect(safetyQuote.toLowerCase()).not.toContain("dogs");
+
+      // Noise extraction
+      const noiseTerms = [
+        "Noise",
+        "noise",
+        "noisy",
+        "loud",
+        "bark",
+        "barking",
+        "Multiple dogs barking through apartment doors",
+      ];
+      const noiseQuote = extractCleanExcerpt(spencerTranscript, noiseTerms);
+      expect(noiseQuote.toLowerCase()).toContain("barking dogs");
+      expect(noiseQuote.toLowerCase()).not.toContain("bollards");
+      expect(noiseQuote.toLowerCase()).not.toContain("motorcycles");
+    });
   });
 
   describe("formatObservationMeta", () => {

@@ -1172,7 +1172,7 @@ select {
 
   .evidence-dark .text-muted,
   .evidence-dark .text-ink-soft {
-    color: var(--command-muted);
+    color: var(--command-soft);
   }
 
   .evidence-dark .border-border {
@@ -1195,7 +1195,7 @@ select {
   }
 
   .evidence-dark details p {
-    color: var(--command-soft);
+    color: #cdd8e6;
   }
 
   .evidence-dark .pill.bg-slate-50,

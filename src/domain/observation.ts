@@ -81,6 +81,42 @@ export function amenityLabel(t: string): string {
   return AMENITY_LABELS[t] ?? labelize(t);
 }
 
+export const OBJECTION_KEYWORDS: Record<string, string[]> = {
+  price: ["expensive", "price", "cost", "afford", "budget", "pricey", "rent is high", "overpriced", "too much"],
+  fees: ["fee", "fees", "deposit", "admin fee", "amenity fee", "application fee", "monthly fee", "transparent", "transparency"],
+  parking: ["parking", "no spot", "no spots", "extra for parking", "park", "garage full", "guest parking", "reserved spot"],
+  location: ["location", "neighborhood", "area", "part of town"],
+  commute: ["commute", "far from work", "distance to work", "drive to work", "far from", "rush hour"],
+  noise: ["noise", "noisy", "loud", "traffic noise", "thin walls", "bark", "barking", "dogs bark", "barking dogs", "sound", "quiet", "road noise"],
+  size_or_layout: ["small", "tiny", "layout", "cramped", "closet space", "square footage", "storage", "kitchen is small", "floor plan"],
+  pet_policy: ["pet fee", "pet policy", "breed restriction", "pets allowed", "no pets", "pet rent", "weight limit", "dog", "dogs"],
+  amenities: ["no gym", "wish there was", "amenities are", "lacking amenities", "e-bike", "e-bikes", "bikes", "playground"],
+  availability_or_timing: ["available", "availability", "move-in date", "move in date", "timing", "waitlist", "wait list", "not until", "ready by", "top-floor"],
+  application_or_process: ["application", "paperwork", "approval", "credit", "co-signer", "cosigner", "income requirement", "printed", "checklist"],
+  lease_terms: ["lease term", "12 month", "12-month", "short term", "short-term", "month to month", "month-to-month", "break the lease"],
+  safety: ["safety", "crime", "unsafe", "is it safe", "security concern", "bollard", "bollards", "speed", "speed bump", "speed bumps", "motorcycle", "motorcycles", "golf cart", "golf carts", "lighting", "safe", "gated"],
+  other: [],
+};
+
+export const AMENITY_KEYWORDS: Record<string, string[]> = {
+  pool: ["pool"],
+  fitness_center: ["gym", "fitness", "peloton", "weights", "workout"],
+  dog_park: ["dog park", "dog run"],
+  parking_garage: ["garage", "covered parking", "parking deck", "parking space"],
+  clubhouse: ["clubhouse", "lounge", "resident lounge", "facilities"],
+  coworking_space: ["coworking", "co-working", "work space", "work from home", "wfh area"],
+  rooftop_deck: ["rooftop", "roof deck", "sky lounge"],
+  package_room: ["package", "packages", "package locker", "deliveries"],
+  ev_charging: ["ev", "electric vehicle", "charger", "charging station"],
+  playground: ["playground", "kids area", "kids' area", "tot lot"],
+  security: ["security", "gated", "key fob", "controlled access", "safe building", "bollards"],
+  spa: ["spa", "sauna", "hot tub", "steam room"],
+  grilling_area: ["grill", "bbq", "barbecue", "grilling"],
+  bike_storage: ["bike storage", "bike room", "bike rack", "e-bike", "e-bikes", "bikes"],
+  trails: ["trail", "trails", "bike path", "walking path", "walkway"],
+  retail_dining: ["retail", "dining", "restaurant", "restaurants", "coffee shop", "cafe", "shops", "in-house restaurant"],
+};
+
 export const ExtractionSchema = z.object({
   summary: z
     .string()

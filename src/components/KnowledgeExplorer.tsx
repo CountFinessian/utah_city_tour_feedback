@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { amenityLabel, objectionLabel, type Observation } from "@/domain/observation";
 import { extractCleanExcerpt } from "@/domain/evidence-matcher";
 
@@ -13,11 +14,22 @@ function relativeTime(iso: string): string {
 }
 
 export function KnowledgeExplorer({ observations }: { observations: Observation[] }) {
+  const searchParams = useSearchParams();
+  const highlightId = searchParams.get("highlight");
+  const highlightRef = useRef<HTMLLIElement>(null);
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
   const [intent, setIntent] = useState("all");
   const [objection, setObjection] = useState("all");
   const [amenity, setAmenity] = useState("all");
+
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      const details = highlightRef.current.querySelector("details:last-of-type") as HTMLDetailsElement | null;
+      if (details) details.open = true;
+    }
+  }, [highlightId]);
 
   const options = useMemo(() => {
     const objections = new Set<string>();
@@ -105,7 +117,11 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
             {filtered.map((observation) => {
               const e = observation.extraction;
               return (
-                <li key={observation.id} className="p-5">
+                <li
+                  key={observation.id}
+                  ref={observation.id === highlightId ? highlightRef : undefined}
+                  className={`p-5${observation.id === highlightId ? " ring-2 ring-command-accent/50 rounded-lg" : ""}`}
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="pill border-slate-200 bg-slate-50 text-slate-700">{e.prospectIntent}</span>
                     <span className="pill border-slate-200 bg-white text-slate-700">sentiment {e.overallSentiment}</span>
@@ -142,10 +158,23 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
                     ))}
                     {e.followUpQuestions.length > 0 && (
                       <span className="pill border-amber-200 bg-amber-50 text-amber-800">
-                        {e.followUpQuestions.length} gaps
+                        {e.followUpQuestions.length} follow-ups needed
                       </span>
                     )}
                   </div>
+
+                  {e.followUpQuestions.length > 0 && (
+                    <details className="mt-2 w-full text-sm">
+                      <summary className="cursor-pointer select-none text-xs font-semibold text-command-soft">
+                        What was missed?
+                      </summary>
+                      <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-command-soft">
+                        {e.followUpQuestions.map((q, qi) => (
+                          <li key={qi}>{q}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
 
                   <details className="mt-4 rounded-[8px] border border-border bg-slate-50 px-3 py-2">
                     <summary className="cursor-pointer select-none text-sm font-semibold text-ink-soft">

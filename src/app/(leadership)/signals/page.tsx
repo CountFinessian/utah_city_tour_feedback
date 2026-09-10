@@ -24,7 +24,7 @@ export default async function SignalsPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="command-label">Objections</p>
-              <h2 className="mt-1 text-lg font-semibold text-command-ink">Blocker load</h2>
+              <h2 className="mt-1 text-lg font-semibold text-command-ink">Top objections</h2>
             </div>
             <span className="confidence-badge confidence-low">n={view.observations.length}</span>
           </div>
@@ -46,7 +46,7 @@ export default async function SignalsPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="command-label">Amenities</p>
-              <h2 className="mt-1 text-lg font-semibold text-command-ink">Net interest</h2>
+              <h2 className="mt-1 text-lg font-semibold text-command-ink">Prospect reactions</h2>
             </div>
             <span className="confidence-badge confidence-low">n={view.observations.length}</span>
           </div>

@@ -1,9 +1,15 @@
-import { amenityLabel, objectionLabel, type Observation } from "@/domain/observation";
+import {
+  amenityLabel,
+  objectionLabel,
+  AMENITY_KEYWORDS,
+  OBJECTION_KEYWORDS,
+  type Observation,
+} from "@/domain/observation";
 import { buildCommandCenter } from "@/server/intelligence/command-center";
 import { listObservations } from "@/server/repositories/observations";
 import { buildDigest, buildNarrativeGuardrail, templateNarrative } from "@/server/reporting/digest";
 import type { EvidenceItem } from "@/components/domain/EvidencePopover";
-import { buildEvidenceItem } from "@/domain/evidence-matcher";
+import { buildEvidenceItem, extractCleanExcerpt, formatObservationMeta } from "@/domain/evidence-matcher";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -70,7 +76,33 @@ export async function getCommandView() {
     (commandCenter.dataConfidence.score * 0.38 + avgCoverage * 0.32 + Math.min(1, digest.last7 / 12) * 0.3) * 100,
   );
 
-  const allEvidence = evidenceFrom(observations, () => true, []);
+  // Metric-specific evidence — each metric gets its own relevant observations
+  const intelligenceEvidence = evidenceFrom(
+    [...observations].sort((a, b) => b.extraction.coverageScore - a.extraction.coverageScore),
+    () => true,
+    [],
+  ).slice(0, 4);
+
+  const confidenceEvidence = evidenceFrom(
+    [...observations].sort((a, b) => a.extraction.coverageScore - b.extraction.coverageScore),
+    () => true,
+    ["coverage", "follow-up"],
+  ).slice(0, 3);
+
+  const positiveEvidence = evidenceFrom(
+    observations,
+    (o) => o.extraction.overallSentiment >= 1,
+    ["excited", "interested", "love"],
+  ).slice(0, 3);
+
+  const negativeEvidence = evidenceFrom(
+    observations,
+    (o) => o.extraction.overallSentiment <= -1,
+    ["concerned", "hesitant", "worried"],
+  ).slice(0, 3);
+
+  const sentimentEvidence = [...positiveEvidence, ...negativeEvidence].slice(0, 6);
+
   const topObjection = digest.topObjections[0];
   const topAmenity = digest.amenityRanking[0];
 
@@ -92,15 +124,15 @@ export async function getCommandView() {
         delta: digest.last7 - digest.prev7,
         confidence: commandCenter.dataConfidence.label,
         sampleSize: observations.length,
-        evidence: allEvidence,
+        evidence: intelligenceEvidence,
       },
       {
-        label: "Evidence Confidence",
+        label: "Data Reliability",
         value: `${Math.round(commandCenter.dataConfidence.score * 100)}%`,
         delta: liveCount - demoCount,
         confidence: commandCenter.dataConfidence.label,
         sampleSize: liveCount,
-        evidence: allEvidence,
+        evidence: confidenceEvidence,
       },
       {
         label: "Net Sentiment",
@@ -108,7 +140,7 @@ export async function getCommandView() {
         delta: digest.intentFunnel.hot - digest.intentFunnel.cold,
         confidence: guardrail.lowSample ? "low" : commandCenter.dataConfidence.label,
         sampleSize: observations.length,
-        evidence: allEvidence,
+        evidence: sentimentEvidence,
       },
       {
         label: "Hot-lead Signal",
@@ -120,27 +152,45 @@ export async function getCommandView() {
       },
     ] as const,
     deltas: [
-      { label: "Tours captured", value: digest.last7 - digest.prev7, evidence: allEvidence },
+      { label: "Tours captured", value: digest.last7 - digest.prev7, evidence: evidenceFrom(observations, () => true, []).slice(0, 3) },
       {
         label: topObjection ? `${topObjection.label} mentions` : "Objection volume",
         value: topObjection?.count ?? 0,
         evidence: topObjection
-          ? evidenceFrom(
-              observations,
-              (observation) => observation.extraction.objections.some((objection) => objection.type === topObjection.type),
-              [topObjection.label, topObjection.example],
-            )
+          ? observations
+              .filter((obs) => obs.extraction.objections.some((item) => item.type === topObjection.type))
+              .slice(0, 4)
+              .map((obs) => {
+                const matching = obs.extraction.objections.filter((item) => item.type === topObjection.type);
+                const kws = OBJECTION_KEYWORDS[topObjection.type] ?? [];
+                const terms = [topObjection.label, topObjection.type, ...kws, ...matching.map((m) => m.detail)];
+                return {
+                  id: obs.id,
+                  label: matching[0]?.detail || topObjection.label,
+                  excerpt: extractCleanExcerpt(obs.transcript, terms),
+                  meta: formatObservationMeta(obs),
+                };
+              })
           : [],
       },
       {
         label: topAmenity ? `${topAmenity.label} net interest` : "Amenity interest",
         value: topAmenity?.net ?? 0,
         evidence: topAmenity
-          ? evidenceFrom(
-              observations,
-              (observation) => observation.extraction.amenities.some((amenity) => amenity.name === topAmenity.name),
-              [topAmenity.label],
-            )
+          ? observations
+              .filter((obs) => obs.extraction.amenities.some((item) => item.name === topAmenity.name))
+              .slice(0, 4)
+              .map((obs) => {
+                const matching = obs.extraction.amenities.filter((item) => item.name === topAmenity.name);
+                const kws = AMENITY_KEYWORDS[topAmenity.name] ?? [];
+                const terms = [topAmenity.label, topAmenity.name, ...kws, ...matching.map((m) => m.detail)];
+                return {
+                  id: obs.id,
+                  label: matching[0]?.detail || topAmenity.label,
+                  excerpt: extractCleanExcerpt(obs.transcript, terms),
+                  meta: formatObservationMeta(obs),
+                };
+              })
           : [],
       },
     ],
@@ -153,19 +203,37 @@ export async function getCommandView() {
     ],
     objectionRows: digest.topObjections.slice(0, 8).map((objection) => ({
       ...objection,
-      evidence: evidenceFrom(
-        observations,
-        (observation) => observation.extraction.objections.some((item) => item.type === objection.type),
-        [objection.label, objection.example],
-      ),
+      evidence: observations
+        .filter((obs) => obs.extraction.objections.some((item) => item.type === objection.type))
+        .slice(0, 6)
+        .map((obs) => {
+          const matching = obs.extraction.objections.filter((item) => item.type === objection.type);
+          const kws = OBJECTION_KEYWORDS[objection.type] ?? [];
+          const terms = [objection.label, objection.type, ...kws, ...matching.map((m) => m.detail)];
+          return {
+            id: obs.id,
+            label: matching[0]?.detail || objection.label,
+            excerpt: extractCleanExcerpt(obs.transcript, terms),
+            meta: formatObservationMeta(obs),
+          };
+        }),
     })),
     amenityRows: digest.amenityRanking.slice(0, 8).map((amenity) => ({
       ...amenity,
-      evidence: evidenceFrom(
-        observations,
-        (observation) => observation.extraction.amenities.some((item) => item.name === amenity.name),
-        [amenityLabel(amenity.name), amenity.name],
-      ),
+      evidence: observations
+        .filter((obs) => obs.extraction.amenities.some((item) => item.name === amenity.name))
+        .slice(0, 6)
+        .map((obs) => {
+          const matching = obs.extraction.amenities.filter((item) => item.name === amenity.name);
+          const kws = AMENITY_KEYWORDS[amenity.name] ?? [];
+          const terms = [amenity.label, amenity.name, ...kws, ...matching.map((m) => m.detail)];
+          return {
+            id: obs.id,
+            label: matching[0]?.detail || amenity.label,
+            excerpt: extractCleanExcerpt(obs.transcript, terms),
+            meta: formatObservationMeta(obs),
+          };
+        }),
     })),
     recommendationRows: commandCenter.recommendedActions.map((action, index) => ({
       ...action,
@@ -176,5 +244,66 @@ export async function getCommandView() {
       topObjectionLabel: topObjection ? objectionLabel(topObjection.type) : "None yet",
       topAmenityLabel: topAmenity ? amenityLabel(topAmenity.name) : "None yet",
     },
+    demographics: buildDemographics(observations),
   };
+}
+
+function categorizeHousehold(family: string | null): string {
+  if (!family) return "Unknown";
+  const lower = family.toLowerCase();
+  if (/\b(kid|child|daughter|son|baby|famil)/i.test(lower)) return "Families";
+  if (/\b(couple|wife|husband|spouse|partner|fiancé)/i.test(lower)) return "Couples";
+  if (/\b(single|just me|myself|solo)/i.test(lower)) return "Singles";
+  if (/\b(roommate)/i.test(lower)) return "Roommates";
+  if (/\b(retir|senior|downsize)/i.test(lower)) return "Retirees";
+  return "Other";
+}
+
+function buildDemographics(observations: Observation[]) {
+  // Household breakdown
+  const householdMap = new Map<string, { count: number; hot: number; warm: number; cold: number }>();
+  for (const o of observations) {
+    const cat = categorizeHousehold(o.extraction.familyComposition);
+    const cur = householdMap.get(cat) ?? { count: 0, hot: 0, warm: 0, cold: 0 };
+    cur.count += 1;
+    const intent = o.extraction.prospectIntent;
+    if (intent === "hot") cur.hot += 1;
+    else if (intent === "warm") cur.warm += 1;
+    else if (intent === "cold") cur.cold += 1;
+    householdMap.set(cat, cur);
+  }
+  const households = [...householdMap.entries()]
+    .map(([category, data]) => ({ category, ...data }))
+    .sort((a, b) => b.count - a.count);
+
+  // Lifestyle signal frequency
+  const lifestyleMap = new Map<string, number>();
+  for (const o of observations) {
+    for (const signal of o.extraction.lifestyleSignals) {
+      const key = signal.trim().toLowerCase();
+      if (key) lifestyleMap.set(key, (lifestyleMap.get(key) ?? 0) + 1);
+    }
+  }
+  const lifestyleSignals = [...lifestyleMap.entries()]
+    .map(([signal, count]) => ({ signal, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  // Unit demand: household category × floor plan
+  const unitDemand = new Map<string, Map<string, number>>();
+  for (const o of observations) {
+    if (!o.floorPlan) continue;
+    const cat = categorizeHousehold(o.extraction.familyComposition);
+    const byPlan = unitDemand.get(cat) ?? new Map<string, number>();
+    byPlan.set(o.floorPlan, (byPlan.get(o.floorPlan) ?? 0) + 1);
+    unitDemand.set(cat, byPlan);
+  }
+  const unitDemandRows = [...unitDemand.entries()].map(([category, plans]) => ({
+    category,
+    plans: [...plans.entries()]
+      .map(([plan, count]) => ({ plan, count }))
+      .sort((a, b) => b.count - a.count),
+  }));
+
+  return { households, lifestyleSignals, unitDemandRows };
 }

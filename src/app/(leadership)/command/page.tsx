@@ -11,6 +11,7 @@ import {
 } from "@/components/domain/CommandComponents";
 import { EvidencePopover } from "@/components/domain/EvidencePopover";
 import { IntentFunnelChart, SentimentTimeline } from "@/components/domain/CommandCharts";
+import { DemographicPanel } from "@/components/domain/DemographicPanel";
 import { getCommandView } from "@/server/command/command-view";
 
 export const dynamic = "force-dynamic";
@@ -85,9 +86,9 @@ export default async function CommandPage() {
         <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
           <div>
             <p className="command-label">What changed</p>
-            <h2 className="mt-1 text-lg font-semibold text-command-ink">Delta strip</h2>
+            <h2 className="mt-1 text-lg font-semibold text-command-ink">What changed this week</h2>
           </div>
-          <p className="text-sm text-command-muted">Every delta carries drill-down evidence and sample-size context.</p>
+          <p className="text-sm text-command-muted">Week-over-week changes with supporting evidence.</p>
         </div>
         <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
           {view.deltas.map((delta) => (
@@ -109,12 +110,18 @@ export default async function CommandPage() {
         <IntentFunnelChart data={view.intentFunnel} sampleSize={view.observations.length} />
       </section>
 
+      <DemographicPanel
+        households={view.demographics.households}
+        lifestyleSignals={view.demographics.lifestyleSignals}
+        unitDemandRows={view.demographics.unitDemandRows}
+      />
+
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <div className="command-panel">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="command-label">Objection load</p>
-              <h2 className="mt-1 text-lg font-semibold text-command-ink">Severity-ranked blockers</h2>
+              <p className="command-label">Top Objections</p>
+              <h2 className="mt-1 text-lg font-semibold text-command-ink">Most common prospect concerns</h2>
             </div>
             <span className="confidence-badge confidence-low">n={view.observations.length}</span>
           </div>
@@ -139,8 +146,8 @@ export default async function CommandPage() {
         <div className="command-panel">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="command-label">Amenity net-interest</p>
-              <h2 className="mt-1 text-lg font-semibold text-command-ink">Positive minus negative reactions</h2>
+              <p className="command-label">Amenity Reactions</p>
+              <h2 className="mt-1 text-lg font-semibold text-command-ink">What prospects liked vs. didn't</h2>
             </div>
             <span className="confidence-badge confidence-low">n={view.observations.length}</span>
           </div>
@@ -165,8 +172,8 @@ export default async function CommandPage() {
       <section className="command-panel">
         <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
           <div>
-            <p className="command-label">Operating brief</p>
-            <h2 className="mt-1 text-xl font-semibold text-command-ink">Promoted narrative with guardrails</h2>
+            <p className="command-label">Executive Summary</p>
+            <h2 className="mt-1 text-xl font-semibold text-command-ink">Auto-generated from tour data</h2>
           </div>
           <span className="confidence-badge confidence-low">{view.guardrail.label}</span>
         </div>
@@ -180,8 +187,8 @@ export default async function CommandPage() {
         <div className="command-panel">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <p className="command-label">Journey spine</p>
-              <h2 className="mt-1 text-lg font-semibold text-command-ink">Live stages vs roadmap stages</h2>
+              <p className="command-label">Journey Map</p>
+              <h2 className="mt-1 text-lg font-semibold text-command-ink">Where we have data</h2>
             </div>
             <Link href="/journey" className="command-action-button">Open journey</Link>
           </div>
@@ -191,10 +198,10 @@ export default async function CommandPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="command-label">Action queue</p>
-              <h2 className="mt-1 text-lg font-semibold text-command-ink">Recommendations</h2>
+              <p className="command-label">Recommended Next Steps</p>
+              <h2 className="mt-1 text-lg font-semibold text-command-ink">What to do next</h2>
             </div>
-            <span className="text-xs text-command-muted">Persisted actions come next</span>
+            <span className="text-xs text-command-muted">Based on evidence collected so far</span>
           </div>
           {view.recommendationRows.length === 0 ? (
             <div className="command-panel text-sm text-command-muted">No recommendation has enough evidence yet.</div>

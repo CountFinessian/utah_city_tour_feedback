@@ -43,6 +43,18 @@ export function matchesTerm(haystack: string, term: string): boolean {
   return false;
 }
 
+const STOPWORDS = new Set([
+  "about", "after", "all", "also", "and", "are", "because", "been", "before",
+  "being", "between", "both", "but", "came", "come", "could", "did", "does",
+  "each", "even", "for", "from", "had", "has", "have", "having", "here",
+  "how", "into", "its", "just", "like", "made", "make", "many", "more",
+  "most", "much", "needs", "needed", "only", "other", "our", "out", "over",
+  "said", "same", "should", "some", "such", "than", "that", "the", "their",
+  "them", "then", "there", "these", "they", "this", "those", "through", "too",
+  "under", "using", "used", "very", "was", "were", "what", "when", "where",
+  "which", "while", "who", "whom", "why", "will", "with", "would",
+]);
+
 /**
  * Extracts clean, complete sentence-level quotes matching search terms.
  * Returns complete sentences wrapped in quotation marks rather than chopped mid-sentence chunks.
@@ -58,30 +70,62 @@ export function extractCleanExcerpt(transcript: string, terms: string[]): string
   }
 
   // Split into complete sentences
-  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-  const matching = sentences
-    .map((s) => s.trim())
-    .filter((s) => normalizedTerms.some((term) => matchesTerm(s, term)));
+  const sentences = (text.match(/[^.!?]+[.!?]+/g) || [text]).map((s) => s.trim()).filter(Boolean);
 
-  if (matching.length > 0) {
-    const quote = matching.slice(0, 2).join(" ");
+  // 1. Direct sentence match with provided terms
+  const directMatches = sentences.filter((s) => normalizedTerms.some((term) => matchesTerm(s, term)));
+  if (directMatches.length > 0) {
+    const quote = directMatches.slice(0, 3).join(" ");
     return quote.startsWith('"') ? quote : `"${quote}"`;
   }
 
-  // Word-boundary fallback
-  const firstMatch = normalizedTerms.find((term) => matchesTerm(text, term));
-  if (firstMatch) {
-    const index = text.toLowerCase().indexOf(firstMatch);
-    if (index >= 0) {
-      const start = Math.max(0, text.lastIndexOf(" ", Math.max(0, index - 40)));
-      const end = text.indexOf(" ", Math.min(text.length, index + 120));
-      const slice = text.slice(start === 0 ? 0 : start + 1, end === -1 ? text.length : end).trim();
-      return `"${slice}"`;
+  // 2. Expand terms: decompose multi-clause phrases (semicolons, commas, dashes) and extract significant keywords
+  const subTerms: string[] = [];
+  for (const t of normalizedTerms) {
+    if (/[;,\-]/.test(t)) {
+      t.split(/[;,\-]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 3)
+        .forEach((s) => subTerms.push(s));
+    }
+    const words = t.split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+    for (const w of words) {
+      subTerms.push(w);
     }
   }
 
-  const fallback = text.slice(0, 120).trim();
-  return `"${fallback}..."`;
+  if (subTerms.length > 0) {
+    const scored = sentences
+      .map((s) => ({
+        sentence: s,
+        score: subTerms.reduce((sum, term) => sum + (matchesTerm(s, term) ? 1 : 0), 0),
+      }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    if (scored.length > 0) {
+      const matchedSentences = sentences.filter((s) => scored.some((m) => m.sentence === s && m.score > 0));
+      const quote = matchedSentences.slice(0, 3).join(" ");
+      return quote.startsWith('"') ? quote : `"${quote}"`;
+    }
+  }
+
+  // 3. Fallback word-boundary window if a sub-term exists anywhere in text
+  for (const term of [...normalizedTerms, ...subTerms]) {
+    if (matchesTerm(text, term)) {
+      const index = text.toLowerCase().indexOf(term);
+      if (index >= 0) {
+        const start = Math.max(0, text.lastIndexOf(" ", Math.max(0, index - 40)));
+        const end = text.indexOf(" ", Math.min(text.length, index + 120));
+        const slice = text.slice(start === 0 ? 0 : start + 1, end === -1 ? text.length : end).trim();
+        return `"${slice}"`;
+      }
+    }
+  }
+
+  // 4. Clean fallback: return first sentence rather than arbitrary mid-word slice
+  const fallback = sentences[0] || text.slice(0, 120).trim();
+  return `"${fallback}"`;
 }
 
 /**
@@ -95,7 +139,8 @@ export function formatObservationMeta(obs: Observation): string {
 }
 
 /**
- * Builds an EvidenceItem with clean attribution and sentence-level quote.
+ * Builds an EvidenceItem with clean attribution, summary context as label,
+ * and sentence-level verbatim quote as excerpt.
  */
 export function buildEvidenceItem(obs: Observation, terms: string[]): EvidenceItem {
   return {

@@ -1,7 +1,9 @@
 import { generateObject } from "ai";
 import {
   AMENITY_CATALOG,
+  AMENITY_KEYWORDS,
   ExtractionSchema,
+  OBJECTION_KEYWORDS,
   OBJECTION_TYPES,
   type Extraction,
   type ObjectionType,
@@ -84,42 +86,6 @@ const NEGATIVE = [
   "issue", "unsure", "dislike", "too small", "too far", "pricey", "noisy", "loud",
   "not sure", "tight", "dated", "overpriced", "deal breaker", "dealbreaker",
 ];
-
-const AMENITY_KEYWORDS: Record<string, string[]> = {
-  pool: ["pool"],
-  fitness_center: ["gym", "fitness", "peloton", "weights", "workout"],
-  dog_park: ["dog park", "dog run", "off-leash", "off leash"],
-  parking_garage: ["parking", "garage", "covered parking", "park my car"],
-  coworking_space: ["coworking", "co-working", "work from home", "work-from-home", "office space", "remote work", "wfh"],
-  rooftop_deck: ["rooftop", "roof deck", "roof-top"],
-  clubhouse: ["clubhouse", "resident lounge", "lounge"],
-  ev_charging: ["ev charging", "ev charger", "charging station", "tesla charger"],
-  package_room: ["package room", "mailroom", "amazon locker", "package locker"],
-  trails: ["trail", "trails", "hiking", "walking path"],
-  retail_dining: ["restaurant", "restaurants", "retail", "shops", "dining", "coffee shop", "grocery"],
-  playground: ["playground", "kids area", "kids' area", "tot lot"],
-  security: ["security", "gated", "key fob", "controlled access", "safe building"],
-  spa: ["spa", "sauna", "hot tub", "steam room"],
-  grilling_area: ["grill", "bbq", "barbecue", "grilling"],
-  bike_storage: ["bike storage", "bike room", "bike rack"],
-};
-
-const OBJECTION_KEYWORDS: Record<ObjectionType, string[]> = {
-  price: ["expensive", "price", "cost", "afford", "budget", "pricey", "rent is high", "overpriced", "too much"],
-  fees: ["fee", "fees", "deposit", "admin fee", "amenity fee", "application fee"],
-  parking: ["parking", "no spot", "no spots", "extra for parking", "park", "garage full"],
-  location: ["location", "neighborhood", "area", "part of town"],
-  commute: ["commute", "far from work", "distance to work", "drive to work", "far from"],
-  noise: ["noise", "noisy", "loud", "traffic noise", "thin walls"],
-  size_or_layout: ["small", "tiny", "layout", "cramped", "closet space", "square footage", "storage", "kitchen is small"],
-  pet_policy: ["pet fee", "pet policy", "breed restriction", "pets allowed", "no pets", "pet rent", "weight limit"],
-  amenities: ["no gym", "wish there was", "amenities are", "lacking amenities"],
-  availability_or_timing: ["available", "availability", "move-in date", "move in date", "timing", "waitlist", "wait list", "not until", "ready by"],
-  application_or_process: ["application", "paperwork", "approval", "credit", "co-signer", "cosigner", "income requirement"],
-  lease_terms: ["lease term", "12 month", "12-month", "short term", "short-term", "month to month", "month-to-month", "break the lease"],
-  safety: ["safety", "crime", "unsafe", "is it safe", "security concern"],
-  other: [],
-};
 
 const INTENT_HOT = ["apply", "application", "sign", "deposit", "hold the unit", "hold this unit", "move in", "when can we", "ready to", "take it", "put down"];
 

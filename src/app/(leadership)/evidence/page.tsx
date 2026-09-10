@@ -15,10 +15,10 @@ export default async function EvidencePage() {
       <header className="command-shell-header">
         <p className="command-label">Evidence</p>
         <h1 className="mt-2 text-3xl font-black tracking-[-0.01em] text-command-ink md:text-4xl">
-          Organizational memory
+          Evidence Library
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-command-soft md:text-base">
-          Search captured conversations, extracted signals, and transcript evidence behind leadership claims.
+          Search captured conversations, extracted signals, and transcript evidence. Follow-ups are questions the host should have asked but didn't.
         </p>
       </header>
 
@@ -27,7 +27,7 @@ export default async function EvidencePage() {
         <Kpi label="Objections" value={String(objectionCount)} />
         <Kpi label="Amenity signals" value={String(amenityCount)} />
         <Kpi label="Questions" value={String(questionCount)} />
-        <Kpi label="Open gaps" value={String(gaps)} />
+        <Kpi label="Unanswered follow-ups" value={String(gaps)} />
       </section>
 
       <div className="evidence-dark">

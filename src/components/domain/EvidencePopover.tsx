@@ -1,7 +1,8 @@
 "use client";
 
 import * as Popover from "@radix-ui/react-popover";
-import { Quote } from "lucide-react";
+import Link from "next/link";
+import { ExternalLink, Quote } from "lucide-react";
 
 export type EvidenceItem = {
   id: string;
@@ -39,11 +40,21 @@ export function EvidencePopover({
             ) : (
               items.map((item) => (
                 <article key={item.id} className="evidence-popover-item">
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-command-ink">{item.label}</h3>
-                    {item.meta && <span className="shrink-0 font-mono text-[11px] text-command-muted">{item.meta}</span>}
-                  </div>
-                  <p className="mt-2 text-sm leading-relaxed text-command-soft">{item.excerpt}</p>
+                  {item.meta && (
+                    <span className="mb-2 block font-mono text-[11px] font-semibold text-command-accent">{item.meta}</span>
+                  )}
+                  <blockquote className="border-l-2 border-command-accent/40 pl-3 text-sm italic leading-relaxed text-command-ink">
+                    {item.excerpt}
+                  </blockquote>
+                  {item.label && item.label !== item.excerpt && (
+                    <p className="mt-2 text-xs leading-relaxed text-command-muted">{item.label}</p>
+                  )}
+                  <Link
+                    href={`/evidence?highlight=${item.id}`}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-command-accent hover:underline"
+                  >
+                    View full transcript <ExternalLink className="h-3 w-3" />
+                  </Link>
                 </article>
               ))
             )}

@@ -65,9 +65,6 @@ export function MetricTile({
       </div>
       <div className="mt-4 flex items-center justify-between gap-3">
         <EvidencePopover count={evidence.length} items={evidence} />
-        <span className="text-[11px] uppercase tracking-[0.12em] text-command-muted">
-          Drill enabled
-        </span>
       </div>
     </article>
   );
@@ -99,10 +96,10 @@ export function StatusBar({
         </div>
       </div>
       <div className="status-divider" />
-      <StatusAtom label="Evidence confidence" value={confidence} icon={<ShieldCheck className="h-4 w-4" />} />
-      <StatusAtom label="Coverage" value={`${Math.round(coverage * 100)}%`} icon={<CheckCircle2 className="h-4 w-4" />} />
-      <StatusAtom label="Freshness" value={freshness} icon={<Clock3 className="h-4 w-4" />} />
-      <StatusAtom label="Corpus" value={`${liveCount} live · ${demoCount} demo`} icon={<CircleAlert className="h-4 w-4" />} />
+      <StatusAtom label="Data reliability" value={confidence} icon={<ShieldCheck className="h-4 w-4" />} />
+      <StatusAtom label="Completeness" value={`${Math.round(coverage * 100)}%`} icon={<CheckCircle2 className="h-4 w-4" />} />
+      <StatusAtom label="Last capture" value={freshness} icon={<Clock3 className="h-4 w-4" />} />
+      <StatusAtom label="Data source" value={`${liveCount} live · ${demoCount} demo`} icon={<CircleAlert className="h-4 w-4" />} />
     </section>
   );
 }
