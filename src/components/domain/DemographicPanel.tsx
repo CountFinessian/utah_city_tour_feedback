@@ -15,21 +15,14 @@ type LifestyleItem = {
   count: number;
 };
 
-type UnitDemandRow = {
-  category: string;
-  plans: { plan: string; count: number }[];
-};
-
 const COLORS = ["#43d9c7", "#315f9f", "#d89a34", "#e25d5d", "#8292a8", "#07534f"];
 
 export function DemographicPanel({
   households,
   lifestyleSignals,
-  unitDemandRows,
 }: {
   households: HouseholdRow[];
   lifestyleSignals: LifestyleItem[];
-  unitDemandRows: UnitDemandRow[];
 }) {
   const hasData = households.length > 0 && households.some((h) => h.category !== "Unknown");
 
@@ -57,7 +50,7 @@ export function DemographicPanel({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* Household mix donut */}
         <div>
           <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-command-muted">Household mix</h3>
@@ -120,29 +113,6 @@ export function DemographicPanel({
                 </li>
               ))}
             </ul>
-          )}
-        </div>
-
-        {/* Unit demand matrix */}
-        <div>
-          <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-command-muted">Unit demand by type</h3>
-          {unitDemandRows.length === 0 ? (
-            <p className="mt-3 text-xs text-command-muted">No floor plan preferences captured yet.</p>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {unitDemandRows.map((row) => (
-                <div key={row.category}>
-                  <span className="text-xs font-semibold text-command-soft">{row.category}</span>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {row.plans.map((p) => (
-                      <span key={p.plan} className="rounded-md border border-command-border bg-white/[0.035] px-2 py-0.5 text-xs text-command-soft">
-                        {p.plan} <span className="font-mono text-command-accent">×{p.count}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
           )}
         </div>
       </div>

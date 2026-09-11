@@ -60,4 +60,14 @@ describe("Real Database & Invitation Authentication", () => {
     // Verify token cannot be claimed again
     await expect(claimInvitation(token, hash, salt)).rejects.toThrow("already been claimed");
   });
+
+  it("lists all invitations with accurate claimed status across users and invites", async () => {
+    const { listAllInvitationsWithStatus } = await import("../src/server/repositories/user-repository");
+    const list = await listAllInvitationsWithStatus();
+    expect(list.length).toBeGreaterThanOrEqual(2);
+
+    const testHost = list.find((i) => i.email === "test.host@utahcity.com");
+    expect(testHost).toBeDefined();
+    expect(testHost?.claimed).toBe(true);
+  });
 });

@@ -113,7 +113,6 @@ export default async function CommandPage() {
       <DemographicPanel
         households={view.demographics.households}
         lifestyleSignals={view.demographics.lifestyleSignals}
-        unitDemandRows={view.demographics.unitDemandRows}
       />
 
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   createOrUpdateInvitation,
-  findInvitationByEmail,
-  seedInitialInvitations,
+  listAllInvitationsWithStatus,
   type UserRole,
 } from "@/server/repositories/user-repository";
 import { generateSecureToken } from "@/server/auth/crypto";
@@ -12,25 +11,16 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     const { origin } = new URL(req.url);
-    const { aidenInvite, nateInvite } = await seedInitialInvitations();
+    const invitations = await listAllInvitationsWithStatus();
 
     return NextResponse.json({
-      invitations: [
-        {
-          email: aidenInvite.email,
-          name: aidenInvite.name,
-          role: aidenInvite.role,
-          claimed: Boolean(aidenInvite.claimedAt),
-          setupUrl: `${origin}/setup-account?token=${aidenInvite.token}`,
-        },
-        {
-          email: nateInvite.email,
-          name: nateInvite.name,
-          role: nateInvite.role,
-          claimed: Boolean(nateInvite.claimedAt),
-          setupUrl: `${origin}/setup-account?token=${nateInvite.token}`,
-        },
-      ],
+      invitations: invitations.map((inv) => ({
+        email: inv.email,
+        name: inv.name,
+        role: inv.role,
+        claimed: inv.claimed,
+        setupUrl: inv.token ? `${origin}/setup-account?token=${inv.token}` : "",
+      })),
     });
   } catch (err: any) {
     console.error("[invite GET error]", err);

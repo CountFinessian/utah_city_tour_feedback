@@ -37,8 +37,13 @@ const memoryUsers = new Map<string, StoredUser>();
 const memoryInvitations = new Map<string, StoredInvitation>();
 
 function getDb() {
-  if (!PG_URL) return null;
-  return neon(PG_URL);
+  const url =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    PG_URL;
+  if (!url) return null;
+  return neon(url);
 }
 
 let schemaInitialized: Promise<void> | null = null;
@@ -206,6 +211,10 @@ export async function createOrUpdateInvitation(
 
   const sql = getDb();
   if (!sql) {
+    const existing = memoryInvitations.get(id);
+    if (existing?.claimedAt) {
+      newInvite.claimedAt = existing.claimedAt;
+    }
     memoryInvitations.set(id, newInvite);
     return newInvite;
   }
@@ -220,10 +229,17 @@ export async function createOrUpdateInvitation(
       role = EXCLUDED.role,
       title = EXCLUDED.title,
       expires_at = EXCLUDED.expires_at,
-      claimed_at = NULL
+      claimed_at = COALESCE(invitations.claimed_at, EXCLUDED.claimed_at)
   `;
 
-  return newInvite;
+  const rows = (await sql`
+    SELECT id, email, name, role, title, token, expires_at as "expiresAt", claimed_at as "claimedAt", created_at as "createdAt"
+    FROM invitations
+    WHERE LOWER(email) = ${normalizedEmail}
+    LIMIT 1
+  `) as StoredInvitation[];
+
+  return rows[0] ?? newInvite;
 }
 
 export async function claimInvitation(
@@ -300,5 +316,157 @@ export async function seedInitialInvitations(): Promise<{ aidenInvite: StoredInv
     });
   }
 
+  const aidenUser = await findUserByEmail("aiden@utahcity.com");
+  if (aidenUser && !aidenInvite.claimedAt) {
+    aidenInvite.claimedAt = aidenUser.createdAt;
+  }
+
+  const nateUser = await findUserByEmail("nate@utahcity.com");
+  if (nateUser && !nateInvite.claimedAt) {
+    nateInvite.claimedAt = nateUser.createdAt;
+  }
+
   return { aidenInvite, nateInvite };
+}
+
+export type InvitationWithStatus = {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  title?: string;
+  token: string;
+  expiresAt?: string;
+  claimed: boolean;
+  claimedAt?: string | null;
+  createdAt: string;
+};
+
+export async function listAllInvitationsWithStatus(): Promise<InvitationWithStatus[]> {
+  await seedInitialInvitations();
+
+  const sql = getDb();
+  if (!sql) {
+    const usersByEmail = new Map<string, StoredUser>();
+    for (const u of memoryUsers.values()) {
+      usersByEmail.set(u.email.toLowerCase(), u);
+    }
+    const results: InvitationWithStatus[] = [];
+    const seenEmails = new Set<string>();
+
+    for (const inv of memoryInvitations.values()) {
+      const emailLower = inv.email.toLowerCase();
+      seenEmails.add(emailLower);
+      const isClaimed = Boolean(inv.claimedAt || usersByEmail.has(emailLower));
+      results.push({
+        id: inv.id,
+        email: inv.email,
+        name: inv.name,
+        role: inv.role,
+        title: inv.title,
+        token: inv.token,
+        expiresAt: inv.expiresAt,
+        claimed: isClaimed,
+        claimedAt: inv.claimedAt || (usersByEmail.get(emailLower)?.createdAt ?? null),
+        createdAt: inv.createdAt,
+      });
+    }
+
+    for (const user of memoryUsers.values()) {
+      const emailLower = user.email.toLowerCase();
+      if (!seenEmails.has(emailLower)) {
+        results.push({
+          id: `usr_inv_${user.id}`,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          title: user.title,
+          token: "",
+          claimed: true,
+          claimedAt: user.createdAt,
+          createdAt: user.createdAt,
+        });
+      }
+    }
+    return results;
+  }
+
+  await ensureUserSchema();
+
+  const [invRowsRaw, userRowsRaw] = await Promise.all([
+    sql`
+      SELECT id, email, name, role, title, token, expires_at as "expiresAt", claimed_at as "claimedAt", created_at as "createdAt"
+      FROM invitations
+      ORDER BY created_at ASC
+    `,
+    sql`
+      SELECT id, email, name, role, title, created_at as "createdAt"
+      FROM users
+      ORDER BY created_at ASC
+    `,
+  ]);
+  const invRows = invRowsRaw as unknown as StoredInvitation[];
+  const userRows = userRowsRaw as unknown as Omit<StoredUser, "passwordHash" | "passwordSalt">[];
+
+  const userMap = new Map<string, (typeof userRows)[0]>();
+  for (const u of userRows) {
+    userMap.set(u.email.toLowerCase().trim(), u);
+  }
+
+  const results: InvitationWithStatus[] = [];
+  const seenEmails = new Set<string>();
+  const emailsToMarkClaimed: string[] = [];
+
+  for (const inv of invRows) {
+    const emailLower = inv.email.toLowerCase().trim();
+    seenEmails.add(emailLower);
+    const existingUser = userMap.get(emailLower);
+    const isClaimed = Boolean(inv.claimedAt || existingUser);
+
+    if (existingUser && !inv.claimedAt) {
+      emailsToMarkClaimed.push(emailLower);
+    }
+
+    results.push({
+      id: inv.id,
+      email: inv.email,
+      name: existingUser?.name || inv.name,
+      role: (existingUser?.role || inv.role) as UserRole,
+      title: existingUser?.title || inv.title,
+      token: inv.token,
+      expiresAt: inv.expiresAt,
+      claimed: isClaimed,
+      claimedAt: inv.claimedAt || existingUser?.createdAt || null,
+      createdAt: inv.createdAt,
+    });
+  }
+
+  // Auto-sync any invitations in DB where the user actually exists
+  if (emailsToMarkClaimed.length > 0) {
+    sql`
+      UPDATE invitations
+      SET claimed_at = NOW()
+      WHERE LOWER(email) = ANY(${emailsToMarkClaimed})
+    `.catch((err) => console.error("Error auto-syncing claimed_at:", err));
+  }
+
+  // Also include any users that were created directly in users table without an invitation
+  for (const user of userRows) {
+    const emailLower = user.email.toLowerCase().trim();
+    if (!seenEmails.has(emailLower)) {
+      results.push({
+        id: `usr_inv_${user.id}`,
+        email: user.email,
+        name: user.name,
+        role: user.role as UserRole,
+        title: user.title,
+        token: "",
+        claimed: true,
+        claimedAt: user.createdAt,
+        createdAt: user.createdAt,
+      });
+    }
+  }
+
+  return results;
 }

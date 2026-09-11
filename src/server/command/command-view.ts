@@ -289,21 +289,5 @@ function buildDemographics(observations: Observation[]) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 8);
 
-  // Unit demand: household category × floor plan
-  const unitDemand = new Map<string, Map<string, number>>();
-  for (const o of observations) {
-    if (!o.floorPlan) continue;
-    const cat = categorizeHousehold(o.extraction.familyComposition);
-    const byPlan = unitDemand.get(cat) ?? new Map<string, number>();
-    byPlan.set(o.floorPlan, (byPlan.get(o.floorPlan) ?? 0) + 1);
-    unitDemand.set(cat, byPlan);
-  }
-  const unitDemandRows = [...unitDemand.entries()].map(([category, plans]) => ({
-    category,
-    plans: [...plans.entries()]
-      .map(([plan, count]) => ({ plan, count }))
-      .sort((a, b) => b.count - a.count),
-  }));
-
-  return { households, lifestyleSignals, unitDemandRows };
+  return { households, lifestyleSignals };
 }
