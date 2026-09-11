@@ -1,7 +1,6 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
-const GOOGLE_MODEL = process.env.GOOGLE_MODEL ?? "gemini-2.5-flash";
 const GOOGLE_MODEL = process.env.GOOGLE_MODEL ?? "gemini-3.8-flash";
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 const GATEWAY_MODEL = process.env.EXTRACTION_MODEL ?? "anthropic/claude-sonnet-4-6";
@@ -28,7 +27,6 @@ export function hasLLM(): boolean {
 }
 
 export const GOOGLE_MODELS = [
-  process.env.GOOGLE_MODEL ?? "gemini-2.5-flash",
   process.env.GOOGLE_MODEL ?? "gemini-3.8-flash",
   "gemini-flash-latest",
 ];
