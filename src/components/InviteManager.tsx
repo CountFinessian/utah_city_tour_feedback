@@ -21,6 +21,8 @@ export function InviteManager() {
   const [error, setError] = useState<string | null>(null);
   const [createdUrl, setCreatedUrl] = useState<string | null>(null);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
+  const [emailSent, setEmailSent] = useState<boolean | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   async function loadInvites() {
     try {
@@ -48,6 +50,8 @@ export function InviteManager() {
     setError(null);
     setCreatedUrl(null);
     setEmailNotice(null);
+    setEmailSent(null);
+    setEmailError(null);
 
     try {
       const res = await fetch("/api/auth/invite", {
@@ -57,6 +61,7 @@ export function InviteManager() {
       });
 
       const data = await res.json();
+
       if (!res.ok) {
         setError(data.error || "Failed to create invitation");
         setSubmitting(false);
@@ -64,10 +69,13 @@ export function InviteManager() {
       }
 
       setCreatedUrl(data.setupUrl);
+      setEmailSent(Boolean(data.emailSent));
+      setEmailError(data.emailError || null);
+
       if (data.emailSent) {
-        setEmailNotice(`Invitation email successfully sent to ${email.trim()}!`);
+        setEmailNotice(`Invitation email successfully dispatched to ${email.trim()}!`);
       } else if (data.emailError) {
-        setEmailNotice(`Link created. (Email warning: ${data.emailError})`);
+        setEmailNotice(`Activation link generated. Email dispatch error: ${data.emailError}`);
       } else {
         setEmailNotice(`Invitation created for ${email.trim()}.`);
       }
@@ -122,9 +130,15 @@ export function InviteManager() {
             <p className="font-mono text-[11px] break-all bg-black/40 p-2 rounded text-emerald-200">
               {createdUrl}
             </p>
-            <p className="text-[11px] text-emerald-300/80">
-              An email was automatically dispatched with this secure link. The user will set their name and password when activating.
-            </p>
+            {emailSent ? (
+              <p className="text-[11px] text-emerald-300/80">
+                An activation email was automatically dispatched to the recipient.
+              </p>
+            ) : emailError ? (
+              <p className="text-[11px] text-amber-300/90">
+                Email dispatch warning: {emailError}. (Copy and share the link above to activate manually).
+              </p>
+            ) : null}
           </div>
         )}
 

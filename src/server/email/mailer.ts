@@ -2,8 +2,12 @@
  * Resend Email Service for Utah City Platform
  */
 
-function getResendApiKey(): string | null {
-  const key = process.env.RESEND_API_KEY?.trim();
+export function getResendApiKey(): string | null {
+  const key = (
+    process.env.RESEND_API_KEY ||
+    process.env.RESEND_KEY ||
+    process.env.NEXT_PUBLIC_RESEND_API_KEY
+  )?.trim();
   if (!key) return null;
   return key.replace(/^["']|["']$/g, "").trim();
 }
@@ -24,7 +28,7 @@ export async function sendInvitationEmail({
   const apiKey = getResendApiKey();
   if (!apiKey) {
     console.warn("[mailer] RESEND_API_KEY not configured. Setup URL:", setupUrl);
-    return { success: false, error: "RESEND_API_KEY is not configured." };
+    return { success: false, error: "RESEND_API_KEY is not configured in environment variables." };
   }
 
   const roleLabel = role === "leader" ? "Leadership (Command & Analyst)" : "Tour Host (Mobile Capture)";
