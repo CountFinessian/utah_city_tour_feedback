@@ -75,13 +75,26 @@ export function InviteManager() {
       if (data.emailSent) {
         setEmailNotice(`Invitation email successfully dispatched to ${email.trim()}!`);
       } else if (data.emailError) {
-        setEmailNotice(`Activation link generated. Email dispatch error: ${data.emailError}`);
+        setEmailNotice(`Activation link generated. Email dispatch notice: ${data.emailError}`);
       } else {
         setEmailNotice(`Invitation created for ${email.trim()}.`);
       }
 
+      if (data.invite) {
+        setInvites((prev) => [
+          {
+            email: data.invite.email,
+            name: data.invite.name || data.invite.email.split("@")[0],
+            role: data.invite.role,
+            claimed: false,
+            setupUrl: data.setupUrl,
+          },
+          ...prev.filter((i) => i.email.toLowerCase() !== data.invite.email.toLowerCase()),
+        ]);
+      }
+
       setEmail("");
-      await loadInvites();
+      loadInvites();
     } catch {
       setError("Network error creating invitation");
     } finally {
@@ -130,15 +143,13 @@ export function InviteManager() {
             <p className="font-mono text-[11px] break-all bg-black/40 p-2 rounded text-emerald-200">
               {createdUrl}
             </p>
-            {emailSent ? (
-              <p className="text-[11px] text-emerald-300/80">
-                An activation email was automatically dispatched to the recipient.
-              </p>
-            ) : emailError ? (
-              <p className="text-[11px] text-amber-300/90">
-                Email dispatch warning: {emailError}. (Copy and share the link above to activate manually).
-              </p>
-            ) : null}
+            <p className="text-[11px] text-emerald-300/80">
+              {emailSent
+                ? "An activation email was automatically dispatched. The recipient will set their name and password upon first login."
+                : emailError
+                ? `Email dispatch note: ${emailError}. You can copy and share the link above manually.`
+                : "Share this secure link with the user to activate their account."}
+            </p>
           </div>
         )}
 

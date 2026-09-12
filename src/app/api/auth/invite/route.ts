@@ -72,10 +72,17 @@ export async function POST(req: Request) {
     const setupUrl = `${origin}/setup-account?token=${invite.token}`;
 
     // Get current leader name for invitation email if authenticated
-    const cookieStore = await cookies();
-    const tokenCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-    const currentUser = await verifySessionToken(tokenCookie);
-    const invitedByName = currentUser?.name || "Utah City Leadership";
+    let invitedByName = "Utah City Leadership";
+    try {
+      const cookieStore = await cookies();
+      const tokenCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+      const currentUser = await verifySessionToken(tokenCookie);
+      if (currentUser?.name) {
+        invitedByName = currentUser.name;
+      }
+    } catch {
+      // ignore
+    }
 
     // Automatically send secure onboarding email
     const emailResult = await sendInvitationEmail({

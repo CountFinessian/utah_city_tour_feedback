@@ -87,4 +87,28 @@ describe("API routes", () => {
     expect(json.invitations.some((i: any) => i.email === "aiden@utahcity.com")).toBe(true);
     expect(json.invitations.some((i: any) => i.email === "nate@utahcity.com")).toBe(true);
   });
+
+  it("POST /api/auth/invite creates invite quickly and returns setupUrl", async () => {
+    const { POST: invitePOST, GET: inviteGET } = await import("@/app/api/auth/invite/route");
+    const startTime = Date.now();
+    const req = jsonReq("https://demo.utahcity.com/api/auth/invite", {
+      email: "newmember@utahcity.com",
+      role: "host",
+    });
+    const res = await invitePOST(req);
+    const duration = Date.now() - startTime;
+    expect(res.status).toBe(200);
+    // Should complete quickly without stalling
+    expect(duration).toBeLessThan(4000);
+
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(typeof json.setupUrl).toBe("string");
+    expect(json.setupUrl).toContain("/setup-account?token=");
+
+    // Verify it appears in GET invitations immediately
+    const listRes = await inviteGET(new Request("https://demo.utahcity.com/api/auth/invite"));
+    const listJson = await listRes.json();
+    expect(listJson.invitations.some((i: any) => i.email === "newmember@utahcity.com")).toBe(true);
+  });
 });

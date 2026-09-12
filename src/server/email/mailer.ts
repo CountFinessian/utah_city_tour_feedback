@@ -3,11 +3,7 @@
  */
 
 export function getResendApiKey(): string | null {
-  const key = (
-    process.env.RESEND_API_KEY ||
-    process.env.RESEND_KEY ||
-    process.env.NEXT_PUBLIC_RESEND_API_KEY
-  )?.trim();
+  const key = process.env.RESEND_API_KEY?.trim();
   if (!key) return null;
   return key.replace(/^["']|["']$/g, "").trim();
 }
