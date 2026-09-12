@@ -48,10 +48,13 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
     const needle = query.trim().toLowerCase();
     return observations.filter((observation) => {
       const e = observation.extraction;
+      const prospectName = [observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ");
       const searchable = [
         observation.hostName,
         observation.floorPlan,
         observation.prospectTag,
+        prospectName,
+        observation.prospectEmail,
         observation.transcript,
         e.summary,
         ...e.questionsAsked,
@@ -142,6 +145,8 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
                     <div className="text-xs text-muted">
                       <div>{[observation.hostName, observation.floorPlan].filter(Boolean).join(" · ") || "Unattributed"}</div>
                       <div className="mt-1">{observation.prospectTag || "No prospect tag"}</div>
+                      <div>{[observation.hostName, [observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "Unattributed"}</div>
+                      {observation.prospectEmail && <div className="mt-1">{observation.prospectEmail}</div>}
                     </div>
                   </div>
 

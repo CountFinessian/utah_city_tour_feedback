@@ -3,27 +3,33 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Check, ChevronDown, ShieldCheck, LogOut, AlertCircle, User } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ShieldCheck,
+  LogOut,
+  AlertCircle,
+  Plus,
+  SkipForward,
+  User,
+} from "lucide-react";
 import { Recorder } from "./Recorder";
 import { amenityLabel, objectionLabel, type Observation } from "@/domain/observation";
 
-type AppState = "capture" | "structuring" | "review" | "follow_up" | "complete" | "failed";
+type AppState = "capture" | "structuring" | "done" | "failed";
 
 const PROCESSING_MESSAGES = [
   "Cleaning transcript",
   "Extracting signals",
   "Checking evidence",
   "Preparing review",
+  "Saving intelligence",
 ];
 
 function sentimentLabel(s: number): string {
   return ["Very negative", "Negative", "Neutral", "Positive", "Very positive"][s + 2] ?? "Neutral";
-}
-
-function coverageLabel(score: number): string {
-  if (score >= 0.75) return "Complete";
-  if (score >= 0.45) return "Usable with gaps";
-  return "Needs follow-up";
 }
 
 export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean }) {
@@ -32,8 +38,9 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   const [currentUser, setCurrentUser] = useState<{ name: string; role: string; email: string } | null>(null);
 
   const [hostName, setHostName] = useState("");
-  const [floorPlan, setFloorPlan] = useState("");
-  const [prospectTag, setProspectTag] = useState("");
+  const [prospectFirstName, setProspectFirstName] = useState("");
+  const [prospectLastName, setProspectLastName] = useState("");
+  const [prospectEmail, setProspectEmail] = useState("");
   const [transcript, setTranscript] = useState("");
   const [result, setResult] = useState<Observation | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -42,6 +49,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   const [notice, setNotice] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [skipFollowUp, setSkipFollowUp] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -63,20 +71,30 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
     router.refresh();
   }
 
+  // Processing status ticker
   useEffect(() => {
     if (!submitting) return;
     const timer = window.setInterval(() => {
       setProcessingIndex((idx) => Math.min(PROCESSING_MESSAGES.length - 1, idx + 1));
-    }, 1300);
+    }, 1200);
     return () => window.clearInterval(timer);
   }, [submitting]);
+
+  // Auto-dismiss toast notice after 3.2 seconds so it never blocks UI
+  useEffect(() => {
+    if (!notice && !error) return;
+    const timer = window.setTimeout(() => {
+      setNotice(null);
+      setError(null);
+    }, 3200);
+    return () => window.clearTimeout(timer);
+  }, [notice, error]);
 
   const appState: AppState = useMemo(() => {
     if (error && !submitting) return "failed";
     if (submitting) return "structuring";
-    if (!result) return "capture";
-    if (result.extraction.followUpQuestions.length > 0 && result.extraction.coverageScore < 0.75) return "follow_up";
-    return "review";
+    if (result) return "done";
+    return "capture";
   }, [error, result, submitting]);
 
   const canSubmit = transcript.trim().length > 0 && !submitting;
@@ -87,7 +105,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
 
   async function submit(nextTranscript: string, id?: string) {
     if (!nextTranscript.trim()) {
-      setError("Please add survey data to continue.");
+      setError("Please add debrief notes or voice to continue.");
       return;
     }
     setSubmitting(true);
@@ -98,7 +116,14 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       const res = await fetch("/api/observations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript: nextTranscript, hostName, floorPlan, prospectTag, id }),
+        body: JSON.stringify({
+          transcript: nextTranscript,
+          hostName,
+          prospectFirstName,
+          prospectLastName,
+          prospectEmail,
+          id,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -108,7 +133,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       setResult(json.observation as Observation);
       setTranscript(nextTranscript);
       setAnswers({});
-      setNotice(id ? "Updated review ready." : "Review ready.");
+      setNotice(id ? "Updated debrief saved." : "Debrief saved.");
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -119,9 +144,12 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
 
   function reset() {
     setTranscript("");
-    setProspectTag("");
+    setProspectFirstName("");
+    setProspectLastName("");
+    setProspectEmail("");
     setResult(null);
     setAnswers({});
+    setSkipFollowUp(false);
     setError(null);
     setNotice(null);
   }
@@ -221,8 +249,8 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
           </div>
 
           <div className="mobile-trust-line">
-            <ShieldCheck className="h-4 w-4" />
-            {serverAsr ? "Server transcription ready" : "On-device voice ready"}
+            <ShieldCheck className="h-4 w-4 text-[#36cdbd]" />
+            {serverAsr ? "AI transcription active" : "On-device voice ready"}
           </div>
 
           <MobileProgress state={appState} />
@@ -232,8 +260,9 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
               <CaptureScreen
                 transcript={transcript}
                 hostName={hostName}
-                floorPlan={floorPlan}
-                prospectTag={prospectTag}
+                prospectFirstName={prospectFirstName}
+                prospectLastName={prospectLastName}
+                prospectEmail={prospectEmail}
                 contextOpen={contextOpen}
                 submitting={submitting}
                 processingIndex={processingIndex}
@@ -242,8 +271,9 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                 onText={appendText}
                 onTranscript={setTranscript}
                 onHostName={setHostName}
-                onFloorPlan={setFloorPlan}
-                onProspectTag={setProspectTag}
+                onProspectFirstName={setProspectFirstName}
+                onProspectLastName={setProspectLastName}
+                onProspectEmail={setProspectEmail}
                 onContextOpen={() => setContextOpen((value) => !value)}
                 onSubmit={() => void submit(transcript.trim())}
                 error={error}
@@ -254,9 +284,12 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                 observation={result}
                 answers={answers}
                 submitting={submitting}
+                skipFollowUp={skipFollowUp}
+                onSkipFollowUp={() => setSkipFollowUp(true)}
                 onAnswer={(index, value) => setAnswers((prev) => ({ ...prev, [index]: value }))}
                 onSubmitAnswer={answerFollowUp}
                 onReset={reset}
+                isLeader={currentUser?.role === "leader"}
               />
             )}
           </main>
@@ -274,23 +307,29 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
 
 function MobileProgress({ state }: { state: AppState }) {
   const steps = [
-    ["capture", "Capture"],
-    ["structuring", "Structure"],
-    ["review", "Review"],
-    ["follow_up", "Follow-up"],
+    ["capture", "Record"],
+    ["structuring", "Process"],
+    ["done", "Done"],
   ] as const;
-  const activeIndex = Math.max(0, steps.findIndex(([key]) => key === state));
+
+  const activeIndex =
+    state === "done" ? 2 : state === "structuring" ? 1 : 0;
+
   return (
     <div className="mobile-progress">
-      {steps.map(([key, label], index) => (
-        <span
-          key={key}
-          className={`mobile-progress-step ${index <= activeIndex ? "mobile-progress-step-active" : ""}`}
-        >
-          {index < activeIndex ? <Check className="h-3 w-3" /> : `${index + 1} ·`}
-          {label}
-        </span>
-      ))}
+      {steps.map(([key, label], index) => {
+        const isCompleted = index < activeIndex;
+        const isActive = index === activeIndex;
+        return (
+          <span
+            key={key}
+            className={`mobile-progress-step ${isActive || isCompleted ? "mobile-progress-step-active" : ""}`}
+          >
+            {isCompleted ? <Check className="h-3 w-3 inline" /> : `${index + 1} ·`}
+            {label}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -298,8 +337,9 @@ function MobileProgress({ state }: { state: AppState }) {
 function CaptureScreen({
   transcript,
   hostName,
-  floorPlan,
-  prospectTag,
+  prospectFirstName,
+  prospectLastName,
+  prospectEmail,
   contextOpen,
   submitting,
   processingIndex,
@@ -310,15 +350,17 @@ function CaptureScreen({
   onText,
   onTranscript,
   onHostName,
-  onFloorPlan,
-  onProspectTag,
+  onProspectFirstName,
+  onProspectLastName,
+  onProspectEmail,
   onContextOpen,
   onSubmit,
 }: {
   transcript: string;
   hostName: string;
-  floorPlan: string;
-  prospectTag: string;
+  prospectFirstName: string;
+  prospectLastName: string;
+  prospectEmail: string;
   contextOpen: boolean;
   submitting: boolean;
   processingIndex: number;
@@ -329,20 +371,25 @@ function CaptureScreen({
   onText: (value: string) => void;
   onTranscript: (value: string) => void;
   onHostName: (value: string) => void;
-  onFloorPlan: (value: string) => void;
-  onProspectTag: (value: string) => void;
+  onProspectFirstName: (value: string) => void;
+  onProspectLastName: (value: string) => void;
+  onProspectEmail: (value: string) => void;
   onContextOpen: () => void;
   onSubmit: () => void;
 }) {
+  const prospectAssigned = Boolean(prospectFirstName.trim() || prospectLastName.trim() || prospectEmail.trim());
+
   return (
     <div className="space-y-4 pb-24">
+      {/* 1. Voice debrief stage */}
       <section className="mobile-card mobile-voice-card">
         <Recorder variant="card" serverAsr={serverAsr} onText={onText} />
       </section>
 
+      {/* 2. Transcript preview and notes */}
       <section className="mobile-card">
         <div className="flex items-center justify-between gap-3">
-          <label htmlFor="mobile-transcript" className="mobile-section-label">Transcript</label>
+          <label htmlFor="mobile-transcript" className="mobile-section-label">Debrief transcript</label>
           <span className="font-mono text-xs text-mobile-muted">{transcript.trim().length} chars</span>
         </div>
         <textarea
@@ -352,9 +399,9 @@ function CaptureScreen({
             onTranscript(event.target.value);
             if (error) onErrorClear?.();
           }}
-          placeholder="Toured a couple with a dog. They loved the pool but parking was a concern..."
+          placeholder="Toured a couple with a dog. They loved the pool, but parking was a concern..."
           className={`mobile-textarea mt-3 ${error ? "border-rose-500/60 ring-1 ring-rose-500/50" : ""}`}
-          rows={6}
+          rows={5}
         />
         {error && (
           <p className="mt-2 text-xs font-semibold text-rose-400 flex items-center gap-1.5 animate-in fade-in">
@@ -364,41 +411,59 @@ function CaptureScreen({
         )}
       </section>
 
+      {/* 3. Prospect CRM Context */}
       <section className="mobile-card">
         <button type="button" className="mobile-disclosure" onClick={onContextOpen}>
           <span>
-            <span className="mobile-section-label block">Context</span>
-            <span className="block text-xs text-mobile-muted">Host, unit, prospect tag</span>
+            <span className="mobile-section-label block flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5 text-[#36cdbd]" />
+              Prospect tracking (optional)
+            </span>
+            <span className="block text-xs text-mobile-muted">
+              {prospectAssigned
+                ? [prospectFirstName, prospectLastName, prospectEmail].filter(Boolean).join(" · ")
+                : "Add client name and email for CRM records"}
+            </span>
           </span>
           <ChevronDown className={`h-4 w-4 transition ${contextOpen ? "rotate-180" : ""}`} />
         </button>
         {contextOpen && (
           <div className="mt-4 space-y-3">
-            <MobileField label="Host" value={hostName} onChange={onHostName} placeholder="Maria" />
-            <MobileField label="Floor plan" value={floorPlan} onChange={onFloorPlan} placeholder="B2 - 2 bed" />
-            <MobileField label="Prospect tag" value={prospectTag} onChange={onProspectTag} placeholder="Couple + dog" />
+            <div className="grid grid-cols-2 gap-2">
+              <MobileField label="First name" value={prospectFirstName} onChange={onProspectFirstName} placeholder="e.g. Sarah" />
+              <MobileField label="Last name" value={prospectLastName} onChange={onProspectLastName} placeholder="e.g. Miller" />
+            </div>
+            <MobileField label="Email" value={prospectEmail} onChange={onProspectEmail} placeholder="client@example.com" />
+            <MobileField label="Host" value={hostName} onChange={onHostName} placeholder="Host name" />
           </div>
         )}
       </section>
 
+      {/* 4. Processing bar */}
       {submitting && (
-        <section className="mobile-card border-mobile-accent/40">
-          <p className="mobile-section-label">{PROCESSING_MESSAGES[processingIndex]}</p>
+        <section className="mobile-card border-mobile-accent/40 animate-in fade-in">
+          <p className="mobile-section-label text-[#36cdbd]">{PROCESSING_MESSAGES[processingIndex]}...</p>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
             <div className="h-full w-2/3 animate-pulse rounded-full bg-mobile-accent" />
           </div>
         </section>
       )}
 
+      {/* 5. Sticky submit bar */}
       <div className="mobile-bottom-bar">
         <div>
           <p className="text-xs font-semibold text-mobile-ink">
-            {canSubmit ? "Ready to structure" : "Add transcript to begin"}
+            {canSubmit ? "Ready to structure" : "Add debrief to begin"}
           </p>
-          <p className="text-[11px] text-mobile-muted">No forms required after capture.</p>
+          <p className="text-[11px] text-mobile-muted">Zero forms required after submit.</p>
         </div>
-        <button type="button" disabled={submitting} onClick={onSubmit} className="mobile-primary-button">
-          Structure debrief
+        <button
+          type="button"
+          disabled={submitting || !canSubmit}
+          onClick={onSubmit}
+          className="mobile-primary-button disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Submit debrief
           <ArrowRight className="h-4 w-4" />
         </button>
       </div>
@@ -410,110 +475,181 @@ function ReviewScreen({
   observation,
   answers,
   submitting,
+  skipFollowUp,
+  onSkipFollowUp,
   onAnswer,
   onSubmitAnswer,
   onReset,
+  isLeader,
 }: {
   observation: Observation;
   answers: Record<number, string>;
   submitting: boolean;
+  skipFollowUp: boolean;
+  onSkipFollowUp: () => void;
   onAnswer: (index: number, value: string) => void;
   onSubmitAnswer: (index: number) => void;
   onReset: () => void;
+  isLeader: boolean;
 }) {
   const e = observation.extraction;
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  const prospectDisplayName = [observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ");
+  const singleFollowUp = e.followUpQuestions[0];
+  const hasFollowUp = Boolean(singleFollowUp && !skipFollowUp);
+
   return (
-    <div className="space-y-4 pb-24">
-      <section className="mobile-card">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="mobile-chip">{e.prospectIntent} lead</span>
-          <span className="mobile-chip">{sentimentLabel(e.overallSentiment)}</span>
+    <div className="space-y-4 pb-24 animate-in fade-in duration-300">
+      {/* 1. Confirmed Success Hero */}
+      <section className="mobile-card bg-gradient-to-b from-[#123631] to-[#0d1a1d] border-[#36cdbd]/40 text-center py-5">
+        <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-[#36cdbd]/20 border border-[#36cdbd]/40 text-[#36cdbd] mb-3">
+          <CheckCircle2 className="h-7 w-7" />
         </div>
-        <h2 className="mt-4 text-xl font-black text-mobile-ink">Intelligence review</h2>
-        <p className="mt-3 text-sm leading-7 text-mobile-soft">{e.summary}</p>
-        <div className="mt-4">
-          <div className="mb-2 flex items-center justify-between text-xs font-bold text-mobile-muted">
-            <span>Coverage</span>
-            <span>{Math.round(e.coverageScore * 100)}% · {coverageLabel(e.coverageScore)}</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full rounded-full bg-mobile-accent" style={{ width: `${Math.round(e.coverageScore * 100)}%` }} />
-          </div>
+        <h2 className="text-xl font-black text-white tracking-tight">Tour debrief captured!</h2>
+        <p className="text-xs text-slate-300 mt-1">
+          {prospectDisplayName ? (
+            <>
+              Logged for <strong className="text-[#36cdbd]">{prospectDisplayName}</strong>
+              {observation.prospectEmail ? ` (${observation.prospectEmail})` : ""}
+            </>
+          ) : (
+            "Observation saved to Utah City intelligence corpus"
+          )}
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <span className="mobile-chip font-bold text-xs">{e.prospectIntent} lead</span>
+          <span className="mobile-chip text-xs">{sentimentLabel(e.overallSentiment)}</span>
+          <span className="mobile-chip text-xs text-slate-300">
+            {Math.round(e.coverageScore * 100)}% completeness
+          </span>
         </div>
       </section>
 
-      <MobileSignalSection title="Objections">
-        {e.objections.length === 0 ? (
-          <p className="text-sm text-mobile-muted">No explicit objection captured.</p>
-        ) : (
-          e.objections.map((item, index) => (
-            <div key={`${item.type}-${index}`} className="mobile-signal-row">
-              <span>{objectionLabel(item.type)}</span>
-              <span>{item.severity}</span>
+      {/* 2. One Optional Skippable LLM Follow-up Question */}
+      {hasFollowUp && (
+        <section className="mobile-card border-[#36cdbd]/30 bg-[#36cdbd]/[0.03] animate-in fade-in duration-200">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase font-bold tracking-wider text-[#43d9c7]">
+              Quick follow-up (optional)
+            </p>
+            <button
+              type="button"
+              onClick={onSkipFollowUp}
+              className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 font-medium transition-colors"
+            >
+              Skip
+              <SkipForward className="h-3 w-3" />
+            </button>
+          </div>
+          <div className="mt-2.5 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-sm font-semibold text-slate-200 leading-snug">{singleFollowUp}</p>
+            <textarea
+              value={answers[0] ?? ""}
+              onChange={(event) => onAnswer(0, event.target.value)}
+              className="mobile-textarea mt-2.5 min-h-[64px]"
+              placeholder="Type or speak a quick answer..."
+            />
+            <div className="mt-2.5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={onSkipFollowUp}
+                className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                disabled={submitting || !(answers[0] ?? "").trim()}
+                onClick={() => onSubmitAnswer(0)}
+                className="mobile-primary-button py-1.5 px-3 text-xs disabled:opacity-40"
+              >
+                Save answer
+              </button>
             </div>
-          ))
-        )}
-      </MobileSignalSection>
-
-      <MobileSignalSection title="Amenity reactions">
-        {e.amenities.length === 0 ? (
-          <p className="text-sm text-mobile-muted">No amenity signal captured.</p>
-        ) : (
-          e.amenities.map((item, index) => (
-            <div key={`${item.name}-${index}`} className="mobile-signal-row">
-              <span>{amenityLabel(item.name)}</span>
-              <span>{item.reaction}</span>
-            </div>
-          ))
-        )}
-      </MobileSignalSection>
-
-      {e.followUpQuestions.length > 0 && (
-        <section className="mobile-card border-mobile-warn/50">
-          <p className="mobile-section-label">Follow-up</p>
-          <div className="mt-3 space-y-3">
-            {e.followUpQuestions.map((question, index) => (
-              <div key={`${question}-${index}`} className="rounded-[16px] border border-white/10 bg-white/[0.035] p-3">
-                <p className="text-sm font-semibold leading-6 text-mobile-ink">{question}</p>
-                <textarea
-                  value={answers[index] ?? ""}
-                  onChange={(event) => onAnswer(index, event.target.value)}
-                  className="mobile-textarea mt-3 min-h-20"
-                  placeholder="Answer..."
-                />
-                <button
-                  type="button"
-                  disabled={submitting || !(answers[index] ?? "").trim()}
-                  onClick={() => onSubmitAnswer(index)}
-                  className="mobile-secondary-button mt-3 disabled:opacity-50"
-                >
-                  Apply answer
-                </button>
-              </div>
-            ))}
           </div>
         </section>
       )}
 
+      {/* 3. Summary Card */}
+      <section className="mobile-card">
+        <h3 className="mobile-section-label">Executive summary</h3>
+        <p className="mt-2 text-sm leading-relaxed text-mobile-soft">{e.summary}</p>
+      </section>
+
+      {/* 4. Collapsible Signal Drilldown */}
+      <section className="mobile-card">
+        <button
+          type="button"
+          className="mobile-disclosure"
+          onClick={() => setDetailsOpen((prev) => !prev)}
+        >
+          <span>
+            <span className="mobile-section-label block">Captured signals</span>
+            <span className="block text-xs text-mobile-muted">
+              {e.objections.length} objections · {e.amenities.length} amenities
+            </span>
+          </span>
+          <ChevronDown className={`h-4 w-4 transition ${detailsOpen ? "rotate-180" : ""}`} />
+        </button>
+
+        {detailsOpen && (
+          <div className="mt-4 space-y-4 pt-2 border-t border-white/10">
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Objections</p>
+              {e.objections.length === 0 ? (
+                <p className="text-xs text-mobile-muted">No blockers raised.</p>
+              ) : (
+                e.objections.map((item, index) => (
+                  <div key={`${item.type}-${index}`} className="mobile-signal-row">
+                    <span>{objectionLabel(item.type)}</span>
+                    <span className="text-xs text-slate-400">{item.severity}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Amenity reactions</p>
+              {e.amenities.length === 0 ? (
+                <p className="text-xs text-mobile-muted">No specific amenity reactions noted.</p>
+              ) : (
+                e.amenities.map((item, index) => (
+                  <div key={`${item.name}-${index}`} className="mobile-signal-row">
+                    <span>{amenityLabel(item.name)}</span>
+                    <span className="text-xs capitalize text-slate-400">{item.reaction}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* 5. Frictionless Bottom Bar: prominent "Log another tour" */}
       <div className="mobile-bottom-bar">
-        <button type="button" onClick={onReset} className="mobile-secondary-button">
+        <button
+          type="button"
+          onClick={onReset}
+          className="mobile-primary-button w-full justify-center text-sm py-3"
+        >
+          <Plus className="h-4 w-4" />
           Log another tour
         </button>
-        <Link href="/command" className="mobile-primary-button">
-          Open Command
-          <ArrowRight className="h-4 w-4" />
-        </Link>
+
+        {/* Desktop-only link to Command for leadership accounts */}
+        {isLeader && (
+          <Link
+            href="/command"
+            className="hidden md:inline-flex mobile-secondary-button text-xs shrink-0"
+          >
+            Open Command
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        )}
       </div>
     </div>
-  );
-}
-
-function MobileSignalSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mobile-card">
-      <h3 className="mobile-section-label">{title}</h3>
-      <div className="mt-3 space-y-2">{children}</div>
-    </section>
   );
 }
 
@@ -535,7 +671,7 @@ function MobileField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="mobile-input mt-2"
+        className="mobile-input mt-1.5"
       />
     </label>
   );

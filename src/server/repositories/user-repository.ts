@@ -17,7 +17,7 @@ export type StoredUser = {
 export type StoredInvitation = {
   id: string;
   email: string;
-  name: string;
+  name?: string;
   role: UserRole;
   title?: string;
   token: string;
@@ -37,13 +37,19 @@ const memoryUsers = new Map<string, StoredUser>();
 const memoryInvitations = new Map<string, StoredInvitation>();
 
 function getDb() {
-  const url =
+  const raw =
     process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_PRISMA_URL ||
     PG_URL;
+  if (!raw) return null;
+  const url = raw.replace(/^["']|["']$/g, "").trim().replace(/[?&]channel_binding=[^&]+/g, "");
   if (!url) return null;
-  return neon(url);
+  try {
+    return neon(url);
+  } catch {
+    return null;
+  }
 }
 
 let schemaInitialized: Promise<void> | null = null;
@@ -52,36 +58,37 @@ export async function ensureUserSchema(): Promise<void> {
   if (!sql) return;
   if (!schemaInitialized) {
     schemaInitialized = (async () => {
-      await sql`
-        CREATE TABLE IF NOT EXISTS users (
-          id            TEXT PRIMARY KEY,
-          email         TEXT UNIQUE NOT NULL,
-          name          TEXT NOT NULL,
-          role          TEXT NOT NULL,
-          title         TEXT,
-          password_hash TEXT NOT NULL,
-          password_salt TEXT NOT NULL,
-          created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `;
-      await sql`
-        CREATE TABLE IF NOT EXISTS invitations (
-          id            TEXT PRIMARY KEY,
-          email         TEXT UNIQUE NOT NULL,
-          name          TEXT NOT NULL,
-          role          TEXT NOT NULL,
-          title         TEXT,
-          token         TEXT UNIQUE NOT NULL,
-          expires_at    TIMESTAMPTZ NOT NULL,
-          claimed_at    TIMESTAMPTZ,
-          created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `;
-    })().catch((err) => {
-      schemaInitialized = null;
-      throw err;
-    });
+      try {
+        await sql`
+          CREATE TABLE IF NOT EXISTS users (
+            id            TEXT PRIMARY KEY,
+            email         TEXT UNIQUE NOT NULL,
+            name          TEXT NOT NULL,
+            role          TEXT NOT NULL,
+            title         TEXT,
+            password_hash TEXT NOT NULL,
+            password_salt TEXT NOT NULL,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `;
+        await sql`
+          CREATE TABLE IF NOT EXISTS invitations (
+            id            TEXT PRIMARY KEY,
+            email         TEXT UNIQUE NOT NULL,
+            name          TEXT,
+            role          TEXT NOT NULL,
+            title         TEXT,
+            token         TEXT UNIQUE NOT NULL,
+            expires_at    TIMESTAMPTZ NOT NULL,
+            claimed_at    TIMESTAMPTZ,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `;
+      } catch (err: any) {
+        console.warn("[user-repository] Could not initialize Postgres schema, using in-memory store:", err?.message);
+      }
+    })();
   }
   return schemaInitialized;
 }
@@ -200,7 +207,7 @@ export async function createOrUpdateInvitation(
   const newInvite: StoredInvitation = {
     id,
     email: normalizedEmail,
-    name: invite.name,
+    name: invite.name || "",
     role: invite.role,
     title: invite.title,
     token: invite.token,
@@ -219,27 +226,37 @@ export async function createOrUpdateInvitation(
     return newInvite;
   }
 
-  await ensureUserSchema();
-  await sql`
-    INSERT INTO invitations (id, email, name, role, title, token, expires_at, claimed_at, created_at)
-    VALUES (${id}, ${normalizedEmail}, ${newInvite.name}, ${newInvite.role}, ${newInvite.title ?? null}, ${newInvite.token}, ${newInvite.expiresAt}, NULL, ${createdAt})
-    ON CONFLICT (email) DO UPDATE SET
-      token = EXCLUDED.token,
-      name = EXCLUDED.name,
-      role = EXCLUDED.role,
-      title = EXCLUDED.title,
-      expires_at = EXCLUDED.expires_at,
-      claimed_at = COALESCE(invitations.claimed_at, EXCLUDED.claimed_at)
-  `;
+  try {
+    await ensureUserSchema();
+    await sql`
+      INSERT INTO invitations (id, email, name, role, title, token, expires_at, claimed_at, created_at)
+      VALUES (${id}, ${normalizedEmail}, ${newInvite.name || ""}, ${newInvite.role}, ${newInvite.title ?? null}, ${newInvite.token}, ${newInvite.expiresAt}, NULL, ${createdAt})
+      ON CONFLICT (email) DO UPDATE SET
+        token = EXCLUDED.token,
+        name = COALESCE(NULLIF(EXCLUDED.name, ''), invitations.name),
+        role = EXCLUDED.role,
+        title = EXCLUDED.title,
+        expires_at = EXCLUDED.expires_at,
+        claimed_at = COALESCE(invitations.claimed_at, EXCLUDED.claimed_at)
+    `;
 
-  const rows = (await sql`
-    SELECT id, email, name, role, title, token, expires_at as "expiresAt", claimed_at as "claimedAt", created_at as "createdAt"
-    FROM invitations
-    WHERE LOWER(email) = ${normalizedEmail}
-    LIMIT 1
-  `) as StoredInvitation[];
+    const rows = (await sql`
+      SELECT id, email, name, role, title, token, expires_at as "expiresAt", claimed_at as "claimedAt", created_at as "createdAt"
+      FROM invitations
+      WHERE LOWER(email) = ${normalizedEmail}
+      LIMIT 1
+    `) as StoredInvitation[];
 
-  return rows[0] ?? newInvite;
+    return rows[0] ?? newInvite;
+  } catch (err: any) {
+    console.warn("[user-repository] Database operation failed, saving to memory store:", err?.message);
+    const existing = memoryInvitations.get(id);
+    if (existing?.claimedAt) {
+      newInvite.claimedAt = existing.claimedAt;
+    }
+    memoryInvitations.set(id, newInvite);
+    return newInvite;
+  }
 }
 
 export async function claimInvitation(
@@ -256,7 +273,7 @@ export async function claimInvitation(
   }
 
   const userId = `usr_${invitation.role}_${invitation.email.split("@")[0]}`;
-  const finalName = name?.trim() || invitation.name;
+  const finalName = name?.trim() || invitation.name || invitation.email.split("@")[0];
 
   const newUser = await createUser({
     id: userId,
@@ -361,7 +378,7 @@ export async function listAllInvitationsWithStatus(): Promise<InvitationWithStat
       results.push({
         id: inv.id,
         email: inv.email,
-        name: inv.name,
+        name: inv.name || "",
         role: inv.role,
         title: inv.title,
         token: inv.token,
@@ -430,7 +447,7 @@ export async function listAllInvitationsWithStatus(): Promise<InvitationWithStat
     results.push({
       id: inv.id,
       email: inv.email,
-      name: existingUser?.name || inv.name,
+      name: existingUser?.name || inv.name || "",
       role: (existingUser?.role || inv.role) as UserRole,
       title: existingUser?.title || inv.title,
       token: inv.token,

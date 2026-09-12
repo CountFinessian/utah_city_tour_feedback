@@ -15,12 +15,12 @@ export function InviteManager() {
   const [invites, setInvites] = useState<InviteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
   const [role, setRole] = useState<"host" | "leader">("host");
   const [submitting, setSubmitting] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createdUrl, setCreatedUrl] = useState<string | null>(null);
+  const [emailNotice, setEmailNotice] = useState<string | null>(null);
 
   async function loadInvites() {
     try {
@@ -42,17 +42,18 @@ export function InviteManager() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim() || !name.trim()) return;
+    if (!email.trim()) return;
 
     setSubmitting(true);
     setError(null);
     setCreatedUrl(null);
+    setEmailNotice(null);
 
     try {
       const res = await fetch("/api/auth/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), name: name.trim(), role }),
+        body: JSON.stringify({ email: email.trim(), role }),
       });
 
       const data = await res.json();
@@ -63,8 +64,15 @@ export function InviteManager() {
       }
 
       setCreatedUrl(data.setupUrl);
+      if (data.emailSent) {
+        setEmailNotice(`Invitation email successfully sent to ${email.trim()}!`);
+      } else if (data.emailError) {
+        setEmailNotice(`Link created. (Email warning: ${data.emailError})`);
+      } else {
+        setEmailNotice(`Invitation created for ${email.trim()}.`);
+      }
+
       setEmail("");
-      setName("");
       await loadInvites();
     } catch {
       setError("Network error creating invitation");
@@ -85,7 +93,7 @@ export function InviteManager() {
       <form onSubmit={handleCreate} className="rounded-xl border border-command-border bg-white/[0.02] p-5 space-y-4">
         <div className="flex items-center gap-2">
           <UserPlus className="h-4 w-4 text-command-accent" />
-          <h3 className="text-sm font-bold text-command-ink">Invite New Team Member</h3>
+          <h3 className="text-sm font-bold text-command-ink">Onboard New Team Member</h3>
         </div>
 
         {error && (
@@ -98,11 +106,14 @@ export function InviteManager() {
         {createdUrl && (
           <div className="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/50 text-emerald-200 text-xs space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-emerald-300">Invitation Link Created!</span>
+              <span className="font-semibold text-emerald-300 flex items-center gap-1.5">
+                <Check className="h-4 w-4 text-emerald-400" />
+                {emailNotice || "Invitation Created!"}
+              </span>
               <button
                 type="button"
                 onClick={() => copyToClipboard(createdUrl)}
-                className="flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-emerald-800/50 hover:bg-emerald-700/50 text-emerald-100 transition-colors"
+                className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded bg-emerald-800/50 hover:bg-emerald-700/50 text-emerald-100 transition-colors"
               >
                 {copiedUrl === createdUrl ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                 <span>{copiedUrl === createdUrl ? "Copied!" : "Copy Link"}</span>
@@ -112,14 +123,14 @@ export function InviteManager() {
               {createdUrl}
             </p>
             <p className="text-[11px] text-emerald-300/80">
-              Send this link to the user on their phone or computer to let them create their password.
+              An email was automatically dispatched with this secure link. The user will set their name and password when activating.
             </p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label className="text-xs font-medium text-command-soft block mb-1">Email address</label>
+            <label className="text-xs font-medium text-command-soft block mb-1">User Email Address</label>
             <input
               type="email"
               required
@@ -131,19 +142,7 @@ export function InviteManager() {
           </div>
 
           <div>
-            <label className="text-xs font-medium text-command-soft block mb-1">Full Name</label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Sarah Jenkins"
-              className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-command-border text-xs text-command-ink placeholder:text-command-muted focus:outline-none focus:border-command-accent"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-command-soft block mb-1">Role / Workspace</label>
+            <label className="text-xs font-medium text-command-soft block mb-1">Authority Level</label>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as "host" | "leader")}
@@ -157,10 +156,11 @@ export function InviteManager() {
 
         <button
           type="submit"
-          disabled={submitting}
-          className="btn btn-primary px-4 py-2 text-xs font-semibold"
+          disabled={submitting || !email.trim()}
+          className="btn btn-primary px-4 py-2 text-xs font-semibold flex items-center gap-2"
         >
-          {submitting ? "Generating Link..." : "Generate & Copy Setup Link"}
+          <UserPlus className="h-3.5 w-3.5" />
+          <span>{submitting ? "Sending Invitation..." : "Send Secure Invitation Email"}</span>
         </button>
       </form>
 
@@ -178,8 +178,8 @@ export function InviteManager() {
               <div key={inv.email} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-command-ink">{inv.name}</span>
-                    <span className="text-xs text-command-muted">({inv.email})</span>
+                    <span className="text-xs font-bold text-command-ink">{inv.name || inv.email}</span>
+                    {inv.name && <span className="text-xs text-command-muted">({inv.email})</span>}
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                       inv.role === "host" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-sky-500/10 text-sky-400 border border-sky-500/20"
                     }`}>

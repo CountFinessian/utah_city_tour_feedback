@@ -8,15 +8,13 @@ describe("context-cache", () => {
     const mockObservations: Observation[] = [
       {
         id: "obs_1",
-        hostId: "u_1",
         hostName: "Aiden",
-        tourDate: "2026-09-01",
-        unitId: "unit_120",
-        floorPlan: "2-Bed Luxury",
-        prospectTag: "Young couple",
+        prospectFirstName: "Young",
+        prospectLastName: "Couple",
         transcript: "Loved the pool, worried about parking fee.",
         source: "live",
         createdAt: "2026-09-01T12:00:00Z",
+        engine: "heuristic",
         extraction: {
           summary: "Great tour overall",
           overallSentiment: 1,
@@ -39,10 +37,14 @@ describe("context-cache", () => {
       last7: 1,
       prev7: 0,
       avgSentiment: 1,
-      intentFunnel: { hot: 0, warm: 1, cold: 0 },
+      sentimentDist: { "-2": 0, "-1": 0, "0": 0, "1": 1, "2": 0 },
+      intentFunnel: { hot: 0, warm: 1, cold: 0, unknown: 0 },
       topObjections: [{ type: "parking", label: "Parking", count: 1, highSeverity: 1, example: "Fee high" }],
-      amenityRanking: [{ type: "pool", label: "Pool", mentions: 1, net: 1 }],
+      amenityRanking: [{ name: "pool", label: "Pool", mentions: 1, positive: 1, negative: 0, neutral: 0, net: 1 }],
       topQuestions: [{ question: "Is parking included?", count: 1 }],
+      excitementSamples: ["Pool"],
+      hesitationSamples: ["Parking cost"],
+      recent: [],
     };
 
     const corpus = formatCorpusForCache(mockObservations, mockDigest);
@@ -54,6 +56,6 @@ describe("context-cache", () => {
     const parsed = JSON.parse(corpus);
     expect(parsed.totalRecordedDebriefs).toBe(1);
     expect(parsed.residentDebriefTranscripts).toHaveLength(1);
-    expect(parsed.residentDebriefTranscripts[0].residentOrHost).toBe("Aiden");
+    expect(parsed.residentDebriefTranscripts[0].residentOrHost).toBe("Young Couple");
   });
 });

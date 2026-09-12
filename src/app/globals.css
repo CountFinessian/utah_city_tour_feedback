@@ -1497,19 +1497,37 @@ select {
     right: 1rem;
     bottom: 5rem;
     z-index: 8;
+    top: 1rem;
+    bottom: auto;
+    z-index: 30;
     border: 1px solid rgba(65, 215, 199, 0.42);
     border-radius: 18px;
     background: rgba(13, 139, 131, 0.92);
+    background: rgba(13, 139, 131, 0.95);
     padding: 0.72rem 0.9rem;
     color: #ecfffc;
     font-size: 0.82rem;
     font-weight: 800;
     backdrop-filter: blur(16px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+    animation: mobileToastIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes mobileToastIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .mobile-toast-error {
     border-color: rgba(226, 93, 93, 0.5);
     background: rgba(127, 29, 29, 0.92);
+    background: rgba(127, 29, 29, 0.95);
   }
 
   .mobile-chip {

@@ -20,16 +20,20 @@ function computeFingerprint(observations: Observation[]): string {
 }
 
 export function formatCorpusForCache(observations: Observation[], digest: Digest): string {
-  const residentRecords = observations.map((o) => ({
-    residentOrHost: o.hostName,
-    unitOrFloorPlan: o.floorPlan,
-    prospectTag: o.prospectTag,
-    summary: o.extraction.summary,
-    transcript: o.transcript,
-    objections: o.extraction.objections.map((obj) => `${obj.type}: ${obj.detail}`),
-    amenities: o.extraction.amenities.map((a) => `${a.name} (${a.reaction}): ${a.detail}`),
-    sentiment: o.extraction.overallSentiment,
-  }));
+  const residentRecords = observations.map((o) => {
+    const prospectName = [o.prospectFirstName, o.prospectLastName].filter(Boolean).join(" ");
+    return {
+      residentOrHost: prospectName || o.hostName || "Host",
+      host: o.hostName,
+      prospect: prospectName || undefined,
+      email: o.prospectEmail,
+      summary: o.extraction.summary,
+      transcript: o.transcript,
+      objections: o.extraction.objections.map((obj) => `${obj.type}: ${obj.detail}`),
+      amenities: o.extraction.amenities.map((a) => `${a.name} (${a.reaction}): ${a.detail}`),
+      sentiment: o.extraction.overallSentiment,
+    };
+  });
 
   const payload = {
     knowledgeBase: "Utah City 120 & 220 Bend Resident Debrief Corpus",

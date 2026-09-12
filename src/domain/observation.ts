@@ -190,6 +190,9 @@ export type Observation = {
   hostName?: string;
   floorPlan?: string;
   prospectTag?: string;
+  prospectFirstName?: string;
+  prospectLastName?: string;
+  prospectEmail?: string;
   transcript: string;
   engine: ObservationEngine;
   extraction: Extraction;

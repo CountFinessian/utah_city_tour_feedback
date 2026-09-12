@@ -29,6 +29,9 @@ export type RecentItem = {
   sentiment: number;
   hostName?: string;
   floorPlan?: string;
+  prospectFirstName?: string;
+  prospectLastName?: string;
+  prospectEmail?: string;
 };
 
 export type Digest = {
@@ -142,6 +145,9 @@ export function buildDigest(observations: Observation[]): Digest {
     sentiment: o.extraction.overallSentiment,
     hostName: o.hostName,
     floorPlan: o.floorPlan,
+    prospectFirstName: o.prospectFirstName,
+    prospectLastName: o.prospectLastName,
+    prospectEmail: o.prospectEmail,
   }));
 
   return {

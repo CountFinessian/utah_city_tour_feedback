@@ -77,6 +77,9 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
   const [hostName, setHostName] = useState("");
   const [floorPlan, setFloorPlan] = useState("");
   const [prospectTag, setProspectTag] = useState("");
+  const [prospectFirstName, setProspectFirstName] = useState("");
+  const [prospectLastName, setProspectLastName] = useState("");
+  const [prospectEmail, setProspectEmail] = useState("");
   const [transcript, setTranscript] = useState("");
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [skipped, setSkipped] = useState<Record<number, boolean>>({});
@@ -122,7 +125,14 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
       const res = await fetch("/api/observations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript: combinedTranscript, hostName, floorPlan, prospectTag, id }),
+        body: JSON.stringify({
+          transcript: combinedTranscript,
+          hostName,
+          prospectFirstName,
+          prospectLastName,
+          prospectEmail,
+          id,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -150,6 +160,9 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
     setError(null);
     setNotice(null);
     setProspectTag("");
+    setProspectFirstName("");
+    setProspectLastName("");
+    setProspectEmail("");
     setConfirmed(false);
   }
 
@@ -173,12 +186,18 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
             hostName={hostName}
             floorPlan={floorPlan}
             prospectTag={prospectTag}
+            prospectFirstName={prospectFirstName}
+            prospectLastName={prospectLastName}
+            prospectEmail={prospectEmail}
             transcript={transcript}
             submitting={submitting}
             canSubmit={canSubmit}
             onHostName={setHostName}
             onFloorPlan={setFloorPlan}
             onProspectTag={setProspectTag}
+            onProspectFirstName={setProspectFirstName}
+            onProspectLastName={setProspectLastName}
+            onProspectEmail={setProspectEmail}
             onTranscript={setTranscript}
             onText={appendText}
             onSubmit={() => submit(transcript.trim())}
@@ -258,12 +277,18 @@ function CaptureDraft({
   hostName,
   floorPlan,
   prospectTag,
+  prospectFirstName,
+  prospectLastName,
+  prospectEmail,
   transcript,
   submitting,
   canSubmit,
   onHostName,
   onFloorPlan,
   onProspectTag,
+  onProspectFirstName,
+  onProspectLastName,
+  onProspectEmail,
   onTranscript,
   onText,
   onSubmit,
@@ -272,12 +297,18 @@ function CaptureDraft({
   hostName: string;
   floorPlan: string;
   prospectTag: string;
+  prospectFirstName: string;
+  prospectLastName: string;
+  prospectEmail: string;
   transcript: string;
   submitting: boolean;
   canSubmit: boolean;
   onHostName: (value: string) => void;
   onFloorPlan: (value: string) => void;
   onProspectTag: (value: string) => void;
+  onProspectFirstName: (value: string) => void;
+  onProspectLastName: (value: string) => void;
+  onProspectEmail: (value: string) => void;
   onTranscript: (value: string) => void;
   onText: (value: string) => void;
   onSubmit: () => void;
@@ -323,13 +354,18 @@ function CaptureDraft({
             <p className="section-label">Context dock</p>
             <p className="mt-1 text-xs leading-relaxed text-muted">
               Optional, but strongly improves attribution and journey intelligence.
+              Optional prospect tracking fields for CRM attribution.
             </p>
           </div>
           <Field label="Host" value={hostName} onChange={onHostName} placeholder="Maria" />
           <Field label="Floor plan" value={floorPlan} onChange={onFloorPlan} placeholder="B2 - 2 bed" />
           <Field label="Prospect tag" value={prospectTag} onChange={onProspectTag} placeholder="Couple + dog" />
+          <Field label="Prospect first name" value={prospectFirstName} onChange={onProspectFirstName} placeholder="First name" />
+          <Field label="Prospect last name" value={prospectLastName} onChange={onProspectLastName} placeholder="Last name" />
+          <Field label="Prospect email" value={prospectEmail} onChange={onProspectEmail} placeholder="email@example.com" />
           <div className="rounded-[8px] border border-border bg-white/70 p-3 text-xs leading-relaxed text-muted">
             Records can still be structured without this context, but unattributed captures lower executive confidence.
+            Attributed debriefs enhance journey intelligence and CRM tracking.
           </div>
         </div>
       </div>

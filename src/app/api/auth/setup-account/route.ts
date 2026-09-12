@@ -48,10 +48,15 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { token, name, password } = body;
+    const { token, name, firstName, lastName, password } = body;
 
     if (!token || typeof token !== "string") {
       return NextResponse.json({ error: "Missing invitation token" }, { status: 400 });
+    }
+
+    const fullName = name?.trim() || [firstName, lastName].filter(Boolean).join(" ").trim();
+    if (!fullName) {
+      return NextResponse.json({ error: "Please provide your first and last name." }, { status: 400 });
     }
 
     if (!password || typeof password !== "string" || password.length < 6) {
@@ -61,7 +66,7 @@ export async function POST(req: Request) {
     const salt = generateSalt();
     const hash = await hashPassword(password, salt);
 
-    const newUser = await claimInvitation(token, hash, salt, name);
+    const newUser = await claimInvitation(token, hash, salt, fullName);
     const sessionToken = await signSessionToken(newUser);
     const redirectTo = newUser.role === "host" ? "/" : "/command";
 

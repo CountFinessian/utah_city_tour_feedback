@@ -28,9 +28,23 @@ function ensureSchema(): Promise<void> {
           transcript    text not null,
           engine        text not null,
           extraction    jsonb not null
+          id                  text primary key,
+          created_at          timestamptz not null default now(),
+          host_name           text,
+          prospect_first_name text,
+          prospect_last_name  text,
+          prospect_email      text,
+          transcript          text not null,
+          engine              text not null,
+          extraction          jsonb not null
         )
       `;
       await sql`alter table observations add column if not exists source text not null default 'live'`;
+      await sql`alter table observations add column if not exists prospect_first_name text`;
+      await sql`alter table observations add column if not exists prospect_last_name text`;
+      await sql`alter table observations add column if not exists prospect_email text`;
+      await sql`alter table observations drop column if exists floor_plan`;
+      await sql`alter table observations drop column if exists prospect_tag`;
       await sql`create index if not exists observations_created_at_idx on observations (created_at desc)`;
     })().catch((err) => {
       schemaReady = null;
@@ -47,6 +61,9 @@ type Row = {
   host_name: string | null;
   floor_plan: string | null;
   prospect_tag: string | null;
+  prospect_first_name: string | null;
+  prospect_last_name: string | null;
+  prospect_email: string | null;
   transcript: string;
   engine: string;
   extraction: Extraction;
@@ -62,6 +79,9 @@ function toObservation(r: Row): Observation {
     hostName: r.host_name ?? undefined,
     floorPlan: r.floor_plan ?? undefined,
     prospectTag: r.prospect_tag ?? undefined,
+    prospectFirstName: r.prospect_first_name ?? undefined,
+    prospectLastName: r.prospect_last_name ?? undefined,
+    prospectEmail: r.prospect_email ?? undefined,
     transcript: sanitizeTranscript(r.transcript),
     engine: r.engine === "llm" ? "llm" : "heuristic",
     extraction: r.extraction,
@@ -87,9 +107,12 @@ export const postgresObservationRepository: ObservationRepository = {
     await sql`
       insert into observations
         (id, created_at, source, host_name, floor_plan, prospect_tag, transcript, engine, extraction)
+        (id, created_at, source, host_name, prospect_first_name, prospect_last_name, prospect_email, transcript, engine, extraction)
       values
         (${obs.id}, ${obs.createdAt}, ${obs.source}, ${obs.hostName ?? null}, ${obs.floorPlan ?? null},
          ${obs.prospectTag ?? null}, ${obs.transcript}, ${obs.engine}, ${JSON.stringify(obs.extraction)}::jsonb)
+        (${obs.id}, ${obs.createdAt}, ${obs.source}, ${obs.hostName ?? null}, ${obs.prospectFirstName ?? null},
+         ${obs.prospectLastName ?? null}, ${obs.prospectEmail ?? null}, ${obs.transcript}, ${obs.engine}, ${JSON.stringify(obs.extraction)}::jsonb)
       on conflict (id) do update set
         source       = excluded.source,
         host_name    = excluded.host_name,
@@ -98,6 +121,14 @@ export const postgresObservationRepository: ObservationRepository = {
         transcript   = excluded.transcript,
         engine       = excluded.engine,
         extraction   = excluded.extraction
+        source              = excluded.source,
+        host_name           = excluded.host_name,
+        prospect_first_name = excluded.prospect_first_name,
+        prospect_last_name  = excluded.prospect_last_name,
+        prospect_email      = excluded.prospect_email,
+        transcript          = excluded.transcript,
+        engine              = excluded.engine,
+        extraction          = excluded.extraction
     `;
     return obs;
   },

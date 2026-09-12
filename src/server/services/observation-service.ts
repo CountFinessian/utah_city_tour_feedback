@@ -11,6 +11,9 @@ export type CreateObservationInput = {
   hostName?: string;
   floorPlan?: string;
   prospectTag?: string;
+  prospectFirstName?: string;
+  prospectLastName?: string;
+  prospectEmail?: string;
   id?: string;
 };
 
@@ -37,6 +40,9 @@ export async function createOrRefineObservation(input: CreateObservationInput): 
     hostName: cleanOptional(input.hostName),
     floorPlan: cleanOptional(input.floorPlan),
     prospectTag: cleanOptional(input.prospectTag),
+    prospectFirstName: cleanOptional(input.prospectFirstName),
+    prospectLastName: cleanOptional(input.prospectLastName),
+    prospectEmail: cleanOptional(input.prospectEmail),
   };
 
   const existing = input.id

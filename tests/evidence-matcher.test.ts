@@ -146,26 +146,25 @@ describe("evidence-matcher utility", () => {
   });
 
   describe("formatObservationMeta", () => {
-    it("extracts resident name from prospectTag over hostName", () => {
+    it("extracts prospect name over hostName", () => {
       const obs = {
         id: "obs_1",
         hostName: "Aiden",
-        prospectTag: "Seth Robertson (robertsonseth2001@gmail.com)",
-        floorPlan: "2 Bed",
+        prospectFirstName: "Seth",
+        prospectLastName: "Robertson",
+        prospectEmail: "robertsonseth2001@gmail.com",
         source: "live",
       } as Observation;
-      expect(formatObservationMeta(obs)).toBe("Seth Robertson · 2 Bed · live");
+      expect(formatObservationMeta(obs)).toBe("Seth Robertson · live");
     });
 
-    it("falls back to hostName when prospectTag is empty", () => {
+    it("falls back to hostName when prospect name is empty", () => {
       const obs = {
         id: "obs_2",
         hostName: "Devon",
-        prospectTag: "",
-        floorPlan: "Studio",
         source: "demo",
       } as Observation;
-      expect(formatObservationMeta(obs)).toBe("Devon · Studio · demo");
+      expect(formatObservationMeta(obs)).toBe("Devon · demo");
     });
   });
 });

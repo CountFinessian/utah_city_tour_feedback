@@ -8,4 +8,6 @@ This version has breaking changes — APIs, conventions, and file structure may 
 # Deployment & Environment Rules
 - **Do not deploy or push to remote/production (`git push`) unless the user explicitly asks for it.**
 - Always keep changes strictly local so the user can test in their local dev environment first.
+- This app is lgihtweight,
+barebones and is capable of data aggreagation and geenrating meaningful insgihts. It is not everything, it is for solving one unique business problem.
 <!-- END:user-custom-rules -->

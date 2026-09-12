@@ -202,11 +202,12 @@ export function extractCleanExcerpt(transcript: string, terms: string[]): string
 /**
  * Formats a clean attribution label for an observation.
  * Uses the resident name from prospectTag if available, else hostName.
+ * Uses the prospect name if available, else hostName.
  */
 export function formatObservationMeta(obs: Observation): string {
-  const cleanResident = (obs.prospectTag || "").replace(/\s*\([^)]*\)/, "").trim();
-  const primaryName = cleanResident || obs.hostName || "Host";
-  return [primaryName, obs.floorPlan, obs.source].filter(Boolean).join(" · ");
+  const prospectName = [obs.prospectFirstName, obs.prospectLastName].filter(Boolean).join(" ");
+  const primaryName = prospectName || obs.hostName || "Host";
+  return [primaryName, obs.source].filter(Boolean).join(" · ");
 }
 
 /**
@@ -214,9 +215,10 @@ export function formatObservationMeta(obs: Observation): string {
  * and sentence-level verbatim quote as excerpt.
  */
 export function buildEvidenceItem(obs: Observation, terms: string[]): EvidenceItem {
+  const prospectName = [obs.prospectFirstName, obs.prospectLastName].filter(Boolean).join(" ");
   return {
     id: obs.id,
-    label: obs.extraction.summary || obs.prospectTag || "Observation",
+    label: obs.extraction.summary || prospectName || "Observation",
     excerpt: extractCleanExcerpt(obs.transcript, terms),
     meta: formatObservationMeta(obs),
   };

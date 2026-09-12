@@ -17,6 +17,9 @@ const ROWS: SeedRow[] = [
     hostName: "Maria",
     floorPlan: "B2 — 2 bed",
     prospectTag: "Couple + dog",
+    prospectFirstName: "Alex",
+    prospectLastName: "Taylor",
+    prospectEmail: "alex.t@example.com",
     engine: "heuristic",
     transcript:
       "Just wrapped a tour with a young couple and their golden retriever. They absolutely loved the dog park and the pool area — kept saying how nice it would be in the summer. Big hesitation was parking: they have two cars and were not happy that the second spot is an extra monthly fee. They asked when the corner units would be available. Felt hot — they want to apply if we can work something out on parking.",
@@ -43,6 +46,9 @@ const ROWS: SeedRow[] = [
     hostName: "Devon",
     floorPlan: "S1 — studio",
     prospectTag: "Remote worker",
+    prospectFirstName: "Marcus",
+    prospectLastName: "Vance",
+    prospectEmail: "marcus.v@example.com",
     engine: "heuristic",
     transcript:
       "Toured a solo software engineer who works fully remote. The coworking space sold him — he said he'd basically live there during the day. The only sticking point was price; the studio felt a little high for the square footage in his words. He asked about the internet speed and whether the coworking space gets crowded.",
@@ -66,6 +72,9 @@ const ROWS: SeedRow[] = [
     hostName: "Maria",
     floorPlan: "C1 — 3 bed",
     prospectTag: "Family, 2 kids",
+    prospectFirstName: "Sarah",
+    prospectLastName: "Jenkins",
+    prospectEmail: "sjenkins@example.com",
     engine: "heuristic",
     transcript:
       "Family with two young kids. Mom loved the idea of a playground but was disappointed we don't have one on site yet. The three-bedroom layout felt a little cramped to them, especially the kitchen and storage. They liked that it's a safe, gated community. Sentiment was mixed — interested but not convinced on space.",
@@ -95,6 +104,9 @@ const ROWS: SeedRow[] = [
     hostName: "Priya",
     floorPlan: "A1 — 1 bed",
     prospectTag: "Young professional",
+    prospectFirstName: "Jessica",
+    prospectLastName: "Alba",
+    prospectEmail: "jalba@example.com",
     engine: "heuristic",
     transcript:
       "Showed a one-bed to a young professional who was really into fitness. The gym impressed her — she liked the Peloton bikes and the weights. Rooftop deck was a hit too. Parking came up again as a concern; she wasn't sure where guests would park. Overall warm, said she's comparing us to one other place.",
@@ -121,6 +133,9 @@ const ROWS: SeedRow[] = [
     hostName: "Devon",
     floorPlan: "B1 — 2 bed",
     prospectTag: "Retiree couple",
+    prospectFirstName: "Robert",
+    prospectLastName: "Miller",
+    prospectEmail: "rmiller@example.com",
     engine: "heuristic",
     transcript:
       "Retired couple downsizing. They were worried about noise from the nearby road and asked a lot about how soon a quiet, top-floor unit would open up — nothing available on their timeline. Pleasant tour but they left hesitant. I'd call them cold for now given the availability gap.",
@@ -147,6 +162,9 @@ const ROWS: SeedRow[] = [
     hostName: "Priya",
     floorPlan: "B2 — 2 bed",
     prospectTag: "Roommates",
+    prospectFirstName: "Emma",
+    prospectLastName: "Watson",
+    prospectEmail: "emma.w@example.com",
     engine: "heuristic",
     transcript:
       "Two roommates, mid-20s. They loved that there are restaurants and a coffee shop right downstairs — the retail really resonated. They asked whether we offer anything shorter than a 12-month lease since one of them might relocate for work. Warm overall, the lease term flexibility is the deciding factor.",
@@ -170,6 +188,9 @@ const ROWS: SeedRow[] = [
     hostName: "Maria",
     floorPlan: "A2 — 1 bed",
     prospectTag: "Dog owner",
+    prospectFirstName: "David",
+    prospectLastName: "Kim",
+    prospectEmail: "dkim@example.com",
     engine: "heuristic",
     transcript:
       "Prospect with a 70-pound shepherd mix. He loved the walking trails nearby, but the pet policy was a real problem — our weight limit and breed restriction would exclude his dog. That's basically a deal breaker for him. Cold unless we can make an exception.",
@@ -193,6 +214,9 @@ const ROWS: SeedRow[] = [
     hostName: "Devon",
     floorPlan: "A1 — 1 bed",
     prospectTag: "Commuter",
+    prospectFirstName: "Brian",
+    prospectLastName: "Cox",
+    prospectEmail: "bcox@example.com",
     engine: "heuristic",
     transcript:
       "Toured a guy who commutes downtown daily. He kept circling back to how long the drive to his office would be, and also thought the rent was a stretch for his budget. Hard to read his intent — polite but noncommittal. Didn't react much to the amenities.",
@@ -219,6 +243,9 @@ const ROWS: SeedRow[] = [
     hostName: "Priya",
     floorPlan: "B1 — 2 bed",
     prospectTag: "Couple, ready",
+    prospectFirstName: "Chloe",
+    prospectLastName: "Bennett",
+    prospectEmail: "cbennett@example.com",
     engine: "heuristic",
     transcript:
       "Engaged couple, super excited — they want to apply this week. The pool and the clubhouse really did it for them; they could picture hosting friends there. Only minor thing was a question about the admin and amenity fees on top of rent. Definitely hot.",
@@ -245,6 +272,9 @@ const ROWS: SeedRow[] = [
     hostName: "Maria",
     floorPlan: "S1 — studio",
     prospectTag: "Single, active",
+    prospectFirstName: "Rachel",
+    prospectLastName: "Adams",
+    prospectEmail: "radams@example.com",
     engine: "heuristic",
     transcript:
       "Single nurse who works long shifts. The fitness center was the highlight — she said she'd use it before and after work. She did bring up parking again, wondering if she'd get a reserved spot close to the entrance given her late hours. Warm, leaning yes.",

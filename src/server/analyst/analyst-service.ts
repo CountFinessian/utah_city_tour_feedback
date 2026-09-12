@@ -101,8 +101,11 @@ function evidenceFor(observations: Observation[], terms: string[]): EvidenceItem
 
   return observations
     .filter((observation) => {
+      const prospectName = [observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ");
       const haystack = [
         observation.prospectTag,
+        prospectName,
+        observation.prospectEmail,
         observation.hostName,
         observation.transcript,
         observation.extraction.summary,
@@ -134,7 +137,7 @@ function reconcileEvidenceWithAnswer(
   for (const obs of observations) {
     if (evidenceMap.has(obs.id)) continue;
 
-    const cleanName = (obs.prospectTag || "").replace(/\s*\([^)]*\)/, "").trim();
+    const cleanName = [obs.prospectFirstName, obs.prospectLastName].filter(Boolean).join(" ").trim();
     const nameMatch = cleanName.length >= 3 && answerLower.includes(cleanName.toLowerCase());
 
     const transcriptLower = obs.transcript.toLowerCase();
@@ -272,18 +275,21 @@ export async function answerWithOneShotRAG(
   const contextCacheName = await getOrSetContextCache(observations, digest);
 
   // Pass rich observation context so Gemini can cite real resident names and debriefs
-  const observationsContext = observations.map((o) => ({
-    id: o.id,
-    resident: (o.prospectTag || "").replace(/\s*\([^)]*\)/, "").trim() || o.hostName,
-    name: o.hostName,
-    unitOrFloorPlan: o.floorPlan,
-    prospectTag: o.prospectTag,
-    summary: o.extraction.summary,
-    transcript: o.transcript,
-    objections: o.extraction.objections.map((obj) => `${obj.type}: ${obj.detail}`),
-    amenities: o.extraction.amenities.map((a) => `${a.name} (${a.reaction}): ${a.detail}`),
-    sentiment: o.extraction.overallSentiment,
-  }));
+  const observationsContext = observations.map((o) => {
+    const prospectName = [o.prospectFirstName, o.prospectLastName].filter(Boolean).join(" ");
+    return {
+      id: o.id,
+      resident: prospectName || o.hostName,
+      name: o.hostName,
+      prospectName: prospectName || undefined,
+      prospectEmail: o.prospectEmail,
+      summary: o.extraction.summary,
+      transcript: o.transcript,
+      objections: o.extraction.objections.map((obj) => `${obj.type}: ${obj.detail}`),
+      amenities: o.extraction.amenities.map((a) => `${a.name} (${a.reaction}): ${a.detail}`),
+      sentiment: o.extraction.overallSentiment,
+    };
+  });
 
   const payload = {
     userQuestion: question,

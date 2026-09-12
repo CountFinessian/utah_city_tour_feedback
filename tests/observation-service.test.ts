@@ -42,4 +42,18 @@ describe("observation service", () => {
     expect(refined.createdAt).toBe(original.createdAt);
     expect(refined.extraction.prospectIntent).toBe("hot");
   });
+
+  it("persists and trims optional prospect CRM fields", async () => {
+    const obs = await createOrRefineObservation({
+      transcript: "Prospect loved the walking trails.",
+      hostName: "Aiden",
+      prospectFirstName: " John ",
+      prospectLastName: " Doe ",
+      prospectEmail: " john.doe@example.com ",
+    });
+
+    expect(obs.prospectFirstName).toBe("John");
+    expect(obs.prospectLastName).toBe("Doe");
+    expect(obs.prospectEmail).toBe("john.doe@example.com");
+  });
 });

@@ -15,6 +15,9 @@ export type ExtractContext = {
   hostName?: string;
   floorPlan?: string;
   prospectTag?: string;
+  prospectFirstName?: string;
+  prospectLastName?: string;
+  prospectEmail?: string;
 };
 
 const SYSTEM_PROMPT = `You are the operating-state extraction engine for Utah City, a large residential community.
@@ -27,16 +30,19 @@ Hard rules:
 - Map objections to this controlled vocabulary: ${OBJECTION_TYPES.join(", ")}. Use "other" only when nothing fits.
 - Prefer amenity names from this catalog (lowercase snake_case) when they match: ${AMENITY_CATALOG.join(", ")}.
   Emergent amenities not in the catalog are allowed as short snake_case names.
+- Extract any amenities, community spaces, or features the prospect reacted to (positively, negatively, or neutrally) in lowercase snake_case (e.g. pool, fitness_center, dog_park, rooftop_deck, e_bikes, pickleball, etc.). Do not limit to a static list; capture any emergent community feature mentioned.
 - overallSentiment is the PROSPECT's sentiment, not the host's.
 - followUpQuestions are coverage gaps: the most useful 1-4 things the host could still tell us
   (e.g. budget, move-in timing, who they're moving with, decision timeline) when those are missing.
 - coverageScore reflects how complete the debrief is (0 = almost nothing, 1 = rich and decision-ready).`;
 
 function buildPrompt(transcript: string, ctx: ExtractContext): string {
+  const prospectName = [ctx.prospectFirstName, ctx.prospectLastName].filter(Boolean).join(" ");
   const meta = [
     ctx.hostName ? `Host: ${ctx.hostName}` : null,
     ctx.floorPlan ? `Floor plan shown: ${ctx.floorPlan}` : null,
     ctx.prospectTag ? `Prospect tag: ${ctx.prospectTag}` : null,
+    prospectName ? `Prospect: ${prospectName}${ctx.prospectEmail ? ` (${ctx.prospectEmail})` : ""}` : null,
   ]
     .filter(Boolean)
     .join("\n");

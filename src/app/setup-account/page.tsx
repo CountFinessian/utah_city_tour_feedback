@@ -20,7 +20,8 @@ function SetupAccountForm() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [invite, setInvite] = useState<InviteDetails | null>(null);
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +40,11 @@ function SetupAccountForm() {
           setError(data.error || "Invalid invitation link.");
         } else {
           setInvite(data);
-          setName(data.name || "");
+          if (data.name) {
+            const parts = data.name.trim().split(" ");
+            setFirstName(parts[0] || "");
+            setLastName(parts.slice(1).join(" ") || "");
+          }
         }
       })
       .catch(() => {
@@ -54,6 +59,11 @@ function SetupAccountForm() {
     e.preventDefault();
     if (!token) return;
 
+    if (!firstName.trim() || !lastName.trim()) {
+      setError("Please enter both your first and last name.");
+      return;
+    }
+
     if (password.length < 6) {
       setError("Password must be at least 6 characters long.");
       return;
@@ -67,13 +77,17 @@ function SetupAccountForm() {
     setSubmitting(true);
     setError(null);
 
+    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+
     try {
       const res = await fetch("/api/auth/setup-account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           token,
-          name,
+          name: fullName,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           password,
         }),
       });
@@ -167,20 +181,37 @@ function SetupAccountForm() {
 
         {/* Password Setup Form */}
         <form onSubmit={handleSubmit} suppressHydrationWarning className="p-6 rounded-2xl bg-[#101827] border border-[#26354c] space-y-4 shadow-xl">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#b8c5d6]">Your Full Name</label>
-            <input
-              type="text"
-              name="name"
-              id="name"
-              autoComplete="name"
-              suppressHydrationWarning
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-[#131e30] border border-[#26354c] text-sm text-[#f0f6ff] placeholder-[#65758b] focus:outline-none focus:border-[#43d9c7] focus:ring-1 focus:ring-[#43d9c7] transition-colors"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-[#b8c5d6]">First Name</label>
+              <input
+                type="text"
+                name="firstName"
+                id="firstName"
+                autoComplete="given-name"
+                suppressHydrationWarning
+                required
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Sarah"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#131e30] border border-[#26354c] text-sm text-[#f0f6ff] placeholder-[#65758b] focus:outline-none focus:border-[#43d9c7] focus:ring-1 focus:ring-[#43d9c7] transition-colors"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-[#b8c5d6]">Last Name</label>
+              <input
+                type="text"
+                name="lastName"
+                id="lastName"
+                autoComplete="family-name"
+                suppressHydrationWarning
+                required
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Miller"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#131e30] border border-[#26354c] text-sm text-[#f0f6ff] placeholder-[#65758b] focus:outline-none focus:border-[#43d9c7] focus:ring-1 focus:ring-[#43d9c7] transition-colors"
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">
