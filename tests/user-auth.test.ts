@@ -70,4 +70,85 @@ describe("Real Database & Invitation Authentication", () => {
     expect(testHost).toBeDefined();
     expect(testHost?.claimed).toBe(true);
   });
+
+  it("verifies self-contained signed invitation tokens across isolated instances", async () => {
+    const { signInvitationToken, verifyInvitationToken } = await import("../src/server/auth/session");
+    const signedToken = await signInvitationToken({
+      email: "stateless.tourguide@utahcity.com",
+      role: "host",
+      name: "Stateless Guide",
+    });
+
+    expect(typeof signedToken).toBe("string");
+    expect(signedToken.startsWith("inv_")).toBe(true);
+
+    const verified = await verifyInvitationToken(signedToken);
+    expect(verified).not.toBeNull();
+    expect(verified?.email).toBe("stateless.tourguide@utahcity.com");
+    expect(verified?.role).toBe("host");
+
+    // findInvitationByToken should reconstruct from cryptographic signature even if not in memory
+    const found = await findInvitationByToken(signedToken);
+    expect(found).not.toBeNull();
+    expect(found?.email).toBe("stateless.tourguide@utahcity.com");
+    expect(found?.role).toBe("host");
+    expect(found?.claimedAt).toBeNull();
+  });
+
+  it("handles full setup-account API lifecycle and blocks re-inviting once activated", async () => {
+    const { signInvitationToken } = await import("../src/server/auth/session");
+    const { GET: setupGET, POST: setupPOST } = await import("../src/app/api/auth/setup-account/route");
+    const { POST: invitePOST } = await import("../src/app/api/auth/invite/route");
+
+    const token = await signInvitationToken({
+      email: "newrecruit@utahcity.com",
+      role: "host",
+      name: "New Recruit",
+    });
+
+    // 1. GET /api/auth/setup-account verifies valid fresh token
+    const getReq = new Request(`https://demo.utahcity.com/api/auth/setup-account?token=${token}`);
+    const getRes = await setupGET(getReq);
+    expect(getRes.status).toBe(200);
+    const getJson = await getRes.json();
+    expect(getJson.email).toBe("newrecruit@utahcity.com");
+    expect(getJson.role).toBe("host");
+
+    // 2. POST /api/auth/setup-account creates credentials
+    const postReq = new Request("https://demo.utahcity.com/api/auth/setup-account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token,
+        firstName: "New",
+        lastName: "Recruit",
+        password: "securePassword2026!",
+      }),
+    });
+    const postRes = await setupPOST(postReq);
+    expect(postRes.status).toBe(200);
+    const postJson = await postRes.json();
+    expect(postJson.success).toBe(true);
+    expect(postJson.user.email).toBe("newrecruit@utahcity.com");
+
+    // 3. Visiting setup-account again with same token returns 400 (already used)
+    const reuseGetRes = await setupGET(getReq);
+    expect(reuseGetRes.status).toBe(400);
+    const reuseJson = await reuseGetRes.json();
+    expect(reuseJson.error).toContain("already been used");
+
+    // 4. Attempting to send another invitation to this active member returns 400
+    const reInviteReq = new Request("https://demo.utahcity.com/api/auth/invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "newrecruit@utahcity.com",
+        role: "host",
+      }),
+    });
+    const reInviteRes = await invitePOST(reInviteReq);
+    expect(reInviteRes.status).toBe(400);
+    const reInviteJson = await reInviteRes.json();
+    expect(reInviteJson.error).toContain("already exists");
+  });
 });

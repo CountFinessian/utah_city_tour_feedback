@@ -145,7 +145,7 @@ export function InviteManager() {
             </p>
             <p className="text-[11px] text-emerald-300/80">
               {emailSent
-                ? "An activation email was automatically dispatched. The recipient will set their name and password upon first login."
+                ? "An activation email was automatically dispatched to the recipient with this secure link."
                 : emailError
                 ? `Email dispatch note: ${emailError}. You can copy and share the link above manually.`
                 : "Share this secure link with the user to activate their account."}
@@ -162,8 +162,18 @@ export function InviteManager() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="colleague@utahcity.com"
-              className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-command-border text-xs text-command-ink placeholder:text-command-muted focus:outline-none focus:border-command-accent"
+              className={`w-full px-3 py-2 rounded-lg bg-white/[0.04] border text-xs text-command-ink placeholder:text-command-muted focus:outline-none transition-colors ${
+                invites.some((inv) => inv.email.toLowerCase() === email.trim().toLowerCase() && inv.claimed)
+                  ? "border-amber-500/60 focus:border-amber-400"
+                  : "border-command-border focus:border-command-accent"
+              }`}
             />
+            {invites.some((inv) => inv.email.toLowerCase() === email.trim().toLowerCase() && inv.claimed) && (
+              <p className="text-[11px] text-amber-400 mt-1 flex items-center gap-1">
+                <span>⚠️</span>
+                <span>An active account already exists for this email. They can sign in directly.</span>
+              </p>
+            )}
           </div>
 
           <div>
@@ -181,7 +191,11 @@ export function InviteManager() {
 
         <button
           type="submit"
-          disabled={submitting || !email.trim()}
+          disabled={
+            submitting ||
+            !email.trim() ||
+            invites.some((inv) => inv.email.toLowerCase() === email.trim().toLowerCase() && inv.claimed)
+          }
           className="btn btn-primary px-4 py-2 text-xs font-semibold flex items-center gap-2"
         >
           <UserPlus className="h-3.5 w-3.5" />

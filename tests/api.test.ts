@@ -111,4 +111,30 @@ describe("API routes", () => {
     const listJson = await listRes.json();
     expect(listJson.invitations.some((i: any) => i.email === "newmember@utahcity.com")).toBe(true);
   });
+
+  it("POST /api/auth/invite rejects inviting an existing registered account", async () => {
+    const { POST: invitePOST } = await import("@/app/api/auth/invite/route");
+    const { createUser } = await import("@/server/repositories/user-repository");
+
+    // Ensure a user exists
+    await createUser({
+      id: "usr_leader_existing",
+      email: "existing.member@utahcity.com",
+      name: "Existing Member",
+      role: "leader",
+      passwordHash: "dummyhash",
+      passwordSalt: "dummysalt",
+    });
+
+    // Attempting to send an invite to this email must be rejected
+    const req = jsonReq("https://demo.utahcity.com/api/auth/invite", {
+      email: "existing.member@utahcity.com",
+      role: "leader",
+    });
+    const res = await invitePOST(req);
+    expect(res.status).toBe(400);
+
+    const json = await res.json();
+    expect(json.error).toContain("already exists");
+  });
 });

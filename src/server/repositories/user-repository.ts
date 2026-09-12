@@ -1,5 +1,9 @@
 import { neon } from "@neondatabase/serverless";
 import { generateSecureToken } from "@/server/auth/crypto";
+import { verifyInvitationToken, type InvitationTokenPayload } from "@/server/auth/session";
+import { promises as fs } from "fs";
+import os from "os";
+import path from "path";
 
 export type UserRole = "host" | "leader";
 
@@ -39,9 +43,63 @@ export type InvitationWithStatus = {
   createdAt: string;
 };
 
-// Fallback in-memory stores for testing / offline / invalid-credential environments
+// Persistent file storage directory (matches file-observation-repository)
+const DATA_DIR = process.env.DATA_DIR
+  ? process.env.DATA_DIR
+  : process.env.VERCEL
+    ? path.join(os.tmpdir(), "utahcity-data")
+    : path.join(process.cwd(), ".data");
+
+const USERS_FILE = path.join(DATA_DIR, "users.json");
+const INVITES_FILE = path.join(DATA_DIR, "invitations.json");
+
+// In-memory stores
 const memoryUsers = new Map<string, StoredUser>();
 const memoryInvitations = new Map<string, StoredInvitation>();
+
+let filesLoaded = false;
+
+async function ensureDataDir(): Promise<void> {
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+  } catch {}
+}
+
+async function persistUsersToFile(): Promise<void> {
+  try {
+    await ensureDataDir();
+    const list = Array.from(memoryUsers.values());
+    await fs.writeFile(USERS_FILE, JSON.stringify(list, null, 2), "utf8");
+  } catch {}
+}
+
+async function persistInvitesToFile(): Promise<void> {
+  try {
+    await ensureDataDir();
+    const list = Array.from(memoryInvitations.values());
+    await fs.writeFile(INVITES_FILE, JSON.stringify(list, null, 2), "utf8");
+  } catch {}
+}
+
+async function loadFromFile(): Promise<void> {
+  if (filesLoaded) return;
+  filesLoaded = true;
+  try {
+    const uRaw = await fs.readFile(USERS_FILE, "utf8");
+    const uList = JSON.parse(uRaw) as StoredUser[];
+    for (const u of uList) {
+      memoryUsers.set(u.id, u);
+    }
+  } catch {}
+
+  try {
+    const iRaw = await fs.readFile(INVITES_FILE, "utf8");
+    const iList = JSON.parse(iRaw) as StoredInvitation[];
+    for (const inv of iList) {
+      memoryInvitations.set(inv.id, inv);
+    }
+  } catch {}
+}
 
 // Circuit-breaker state to prevent stalling when DB is down or credentials fail
 let dbUnavailableUntil = 0;
@@ -54,7 +112,7 @@ function getDbUrl(): string | null {
     process.env.POSTGRES_PRISMA_URL ||
     "";
   if (!raw) return null;
-  const url = raw.replace(/^["']|["']$/g, "").trim().replace(/[?&]channel_binding=[^&]+/g, "");
+  const url = raw.replace(/^[\"']|[\"']$/g, "").trim().replace(/[?&]channel_binding=[^&]+/g, "");
   return url || null;
 }
 
@@ -65,7 +123,7 @@ function isDbConfigured(): boolean {
 
 function markDbUnavailable(reason?: any) {
   dbUnavailableUntil = Date.now() + 60_000;
-  console.warn("[user-repository] Database operation failed, using in-memory store for 60s:", reason?.message || reason);
+  console.warn("[user-repository] Database operation failed, using local store for 60s:", reason?.message || reason);
 }
 
 function getDb() {
@@ -132,6 +190,7 @@ export async function ensureUserSchema(): Promise<void> {
 }
 
 export async function findUserByEmail(email: string): Promise<StoredUser | null> {
+  await loadFromFile();
   const normalized = email.trim().toLowerCase();
 
   // Check memory store first
@@ -152,6 +211,7 @@ export async function findUserByEmail(email: string): Promise<StoredUser | null>
 
     if (rows && rows.length > 0) {
       memoryUsers.set(rows[0].id, rows[0]);
+      persistUsersToFile().catch(() => {});
       return rows[0];
     }
   }
@@ -160,6 +220,7 @@ export async function findUserByEmail(email: string): Promise<StoredUser | null>
 }
 
 export async function createUser(user: Omit<StoredUser, "createdAt">): Promise<StoredUser> {
+  await loadFromFile();
   const normalizedEmail = user.email.trim().toLowerCase();
   const createdAt = new Date().toISOString();
   const newUser: StoredUser = {
@@ -168,8 +229,9 @@ export async function createUser(user: Omit<StoredUser, "createdAt">): Promise<S
     createdAt,
   };
 
-  // Always write to memory store immediately
+  // Always write to memory store and file immediately
   memoryUsers.set(newUser.id, newUser);
+  persistUsersToFile().catch(() => {});
 
   // Write to database if available
   if (isDbConfigured()) {
@@ -192,14 +254,15 @@ export async function createUser(user: Omit<StoredUser, "createdAt">): Promise<S
 }
 
 export async function findInvitationByToken(token: string): Promise<StoredInvitation | null> {
+  await loadFromFile();
   const trimmed = token.trim();
 
-  // Check memory store first
+  // 1. Check memory / file store first
   for (const inv of memoryInvitations.values()) {
     if (inv.token === trimmed) return inv;
   }
 
-  // Check database if available
+  // 2. Check database if available
   if (isDbConfigured()) {
     const rows = await runDbQuery(async (sql) => {
       return (await sql`
@@ -212,14 +275,39 @@ export async function findInvitationByToken(token: string): Promise<StoredInvita
 
     if (rows && rows.length > 0) {
       memoryInvitations.set(rows[0].id, rows[0]);
+      persistInvitesToFile().catch(() => {});
       return rows[0];
     }
+  }
+
+  // 3. Fallback: Cryptographically verify signed token (prevents lambda-isolation / cold start issues)
+  const signedPayload = await verifyInvitationToken(trimmed);
+  if (signedPayload) {
+    // Check if an account has already been claimed for this email
+    const existingUser = await findUserByEmail(signedPayload.email);
+    const id = `inv_${signedPayload.email.replace(/[^a-z0-9]/g, "_")}`;
+    const reconstructed: StoredInvitation = {
+      id,
+      email: signedPayload.email,
+      name: signedPayload.name || "",
+      role: signedPayload.role,
+      title: signedPayload.title,
+      token: trimmed,
+      expiresAt: new Date(signedPayload.exp * 1000).toISOString(),
+      claimedAt: existingUser ? existingUser.createdAt : null,
+      createdAt: new Date().toISOString(),
+    };
+
+    memoryInvitations.set(id, reconstructed);
+    persistInvitesToFile().catch(() => {});
+    return reconstructed;
   }
 
   return null;
 }
 
 export async function findInvitationByEmail(email: string): Promise<StoredInvitation | null> {
+  await loadFromFile();
   const normalized = email.trim().toLowerCase();
 
   // Check memory store first
@@ -240,6 +328,7 @@ export async function findInvitationByEmail(email: string): Promise<StoredInvita
 
     if (rows && rows.length > 0) {
       memoryInvitations.set(rows[0].id, rows[0]);
+      persistInvitesToFile().catch(() => {});
       return rows[0];
     }
   }
@@ -250,6 +339,7 @@ export async function findInvitationByEmail(email: string): Promise<StoredInvita
 export async function createOrUpdateInvitation(
   invite: Omit<StoredInvitation, "id" | "createdAt" | "claimedAt">
 ): Promise<StoredInvitation> {
+  await loadFromFile();
   const normalizedEmail = invite.email.trim().toLowerCase();
   const id = `inv_${normalizedEmail.replace(/[^a-z0-9]/g, "_")}`;
   const createdAt = new Date().toISOString();
@@ -267,8 +357,9 @@ export async function createOrUpdateInvitation(
     createdAt: existing?.createdAt ?? createdAt,
   };
 
-  // Always write to memory store immediately (< 1ms)
+  // Always write to memory store and file immediately (< 1ms)
   memoryInvitations.set(id, newInvite);
+  persistInvitesToFile().catch(() => {});
 
   // Sync to database if available
   if (isDbConfigured()) {
@@ -296,6 +387,7 @@ export async function createOrUpdateInvitation(
 
     if (rows && rows.length > 0) {
       memoryInvitations.set(rows[0].id, rows[0]);
+      persistInvitesToFile().catch(() => {});
       return rows[0];
     }
   }
@@ -316,6 +408,12 @@ export async function claimInvitation(
     throw new Error("This invitation link has expired.");
   }
 
+  // Check if a user with this email already exists
+  const existingUser = await findUserByEmail(invitation.email);
+  if (existingUser) {
+    throw new Error("An account has already been activated for this email address.");
+  }
+
   const userId = `usr_${invitation.role}_${invitation.email.split("@")[0]}`;
   const finalName = name?.trim() || invitation.name || invitation.email.split("@")[0];
 
@@ -329,9 +427,10 @@ export async function claimInvitation(
     passwordSalt,
   });
 
-  // Mark invitation as claimed in memory
+  // Mark invitation as claimed in memory and file
   invitation.claimedAt = new Date().toISOString();
   memoryInvitations.set(invitation.id, invitation);
+  persistInvitesToFile().catch(() => {});
 
   // Sync claimed status to database if available
   if (isDbConfigured()) {
@@ -352,6 +451,7 @@ export async function claimInvitation(
  * Aiden (Host) and Nate (Leadership)
  */
 export async function seedInitialInvitations(): Promise<{ aidenInvite: StoredInvitation; nateInvite: StoredInvitation }> {
+  await loadFromFile();
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
 
   // Fast memory check / priming
@@ -396,6 +496,8 @@ export async function seedInitialInvitations(): Promise<{ aidenInvite: StoredInv
       nateInvite.claimedAt = user.createdAt;
     }
   }
+
+  persistInvitesToFile().catch(() => {});
 
   // Attempt database sync once quietly if available
   if (isDbConfigured()) {
@@ -514,7 +616,7 @@ export async function listAllInvitationsWithStatus(): Promise<InvitationWithStat
     }
   }
 
-  // In-memory fallback: build complete list immediately
+  // In-memory / file fallback: build complete list immediately
   const usersByEmail = new Map<string, StoredUser>();
   for (const u of memoryUsers.values()) {
     usersByEmail.set(u.email.toLowerCase(), u);
@@ -561,4 +663,3 @@ export async function listAllInvitationsWithStatus(): Promise<InvitationWithStat
 
   return results;
 }
-

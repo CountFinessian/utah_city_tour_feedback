@@ -122,10 +122,14 @@ function SetupAccountForm() {
     return (
       <div className="min-h-screen bg-[#070b12] text-[#e8eef7] flex flex-col justify-center items-center px-4 py-12">
         <div className="p-8 rounded-2xl bg-[#101827] border border-[#26354c] max-w-md w-full text-center space-y-5">
-          <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-red-950/80 border border-red-800 text-red-400">
+          <div className={`inline-flex items-center justify-center h-12 w-12 rounded-full ${
+            error.toLowerCase().includes("already") ? "bg-sky-950/80 border border-sky-800 text-sky-400" : "bg-red-950/80 border border-red-800 text-red-400"
+          }`}>
             <AlertCircle className="h-6 w-6" />
           </div>
-          <h2 className="text-xl font-bold text-[#f0f6ff]">Invitation Expired or Invalid</h2>
+          <h2 className="text-xl font-bold text-[#f0f6ff]">
+            {error.toLowerCase().includes("already") ? "Invitation Already Activated" : "Invitation Expired or Invalid"}
+          </h2>
           <p className="text-sm text-[#8292a8] leading-relaxed">{error}</p>
           <div className="pt-2">
             <Link

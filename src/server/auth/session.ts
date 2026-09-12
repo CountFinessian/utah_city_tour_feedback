@@ -96,3 +96,71 @@ export async function verifySessionToken(token: string | undefined | null): Prom
     return null;
   }
 }
+
+export type InvitationTokenPayload = {
+  email: string;
+  role: UserRole;
+  name?: string;
+  title?: string;
+  exp: number; // unix timestamp in seconds
+  nonce: string;
+};
+
+export async function signInvitationToken(params: {
+  email: string;
+  role: UserRole;
+  name?: string;
+  title?: string;
+  expiresInSeconds?: number;
+}): Promise<string> {
+  const expiresIn = params.expiresInSeconds || 60 * 60 * 24 * 30; // 30 days
+  const exp = Math.floor(Date.now() / 1000) + expiresIn;
+  const nonce = Math.random().toString(36).substring(2, 10);
+
+  const payload: InvitationTokenPayload = {
+    email: params.email.trim().toLowerCase(),
+    role: params.role,
+    name: params.name || "",
+    title: params.title || "",
+    exp,
+    nonce,
+  };
+
+  const enc = new TextEncoder();
+  const payloadB64 = base64UrlEncode(enc.encode(JSON.stringify(payload)));
+  const key = await getCryptoKey();
+  const sigBuffer = await crypto.subtle.sign("HMAC", key, enc.encode(payloadB64));
+  const sigB64 = base64UrlEncode(sigBuffer);
+
+  return `inv_${payloadB64}.${sigB64}`;
+}
+
+export async function verifyInvitationToken(token: string | undefined | null): Promise<InvitationTokenPayload | null> {
+  if (!token || typeof token !== "string") return null;
+  const rawToken = token.startsWith("inv_") ? token.substring(4) : token;
+  const parts = rawToken.split(".");
+  if (parts.length !== 2) return null;
+
+  const [payloadB64, sigB64] = parts;
+
+  try {
+    const key = await getCryptoKey();
+    const enc = new TextEncoder();
+    const sigBytes = base64UrlDecode(sigB64);
+    const valid = await crypto.subtle.verify("HMAC", key, sigBytes as unknown as BufferSource, enc.encode(payloadB64));
+
+    if (!valid) return null;
+
+    const decodedJson = new TextDecoder().decode(base64UrlDecode(payloadB64));
+    const payload = JSON.parse(decodedJson) as InvitationTokenPayload;
+
+    if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
