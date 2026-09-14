@@ -61,13 +61,6 @@ export async function sendInvitationEmail({
       <a href="${setupUrl}" style="background-color:#111827;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;display:inline-block;">Set Up Your Account &rarr;</a>
     </div>
 
-    <p style="font-size:13px;color:#6b7280;margin:28px 0 8px 0;">
-      If the button above does not work, copy and paste this link into your browser:
-    </p>
-    <p style="font-size:13px;color:#111827;word-break:break-all;margin:0 0 32px 0;">
-      <a href="${setupUrl}" style="color:#2563eb;text-decoration:underline;">${setupUrl}</a>
-    </p>
-
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0 20px 0;" />
     
     <p style="font-size:12px;color:#9ca3af;margin:0;">

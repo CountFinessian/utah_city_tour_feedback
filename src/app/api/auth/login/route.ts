@@ -48,8 +48,10 @@ export async function POST(req: Request) {
     });
 
     return response;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("[login error]", error);
-    return NextResponse.json({ error: "Authentication failed. Please try again." }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Authentication failed. Please try again.";
+    return NextResponse.json({ error: `Database error: ${message}` }, { status: 500 });
   }
 }
+

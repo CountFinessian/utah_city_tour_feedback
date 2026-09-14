@@ -12,6 +12,7 @@ import {
 import { EvidencePopover } from "@/components/domain/EvidencePopover";
 import { IntentFunnelChart, SentimentTimeline } from "@/components/domain/CommandCharts";
 import { DemographicPanel } from "@/components/domain/DemographicPanel";
+
 import { getCommandView } from "@/server/command/command-view";
 
 export const dynamic = "force-dynamic";

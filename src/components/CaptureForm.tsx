@@ -501,6 +501,7 @@ function IntelligenceReview({
               <p className="text-sm text-muted">No lifestyle segment captured yet.</p>
             )}
             <div className="evidence-row">{extractCleanExcerpt(observation.transcript, [e.familyComposition ?? "", ...e.lifestyleSignals])}</div>
+            <div className="evidence-row">{extractCleanExcerpt(observation.transcript, e.lifestyleSignals)}</div>
           </div>
         </ReviewSection>
 

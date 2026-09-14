@@ -28,11 +28,13 @@ export function InviteManager() {
     try {
       const res = await fetch("/api/auth/invite");
       const data = await res.json();
-      if (data?.invitations) {
+      if (!res.ok) {
+        setError(data?.error || "Failed to load invitations from database.");
+      } else if (data?.invitations) {
         setInvites(data.invitations);
       }
-    } catch {
-      // ignore
+    } catch (err: any) {
+      setError(err?.message || "Failed to connect to invitations API.");
     } finally {
       setLoading(false);
     }
@@ -124,32 +126,10 @@ export function InviteManager() {
           </div>
         )}
 
-        {createdUrl && (
-          <div className="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/50 text-emerald-200 text-xs space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-emerald-300 flex items-center gap-1.5">
-                <Check className="h-4 w-4 text-emerald-400" />
-                {emailNotice || "Invitation Created!"}
-              </span>
-              <button
-                type="button"
-                onClick={() => copyToClipboard(createdUrl)}
-                className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded bg-emerald-800/50 hover:bg-emerald-700/50 text-emerald-100 transition-colors"
-              >
-                {copiedUrl === createdUrl ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                <span>{copiedUrl === createdUrl ? "Copied!" : "Copy Link"}</span>
-              </button>
-            </div>
-            <p className="font-mono text-[11px] break-all bg-black/40 p-2 rounded text-emerald-200">
-              {createdUrl}
-            </p>
-            <p className="text-[11px] text-emerald-300/80">
-              {emailSent
-                ? "An activation email was automatically dispatched to the recipient with this secure link."
-                : emailError
-                ? `Email dispatch note: ${emailError}. You can copy and share the link above manually.`
-                : "Share this secure link with the user to activate their account."}
-            </p>
+        {emailNotice && (
+          <div className="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/50 text-emerald-200 text-xs flex items-center gap-2">
+            <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold text-emerald-300">{emailNotice}</span>
           </div>
         )}
 

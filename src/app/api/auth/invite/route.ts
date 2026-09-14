@@ -40,7 +40,10 @@ export async function GET(req: Request) {
     });
   } catch (err: any) {
     console.error("[invite GET error]", err);
-    return NextResponse.json({ error: "Failed to load invitations" }, { status: 500 });
+    return NextResponse.json(
+      { error: `Database error: ${err?.message || "Failed to load invitations"}` },
+      { status: 500 }
+    );
   }
 }
 

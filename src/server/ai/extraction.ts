@@ -150,6 +150,7 @@ export function heuristicExtract(transcript: string): Extraction {
   }
 
   const questionsAsked = sents.filter((s) => s.endsWith("?")).slice(0, 6);
+  const familyComposition = null;
 
   const famSignals: string[] = [];
   if (/\bkids?\b|\bchildren\b|\bdaughter\b|\bson\b|\bbaby\b|\bfamily\b/.test(lc)) famSignals.push("has children/family");
@@ -192,6 +193,7 @@ export function heuristicExtract(transcript: string): Extraction {
     lifestyleSignals.length > 0,
   ].filter(Boolean).length;
   const coverageScore = Math.round((present / 6) * 100) / 100;
+  const coverageScore = Math.round((present / 5) * 100) / 100;
 
   const summary =
     sents[0]?.slice(0, 240) ??

@@ -34,6 +34,7 @@ describe("heuristicExtract", () => {
   });
 
   it("captures questions and family composition", () => {
+  it("captures questions asked during the tour", () => {
     const e = heuristicExtract("A couple with a dog asked: is there a dog park? They have a baby on the way.");
     expect(e.questionsAsked.length).toBeGreaterThan(0);
     expect(e.familyComposition).toBeTruthy();

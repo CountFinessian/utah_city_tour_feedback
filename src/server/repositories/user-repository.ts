@@ -81,29 +81,58 @@ async function persistInvitesToFile(): Promise<void> {
   } catch {}
 }
 
+let loadPromise: Promise<void> | null = null;
+
 async function loadFromFile(): Promise<void> {
-  if (filesLoaded) return;
-  filesLoaded = true;
-  try {
-    const uRaw = await fs.readFile(USERS_FILE, "utf8");
-    const uList = JSON.parse(uRaw) as StoredUser[];
-    for (const u of uList) {
-      memoryUsers.set(u.id, u);
-    }
-  } catch {}
+  if (!loadPromise) {
+    loadPromise = (async () => {
+      try {
+        const uRaw = await fs.readFile(USERS_FILE, "utf8");
+        const uList = JSON.parse(uRaw) as StoredUser[];
+        for (const u of uList) {
+          memoryUsers.set(u.id, u);
+        }
+      } catch {}
 
-  try {
-    const iRaw = await fs.readFile(INVITES_FILE, "utf8");
-    const iList = JSON.parse(iRaw) as StoredInvitation[];
-    for (const inv of iList) {
-      memoryInvitations.set(inv.id, inv);
-    }
-  } catch {}
+      // Ensure Nate and Aiden baseline accounts exist with verified credentials
+      if (!memoryUsers.has("usr_leader_nate")) {
+        memoryUsers.set("usr_leader_nate", {
+          id: "usr_leader_nate",
+          email: "nate@utahcity.com",
+          name: "Nate",
+          role: "leader",
+          title: "Utah City Leadership",
+          passwordHash: "70c1d10a5c64b9ae05d57ff081a49c332983cafd12585939a4bcebf26806b1e9",
+          passwordSalt: "52242e4e050111189eb8655be976df58",
+          createdAt: "2026-09-01T00:00:00.000Z",
+        });
+      }
+      if (!memoryUsers.has("usr_host_aiden")) {
+        memoryUsers.set("usr_host_aiden", {
+          id: "usr_host_aiden",
+          email: "aiden@utahcity.com",
+          name: "Aiden",
+          role: "host",
+          title: "Tour Host",
+          passwordHash: "39d38a7c9b8e0cd65e5b5292e0d82d15ad0fd3a3d5f85ba433ef1a5591537938",
+          passwordSalt: "242da9e6ec8734a620544625677836f8",
+          createdAt: "2026-09-01T00:00:00.000Z",
+        });
+      }
+
+      try {
+        const iRaw = await fs.readFile(INVITES_FILE, "utf8");
+        const iList = JSON.parse(iRaw) as StoredInvitation[];
+        for (const inv of iList) {
+          memoryInvitations.set(inv.id, inv);
+        }
+      } catch {}
+      memoryInvitations.delete("inv_aiden_utahcity_com");
+      memoryInvitations.delete("inv_nate_utahcity_com");
+    })();
+  }
+  return loadPromise;
 }
-
-// Circuit-breaker state to prevent stalling when DB is down or credentials fail
-let dbUnavailableUntil = 0;
-let schemaInitialized = false;
 
 function getDbUrl(): string | null {
   const raw =
@@ -116,46 +145,30 @@ function getDbUrl(): string | null {
   return url || null;
 }
 
-function isDbConfigured(): boolean {
-  if (Date.now() < dbUnavailableUntil) return false;
+export function isDbConfigured(): boolean {
   return Boolean(getDbUrl());
-}
-
-function markDbUnavailable(reason?: any) {
-  dbUnavailableUntil = Date.now() + 60_000;
-  console.warn("[user-repository] Database operation failed, using local store for 60s:", reason?.message || reason);
 }
 
 function getDb() {
   if (!isDbConfigured()) return null;
   const url = getDbUrl();
   if (!url) return null;
-  try {
-    return neon(url);
-  } catch (err) {
-    markDbUnavailable(err);
-    return null;
-  }
+  return neon(url);
 }
 
-async function runDbQuery<T>(fn: (sql: any) => Promise<T>): Promise<T | null> {
+async function runDbQuery<T>(fn: (sql: any) => Promise<T>): Promise<T> {
   const sql = getDb();
-  if (!sql) return null;
-  try {
-    // 1500ms safety timeout to guarantee API never hangs
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Database query timed out (1500ms)")), 1500)
-    );
-    return await Promise.race([fn(sql), timeout]);
-  } catch (err: any) {
-    markDbUnavailable(err);
-    return null;
+  if (!sql) {
+    throw new Error("Database connection is not configured.");
   }
+  return await fn(sql);
 }
+
+let schemaInitialized = false;
 
 export async function ensureUserSchema(): Promise<void> {
   if (schemaInitialized || !isDbConfigured()) return;
-  const success = await runDbQuery(async (sql) => {
+  await runDbQuery(async (sql) => {
     await sql`
       CREATE TABLE IF NOT EXISTS users (
         id            TEXT PRIMARY KEY,
@@ -182,23 +195,36 @@ export async function ensureUserSchema(): Promise<void> {
         created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `;
+
+    // Seed baseline real users (Nate & Aiden) as active accounts with verified credentials
+    await sql`
+      INSERT INTO users (id, email, name, role, title, password_hash, password_salt, created_at, updated_at)
+      VALUES 
+        ('usr_leader_nate', 'nate@utahcity.com', 'Nate', 'leader', 'Utah City Leadership', '70c1d10a5c64b9ae05d57ff081a49c332983cafd12585939a4bcebf26806b1e9', '52242e4e050111189eb8655be976df58', NOW(), NOW()),
+        ('usr_host_aiden', 'aiden@utahcity.com', 'Aiden', 'host', 'Tour Host', '39d38a7c9b8e0cd65e5b5292e0d82d15ad0fd3a3d5f85ba433ef1a5591537938', '242da9e6ec8734a620544625677836f8', NOW(), NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        role = EXCLUDED.role,
+        title = EXCLUDED.title,
+        password_hash = EXCLUDED.password_hash,
+        password_salt = EXCLUDED.password_salt
+    `;
+
+    // Clean up any lingering dummy/pilot invitations
+    await sql`
+      DELETE FROM invitations
+      WHERE token IN ('aiden_host_pilot_token_2026', 'nate_leader_pilot_token_2026')
+    `;
+
     return true;
   });
-  if (success) {
-    schemaInitialized = true;
-  }
+  schemaInitialized = true;
 }
 
 export async function findUserByEmail(email: string): Promise<StoredUser | null> {
-  await loadFromFile();
   const normalized = email.trim().toLowerCase();
 
-  // Check memory store first
-  for (const u of memoryUsers.values()) {
-    if (u.email.toLowerCase() === normalized) return u;
-  }
-
-  // Check database if available
+  // 1. If database is configured, query database directly (fails/throws if connection has an issue)
   if (isDbConfigured()) {
     const rows = await runDbQuery(async (sql) => {
       return (await sql`
@@ -209,18 +235,18 @@ export async function findUserByEmail(email: string): Promise<StoredUser | null>
       `) as StoredUser[];
     });
 
-    if (rows && rows.length > 0) {
-      memoryUsers.set(rows[0].id, rows[0]);
-      persistUsersToFile().catch(() => {});
-      return rows[0];
-    }
+    return rows[0] || null;
   }
 
+  // 2. Only if no database is configured (pure local offline file-store)
+  await loadFromFile();
+  for (const u of memoryUsers.values()) {
+    if (u.email.toLowerCase() === normalized) return u;
+  }
   return null;
 }
 
 export async function createUser(user: Omit<StoredUser, "createdAt">): Promise<StoredUser> {
-  await loadFromFile();
   const normalizedEmail = user.email.trim().toLowerCase();
   const createdAt = new Date().toISOString();
   const newUser: StoredUser = {
@@ -229,11 +255,7 @@ export async function createUser(user: Omit<StoredUser, "createdAt">): Promise<S
     createdAt,
   };
 
-  // Always write to memory store and file immediately
-  memoryUsers.set(newUser.id, newUser);
-  persistUsersToFile().catch(() => {});
-
-  // Write to database if available
+  // 1. If database is configured, insert directly into database (fails/throws if connection has an issue)
   if (isDbConfigured()) {
     await ensureUserSchema();
     await runDbQuery(async (sql) => {
@@ -248,21 +270,20 @@ export async function createUser(user: Omit<StoredUser, "createdAt">): Promise<S
           updated_at = NOW()
       `;
     });
+    return newUser;
   }
 
+  // 2. Only if no database is configured (pure local offline file-store)
+  await loadFromFile();
+  memoryUsers.set(newUser.id, newUser);
+  persistUsersToFile().catch(() => {});
   return newUser;
 }
 
 export async function findInvitationByToken(token: string): Promise<StoredInvitation | null> {
-  await loadFromFile();
   const trimmed = token.trim();
 
-  // 1. Check memory / file store first
-  for (const inv of memoryInvitations.values()) {
-    if (inv.token === trimmed) return inv;
-  }
-
-  // 2. Check database if available
+  // 1. If database is configured, query database directly (fails/throws if connection has an issue)
   if (isDbConfigured()) {
     const rows = await runDbQuery(async (sql) => {
       return (await sql`
@@ -274,19 +295,22 @@ export async function findInvitationByToken(token: string): Promise<StoredInvita
     });
 
     if (rows && rows.length > 0) {
-      memoryInvitations.set(rows[0].id, rows[0]);
-      persistInvitesToFile().catch(() => {});
       return rows[0];
+    }
+  } else {
+    // 2. Only if no database is configured (pure local offline file-store)
+    await loadFromFile();
+    for (const inv of memoryInvitations.values()) {
+      if (inv.token === trimmed) return inv;
     }
   }
 
-  // 3. Fallback: Cryptographically verify signed token (prevents lambda-isolation / cold start issues)
+  // 3. Fallback: Cryptographically verify signed token (self-verifying across serverless instances)
   const signedPayload = await verifyInvitationToken(trimmed);
   if (signedPayload) {
-    // Check if an account has already been claimed for this email
     const existingUser = await findUserByEmail(signedPayload.email);
     const id = `inv_${signedPayload.email.replace(/[^a-z0-9]/g, "_")}`;
-    const reconstructed: StoredInvitation = {
+    return {
       id,
       email: signedPayload.email,
       name: signedPayload.name || "",
@@ -297,25 +321,15 @@ export async function findInvitationByToken(token: string): Promise<StoredInvita
       claimedAt: existingUser ? existingUser.createdAt : null,
       createdAt: new Date().toISOString(),
     };
-
-    memoryInvitations.set(id, reconstructed);
-    persistInvitesToFile().catch(() => {});
-    return reconstructed;
   }
 
   return null;
 }
 
 export async function findInvitationByEmail(email: string): Promise<StoredInvitation | null> {
-  await loadFromFile();
   const normalized = email.trim().toLowerCase();
 
-  // Check memory store first
-  for (const inv of memoryInvitations.values()) {
-    if (inv.email.toLowerCase() === normalized) return inv;
-  }
-
-  // Check database if available
+  // 1. If database is configured, query database directly (fails/throws if connection has an issue)
   if (isDbConfigured()) {
     const rows = await runDbQuery(async (sql) => {
       return (await sql`
@@ -326,48 +340,31 @@ export async function findInvitationByEmail(email: string): Promise<StoredInvita
       `) as StoredInvitation[];
     });
 
-    if (rows && rows.length > 0) {
-      memoryInvitations.set(rows[0].id, rows[0]);
-      persistInvitesToFile().catch(() => {});
-      return rows[0];
-    }
+    return rows[0] || null;
   }
 
+  // 2. Only if no database is configured (pure local offline file-store)
+  await loadFromFile();
+  for (const inv of memoryInvitations.values()) {
+    if (inv.email.toLowerCase() === normalized) return inv;
+  }
   return null;
 }
 
 export async function createOrUpdateInvitation(
   invite: Omit<StoredInvitation, "id" | "createdAt" | "claimedAt">
 ): Promise<StoredInvitation> {
-  await loadFromFile();
   const normalizedEmail = invite.email.trim().toLowerCase();
   const id = `inv_${normalizedEmail.replace(/[^a-z0-9]/g, "_")}`;
   const createdAt = new Date().toISOString();
 
-  const existing = memoryInvitations.get(id);
-  const newInvite: StoredInvitation = {
-    id,
-    email: normalizedEmail,
-    name: invite.name || existing?.name || "",
-    role: invite.role,
-    title: invite.title || existing?.title,
-    token: invite.token,
-    expiresAt: invite.expiresAt,
-    claimedAt: existing?.claimedAt ?? null,
-    createdAt: existing?.createdAt ?? createdAt,
-  };
-
-  // Always write to memory store and file immediately (< 1ms)
-  memoryInvitations.set(id, newInvite);
-  persistInvitesToFile().catch(() => {});
-
-  // Sync to database if available
+  // 1. If database is configured, write directly to database (fails/throws if connection has an issue)
   if (isDbConfigured()) {
     await ensureUserSchema();
     const rows = await runDbQuery(async (sql) => {
       await sql`
         INSERT INTO invitations (id, email, name, role, title, token, expires_at, claimed_at, created_at)
-        VALUES (${id}, ${normalizedEmail}, ${newInvite.name || ""}, ${newInvite.role}, ${newInvite.title ?? null}, ${newInvite.token}, ${newInvite.expiresAt}, NULL, ${createdAt})
+        VALUES (${id}, ${normalizedEmail}, ${invite.name || ""}, ${invite.role}, ${invite.title ?? null}, ${invite.token}, ${invite.expiresAt}, NULL, ${createdAt})
         ON CONFLICT (email) DO UPDATE SET
           token = EXCLUDED.token,
           name = COALESCE(NULLIF(EXCLUDED.name, ''), invitations.name),
@@ -385,13 +382,25 @@ export async function createOrUpdateInvitation(
       `) as StoredInvitation[];
     });
 
-    if (rows && rows.length > 0) {
-      memoryInvitations.set(rows[0].id, rows[0]);
-      persistInvitesToFile().catch(() => {});
-      return rows[0];
-    }
+    return rows[0];
   }
 
+  // 2. Only if no database is configured (pure local offline file-store)
+  await loadFromFile();
+  const existing = memoryInvitations.get(id);
+  const newInvite: StoredInvitation = {
+    id,
+    email: normalizedEmail,
+    name: invite.name || existing?.name || "",
+    role: invite.role,
+    title: invite.title || existing?.title,
+    token: invite.token,
+    expiresAt: invite.expiresAt,
+    claimedAt: existing?.claimedAt ?? null,
+    createdAt: existing?.createdAt ?? createdAt,
+  };
+  memoryInvitations.set(id, newInvite);
+  persistInvitesToFile().catch(() => {});
   return newInvite;
 }
 
@@ -447,82 +456,51 @@ export async function claimInvitation(
 }
 
 /**
- * Ensures baseline pilot personas exist in memory and DB:
- * Aiden (Host) and Nate (Leadership)
+ * Ensures baseline real users exist in memory and local file store:
+ * Nate (Leadership) and Aiden (Tour Host) with verified credentials
  */
-export async function seedInitialInvitations(): Promise<{ aidenInvite: StoredInvitation; nateInvite: StoredInvitation }> {
+export async function seedBaselineUsers(): Promise<void> {
   await loadFromFile();
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
 
-  // Fast memory check / priming
-  let aidenInvite = memoryInvitations.get("inv_aiden_utahcity_com");
-  if (!aidenInvite) {
-    aidenInvite = {
-      id: "inv_aiden_utahcity_com",
-      email: "aiden@utahcity.com",
-      name: "Aiden",
-      role: "host",
-      title: "Tour Host",
-      token: "aiden_host_pilot_token_2026",
-      expiresAt,
-      claimedAt: null,
-      createdAt: new Date().toISOString(),
-    };
-    memoryInvitations.set(aidenInvite.id, aidenInvite);
-  }
-
-  let nateInvite = memoryInvitations.get("inv_nate_utahcity_com");
-  if (!nateInvite) {
-    nateInvite = {
-      id: "inv_nate_utahcity_com",
+  if (!memoryUsers.has("usr_leader_nate")) {
+    memoryUsers.set("usr_leader_nate", {
+      id: "usr_leader_nate",
       email: "nate@utahcity.com",
       name: "Nate",
       role: "leader",
       title: "Utah City Leadership",
-      token: "nate_leader_pilot_token_2026",
-      expiresAt,
-      claimedAt: null,
-      createdAt: new Date().toISOString(),
-    };
-    memoryInvitations.set(nateInvite.id, nateInvite);
-  }
-
-  // Check if users exist in memory and mark claimed
-  for (const user of memoryUsers.values()) {
-    if (user.email.toLowerCase() === "aiden@utahcity.com" && !aidenInvite.claimedAt) {
-      aidenInvite.claimedAt = user.createdAt;
-    }
-    if (user.email.toLowerCase() === "nate@utahcity.com" && !nateInvite.claimedAt) {
-      nateInvite.claimedAt = user.createdAt;
-    }
-  }
-
-  persistInvitesToFile().catch(() => {});
-
-  // Attempt database sync once quietly if available
-  if (isDbConfigured()) {
-    await ensureUserSchema();
-    await runDbQuery(async (sql) => {
-      await sql`
-        INSERT INTO invitations (id, email, name, role, title, token, expires_at, created_at)
-        VALUES 
-          (${aidenInvite.id}, ${aidenInvite.email}, ${aidenInvite.name || ""}, ${aidenInvite.role}, ${aidenInvite.title ?? null}, ${aidenInvite.token}, ${aidenInvite.expiresAt}, ${aidenInvite.createdAt}),
-          (${nateInvite.id}, ${nateInvite.email}, ${nateInvite.name || ""}, ${nateInvite.role}, ${nateInvite.title ?? null}, ${nateInvite.token}, ${nateInvite.expiresAt}, ${nateInvite.createdAt})
-        ON CONFLICT (email) DO NOTHING
-      `;
+      passwordHash: "70c1d10a5c64b9ae05d57ff081a49c332983cafd12585939a4bcebf26806b1e9",
+      passwordSalt: "52242e4e050111189eb8655be976df58",
+      createdAt: "2026-09-01T00:00:00.000Z",
     });
   }
 
-  return { aidenInvite, nateInvite };
+  if (!memoryUsers.has("usr_host_aiden")) {
+    memoryUsers.set("usr_host_aiden", {
+      id: "usr_host_aiden",
+      email: "aiden@utahcity.com",
+      name: "Aiden",
+      role: "host",
+      title: "Tour Host",
+      passwordHash: "39d38a7c9b8e0cd65e5b5292e0d82d15ad0fd3a3d5f85ba433ef1a5591537938",
+      passwordSalt: "242da9e6ec8734a620544625677836f8",
+      createdAt: "2026-09-01T00:00:00.000Z",
+    });
+  }
+
+  // Remove any fake pending invitations from memory
+  memoryInvitations.delete("inv_aiden_utahcity_com");
+  memoryInvitations.delete("inv_nate_utahcity_com");
+
+  persistUsersToFile().catch(() => {});
+  persistInvitesToFile().catch(() => {});
 }
 
-// Prime the memory store immediately on import
-seedInitialInvitations().catch(() => {});
+// Prime baseline users immediately on import
+seedBaselineUsers().catch(() => {});
 
 export async function listAllInvitationsWithStatus(): Promise<InvitationWithStatus[]> {
-  await seedInitialInvitations();
-
-  // Try fetching from database if available
+  // 1. If database is configured, fetch directly from database (throws if connection fails)
   if (isDbConfigured()) {
     const dbResult = await runDbQuery(async (sql) => {
       await ensureUserSchema();
@@ -616,7 +594,8 @@ export async function listAllInvitationsWithStatus(): Promise<InvitationWithStat
     }
   }
 
-  // In-memory / file fallback: build complete list immediately
+  // 2. Pure local offline mode (only if no DATABASE_URL is configured)
+  await seedBaselineUsers();
   const usersByEmail = new Map<string, StoredUser>();
   for (const u of memoryUsers.values()) {
     usersByEmail.set(u.email.toLowerCase(), u);

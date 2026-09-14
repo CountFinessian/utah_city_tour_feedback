@@ -2,15 +2,21 @@ import { neon } from "@neondatabase/serverless";
 import type { Extraction, Observation } from "@/domain/observation";
 import type { ObservationRepository } from "./observation-repository";
 
-export const PG_URL =
-  process.env.DATABASE_URL ||
-  process.env.POSTGRES_URL ||
-  process.env.POSTGRES_PRISMA_URL ||
-  "";
+export function getPgUrl(): string {
+  return (
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    ""
+  );
+}
+
+export const PG_URL = getPgUrl();
 
 function db() {
-  if (!PG_URL) throw new Error("No Postgres connection string (DATABASE_URL / POSTGRES_URL).");
-  return neon(PG_URL);
+  const url = getPgUrl();
+  if (!url) throw new Error("No Postgres connection string (DATABASE_URL / POSTGRES_URL).");
+  return neon(url);
 }
 
 let schemaReady: Promise<void> | null = null;
@@ -20,14 +26,6 @@ function ensureSchema(): Promise<void> {
     schemaReady = (async () => {
       await sql`
         create table if not exists observations (
-          id            text primary key,
-          created_at    timestamptz not null default now(),
-          host_name     text,
-          floor_plan    text,
-          prospect_tag  text,
-          transcript    text not null,
-          engine        text not null,
-          extraction    jsonb not null
           id                  text primary key,
           created_at          timestamptz not null default now(),
           host_name           text,
@@ -106,21 +104,11 @@ export const postgresObservationRepository: ObservationRepository = {
     const sql = db();
     await sql`
       insert into observations
-        (id, created_at, source, host_name, floor_plan, prospect_tag, transcript, engine, extraction)
         (id, created_at, source, host_name, prospect_first_name, prospect_last_name, prospect_email, transcript, engine, extraction)
       values
-        (${obs.id}, ${obs.createdAt}, ${obs.source}, ${obs.hostName ?? null}, ${obs.floorPlan ?? null},
-         ${obs.prospectTag ?? null}, ${obs.transcript}, ${obs.engine}, ${JSON.stringify(obs.extraction)}::jsonb)
         (${obs.id}, ${obs.createdAt}, ${obs.source}, ${obs.hostName ?? null}, ${obs.prospectFirstName ?? null},
          ${obs.prospectLastName ?? null}, ${obs.prospectEmail ?? null}, ${obs.transcript}, ${obs.engine}, ${JSON.stringify(obs.extraction)}::jsonb)
       on conflict (id) do update set
-        source       = excluded.source,
-        host_name    = excluded.host_name,
-        floor_plan   = excluded.floor_plan,
-        prospect_tag = excluded.prospect_tag,
-        transcript   = excluded.transcript,
-        engine       = excluded.engine,
-        extraction   = excluded.extraction
         source              = excluded.source,
         host_name           = excluded.host_name,
         prospect_first_name = excluded.prospect_first_name,
