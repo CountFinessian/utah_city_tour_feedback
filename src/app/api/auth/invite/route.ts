@@ -4,6 +4,7 @@ import {
   listAllInvitationsWithStatus,
   findUserByEmail,
   findInvitationByEmail,
+  updateUserRole,
   type UserRole,
 } from "@/server/repositories/user-repository";
 import { sendInvitationEmail } from "@/server/email/mailer";
@@ -140,3 +141,47 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: err.message || "Failed to create invitation" }, { status: 500 });
   }
 }
+
+export async function PATCH(req: Request) {
+  try {
+    const cookieStore = await cookies();
+    const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    const session = await verifySessionToken(sessionToken);
+
+    // Leadership authorization check
+    if (!session || session.role !== "leader") {
+      return NextResponse.json(
+        { error: "Forbidden: Only members of Leadership can upgrade user roles." },
+        { status: 403 }
+      );
+    }
+
+    const body = await req.json();
+    const { email, role } = body;
+
+    if (!email || typeof email !== "string" || !email.includes("@")) {
+      return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
+    }
+
+    if (role !== "host" && role !== "leader") {
+      return NextResponse.json({ error: "Role must be 'host' or 'leader'." }, { status: 400 });
+    }
+
+    const result = await updateUserRole(email, role);
+
+    return NextResponse.json({
+      success: true,
+      email,
+      role,
+      ...result,
+      message: `User role has been updated to ${role === "leader" ? "Leadership" : "Tour Host"}.`,
+    });
+  } catch (err: any) {
+    console.error("[invite PATCH error]", err);
+    return NextResponse.json(
+      { error: `Database error: ${err?.message || "Failed to update role"}` },
+      { status: 500 }
+    );
+  }
+}
+

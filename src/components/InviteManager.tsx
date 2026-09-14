@@ -23,6 +23,7 @@ export function InviteManager() {
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState<boolean | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [upgradingEmail, setUpgradingEmail] = useState<string | null>(null);
 
   async function loadInvites() {
     try {
@@ -108,6 +109,31 @@ export function InviteManager() {
     navigator.clipboard.writeText(url);
     setCopiedUrl(url);
     setTimeout(() => setCopiedUrl(null), 2500);
+  }
+
+  async function handleRoleChange(targetEmail: string, newRole: "host" | "leader") {
+    setUpgradingEmail(targetEmail);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/invite", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: targetEmail, role: newRole }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to update member authority.");
+        return;
+      }
+      setInvites((prev) =>
+        prev.map((i) => (i.email.toLowerCase() === targetEmail.toLowerCase() ? { ...i, role: newRole } : i))
+      );
+      setEmailNotice(`${targetEmail} authority upgraded to Leadership.`);
+    } catch {
+      setError("Network error updating role.");
+    } finally {
+      setUpgradingEmail(null);
+    }
   }
 
   return (
@@ -222,16 +248,36 @@ export function InviteManager() {
                   </div>
                 </div>
 
-                {!inv.claimed && (
-                  <button
-                    type="button"
-                    onClick={() => copyToClipboard(inv.setupUrl)}
-                    className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-command-border hover:border-command-accent text-command-soft hover:text-command-ink transition-colors shrink-0"
-                  >
-                    {copiedUrl === inv.setupUrl ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                    <span>{copiedUrl === inv.setupUrl ? "Copied Link!" : "Copy Setup Link"}</span>
-                  </button>
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {inv.role === "host" ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRoleChange(inv.email, "leader")}
+                      disabled={upgradingEmail === inv.email}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 hover:border-sky-500/50 transition-colors disabled:opacity-50"
+                      title="Upgrade this host to leadership authority"
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span>{upgradingEmail === inv.email ? "Upgrading..." : "Upgrade to Leadership"}</span>
+                    </button>
+                  ) : (
+                    <span className="flex items-center gap-1 text-[11px] font-medium text-sky-400/80 px-2 py-1">
+                      <ShieldCheck className="h-3.5 w-3.5 text-sky-400" />
+                      <span>Leadership Access</span>
+                    </span>
+                  )}
+
+                  {!inv.claimed && (
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(inv.setupUrl)}
+                      className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-command-border hover:border-command-accent text-command-soft hover:text-command-ink transition-colors shrink-0"
+                    >
+                      {copiedUrl === inv.setupUrl ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                      <span>{copiedUrl === inv.setupUrl ? "Copied Link!" : "Copy Setup Link"}</span>
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

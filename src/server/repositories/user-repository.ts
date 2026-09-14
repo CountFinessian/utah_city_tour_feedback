@@ -461,6 +461,62 @@ export async function claimInvitation(
   return newUser;
 }
 
+export async function updateUserRole(
+  email: string,
+  newRole: UserRole
+): Promise<{ userUpdated: boolean; inviteUpdated: boolean }> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const defaultTitle = newRole === "leader" ? "Utah City Leadership" : "Tour Host";
+
+  if (isDbConfigured()) {
+    await ensureUserSchema();
+    return await runDbQuery(async (sql) => {
+      const userRes = await sql`
+        UPDATE users 
+        SET role = ${newRole}, title = COALESCE(NULLIF(title, ''), ${defaultTitle})
+        WHERE LOWER(email) = ${normalizedEmail}
+        RETURNING id;
+      `;
+      const invRes = await sql`
+        UPDATE invitations
+        SET role = ${newRole}, title = COALESCE(NULLIF(title, ''), ${defaultTitle})
+        WHERE LOWER(email) = ${normalizedEmail}
+        RETURNING id;
+      `;
+      return {
+        userUpdated: userRes.length > 0,
+        inviteUpdated: invRes.length > 0,
+      };
+    });
+  }
+
+  // Pure offline mode
+  await loadFromFile();
+  let userUpdated = false;
+  let inviteUpdated = false;
+
+  for (const user of memoryUsers.values()) {
+    if (user.email.toLowerCase().trim() === normalizedEmail) {
+      user.role = newRole;
+      user.title = user.title || defaultTitle;
+      userUpdated = true;
+    }
+  }
+
+  for (const inv of memoryInvitations.values()) {
+    if (inv.email.toLowerCase().trim() === normalizedEmail) {
+      inv.role = newRole;
+      inv.title = inv.title || defaultTitle;
+      inviteUpdated = true;
+    }
+  }
+
+  if (userUpdated) persistUsersToFile().catch(() => {});
+  if (inviteUpdated) persistInvitesToFile().catch(() => {});
+
+  return { userUpdated, inviteUpdated };
+}
+
 /**
  * Ensures baseline real users exist in memory and local file store:
  * Nate (Leadership) and Aiden (Tour Host) with verified credentials
