@@ -152,15 +152,6 @@ export function heuristicExtract(transcript: string): Extraction {
   const questionsAsked = sents.filter((s) => s.endsWith("?")).slice(0, 6);
   const familyComposition = null;
 
-  const famSignals: string[] = [];
-  if (/\bkids?\b|\bchildren\b|\bdaughter\b|\bson\b|\bbaby\b|\bfamily\b/.test(lc)) famSignals.push("has children/family");
-  if (/\bdog\b|\bpuppy\b/.test(lc)) famSignals.push("dog owner");
-  if (/\bcat\b/.test(lc)) famSignals.push("cat owner");
-  if (/\bwife\b|\bhusband\b|\bspouse\b|\bpartner\b|\bfianc/.test(lc)) famSignals.push("couple");
-  if (/\bsingle\b|\bjust me\b|\bmyself\b/.test(lc)) famSignals.push("single occupant");
-  if (/\broommate\b/.test(lc)) famSignals.push("roommate situation");
-  const familyComposition = famSignals.length ? famSignals.join(", ") : null;
-
   const lifestyleSignals: string[] = [];
   if (/\bremote\b|\bwork from home\b|\bwfh\b|\bhybrid\b/.test(lc)) lifestyleSignals.push("works remotely / hybrid");
   if (/\bgym\b|\bfitness\b|\bworkout\b|\brun\b|\bpeloton\b/.test(lc)) lifestyleSignals.push("fitness-oriented");
@@ -180,19 +171,16 @@ export function heuristicExtract(transcript: string): Extraction {
 
   const followUpQuestions: string[] = [];
   if (objections.length === 0) followUpQuestions.push("Did they raise any concerns about price, parking, or timing?");
-  if (!familyComposition) followUpQuestions.push("Who would be moving in with them?");
   if (prospectIntent === "unknown") followUpQuestions.push("How likely are they to apply, and on what timeline?");
   if (amenities.length === 0) followUpQuestions.push("Which amenities did they react to?");
 
   const present = [
     objections.length > 0,
     amenities.length > 0,
-    Boolean(familyComposition),
     prospectIntent !== "unknown",
     questionsAsked.length > 0,
     lifestyleSignals.length > 0,
   ].filter(Boolean).length;
-  const coverageScore = Math.round((present / 6) * 100) / 100;
   const coverageScore = Math.round((present / 5) * 100) / 100;
 
   const summary =
