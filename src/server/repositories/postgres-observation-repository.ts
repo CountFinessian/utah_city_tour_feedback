@@ -149,6 +149,13 @@ export const postgresObservationRepository: ObservationRepository = {
     const sql = db();
     await sql`delete from observations where source = 'demo'`;
   },
+
+  async deleteObservation(id: string): Promise<boolean> {
+    await ensureSchema();
+    const sql = db();
+    const res = await sql`delete from observations where id = ${id} returning id`;
+    return res.length > 0;
+  },
 };
 
 export const listObservations = postgresObservationRepository.listObservations.bind(postgresObservationRepository);
@@ -156,3 +163,4 @@ export const upsertObservation = postgresObservationRepository.upsertObservation
 export const replaceAll = postgresObservationRepository.replaceAll.bind(postgresObservationRepository);
 export const clearAll = postgresObservationRepository.clearAll.bind(postgresObservationRepository);
 export const clearDemo = postgresObservationRepository.clearDemo.bind(postgresObservationRepository);
+export const deleteObservation = postgresObservationRepository.deleteObservation.bind(postgresObservationRepository);

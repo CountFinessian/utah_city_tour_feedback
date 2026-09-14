@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { UserPlus, Copy, Check, ShieldCheck, UserCheck, AlertCircle } from "lucide-react";
+import { UserPlus, Copy, Check, ShieldCheck, UserCheck, AlertCircle, Trash2, X } from "lucide-react";
 
 type InviteItem = {
   email: string;
@@ -24,6 +24,8 @@ export function InviteManager() {
   const [emailSent, setEmailSent] = useState<boolean | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [upgradingEmail, setUpgradingEmail] = useState<string | null>(null);
+  const [confirmRemoveUser, setConfirmRemoveUser] = useState<InviteItem | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   async function loadInvites() {
     try {
@@ -136,6 +138,28 @@ export function InviteManager() {
     }
   }
 
+  async function handleRemoveUser(targetEmail: string) {
+    setRemoving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/auth/invite?email=${encodeURIComponent(targetEmail)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to remove user account.");
+        return;
+      }
+      setInvites((prev) => prev.filter((i) => i.email.toLowerCase() !== targetEmail.toLowerCase()));
+      setEmailNotice(`Account for ${targetEmail} was removed successfully.`);
+      setConfirmRemoveUser(null);
+    } catch {
+      setError("Network error removing account.");
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Invite Creation Form */}
@@ -209,14 +233,17 @@ export function InviteManager() {
         </button>
       </form>
 
-      {/* Existing Invitations List */}
+      {/* Existing Accounts List */}
       <div className="rounded-xl border border-command-border bg-white/[0.02] p-5 space-y-4">
-        <h3 className="text-sm font-bold text-command-ink">Active Device Invitations</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-command-ink">Accounts</h3>
+          <span className="text-xs text-command-muted">{invites.length} registered</span>
+        </div>
         
         {loading ? (
-          <p className="text-xs text-command-muted">Loading invitations...</p>
+          <p className="text-xs text-command-muted">Loading accounts...</p>
         ) : invites.length === 0 ? (
-          <p className="text-xs text-command-muted">No invitations found.</p>
+          <p className="text-xs text-command-muted">No accounts found.</p>
         ) : (
           <div className="divide-y divide-command-border">
             {invites.map((inv) => (
@@ -248,6 +275,16 @@ export function InviteManager() {
                   </div>
                 </div>
 
+                {!inv.claimed && (
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(inv.setupUrl)}
+                    className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-command-border hover:border-command-accent text-command-soft hover:text-command-ink transition-colors shrink-0"
+                  >
+                    {copiedUrl === inv.setupUrl ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedUrl === inv.setupUrl ? "Copied Link!" : "Copy Setup Link"}</span>
+                  </button>
+                )}
                 <div className="flex items-center gap-2 shrink-0">
                   {inv.role === "host" ? (
                     <button
@@ -277,12 +314,82 @@ export function InviteManager() {
                       <span>{copiedUrl === inv.setupUrl ? "Copied Link!" : "Copy Setup Link"}</span>
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRemoveUser(inv)}
+                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:border-red-500/40 transition-colors shrink-0"
+                    title={`Remove ${inv.name || inv.email}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Remove</span>
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Account Removal Confirmation Modal */}
+      {confirmRemoveUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-command-border bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-command-ink">Confirm Account Removal</h3>
+                  <p className="text-xs text-command-muted">Permanently revoke account credentials</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmRemoveUser(null)}
+                disabled={removing}
+                className="text-command-muted hover:text-command-ink p-1 rounded-md hover:bg-white/5 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-red-900/40 bg-red-950/25 p-4 text-xs text-red-200/90 leading-relaxed">
+              Are you sure you want to remove <strong className="text-white font-semibold">{confirmRemoveUser.name || confirmRemoveUser.email}</strong> (<span className="capitalize">{confirmRemoveUser.role}</span>)?
+              <p className="mt-2 text-command-soft">
+                This will immediately delete their login access and invitation link from the system.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmRemoveUser(null)}
+                disabled={removing}
+                className="px-4 py-2 text-xs font-semibold rounded-lg border border-command-border text-command-soft hover:text-command-ink hover:border-command-border/80 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRemoveUser(confirmRemoveUser.email)}
+                disabled={removing}
+                className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white flex items-center gap-2 transition-colors disabled:opacity-50"
+              >
+                {removing ? (
+                  <span>Removing...</span>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Confirm & Remove Account</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

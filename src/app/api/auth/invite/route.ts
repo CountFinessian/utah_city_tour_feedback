@@ -5,6 +5,7 @@ import {
   findUserByEmail,
   findInvitationByEmail,
   updateUserRole,
+  deleteUserAndInvitation,
   type UserRole,
 } from "@/server/repositories/user-repository";
 import { sendInvitationEmail } from "@/server/email/mailer";
@@ -142,10 +143,22 @@ export async function POST(req: Request) {
   }
 }
 
-export async function PATCH(req: Request) {
+async function getSessionToken(req: Request): Promise<string | undefined> {
   try {
     const cookieStore = await cookies();
-    const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    const val = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    if (val) return val;
+  } catch {
+    // fall back to headers
+  }
+  const cookieHeader = req.headers.get("cookie") || "";
+  const match = cookieHeader.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
+  return match ? match[1] : undefined;
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const sessionToken = await getSessionToken(req);
     const session = await verifySessionToken(sessionToken);
 
     // Leadership authorization check
@@ -180,6 +193,55 @@ export async function PATCH(req: Request) {
     console.error("[invite PATCH error]", err);
     return NextResponse.json(
       { error: `Database error: ${err?.message || "Failed to update role"}` },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const sessionToken = await getSessionToken(req);
+    const session = await verifySessionToken(sessionToken);
+
+    // Leadership authorization check
+    if (!session || session.role !== "leader") {
+      return NextResponse.json(
+        { error: "Forbidden: Only members of Leadership can remove accounts." },
+        { status: 403 }
+      );
+    }
+
+    const { searchParams } = new URL(req.url);
+    let targetEmail = searchParams.get("email");
+    if (!targetEmail) {
+      const body = await req.json().catch(() => ({}));
+      targetEmail = body.email;
+    }
+
+    if (!targetEmail || typeof targetEmail !== "string" || !targetEmail.includes("@")) {
+      return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
+    }
+
+    // Safety: Prevent leader from accidentally deleting their own active session
+    if (session.email && session.email.toLowerCase() === targetEmail.toLowerCase()) {
+      return NextResponse.json(
+        { error: "Action blocked: You cannot delete your own active leadership account." },
+        { status: 400 }
+      );
+    }
+
+    const result = await deleteUserAndInvitation(targetEmail);
+
+    return NextResponse.json({
+      success: true,
+      email: targetEmail,
+      ...result,
+      message: `Account for ${targetEmail} has been removed.`,
+    });
+  } catch (err: any) {
+    console.error("[invite DELETE error]", err);
+    return NextResponse.json(
+      { error: `Database error: ${err?.message || "Failed to remove account"}` },
       { status: 500 }
     );
   }

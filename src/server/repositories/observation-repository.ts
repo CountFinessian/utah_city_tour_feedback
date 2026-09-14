@@ -6,4 +6,5 @@ export interface ObservationRepository {
   replaceAll(rows: Observation[]): Promise<void>;
   clearAll(): Promise<void>;
   clearDemo(): Promise<void>;
+  deleteObservation(id: string): Promise<boolean>;
 }

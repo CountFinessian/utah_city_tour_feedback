@@ -4,6 +4,7 @@ import { extractObservation } from "@/server/ai/extraction";
 import {
   listObservations as repoListObservations,
   upsertObservation as repoUpsertObservation,
+  deleteObservation as repoDeleteObservation,
 } from "@/server/repositories/observations";
 
 export type CreateObservationInput = {
@@ -28,6 +29,10 @@ function cleanOptional(value: string | undefined): string | undefined {
 
 export async function listObservations(): Promise<Observation[]> {
   return repoListObservations();
+}
+
+export async function deleteObservation(id: string): Promise<boolean> {
+  return repoDeleteObservation(id);
 }
 
 export async function createOrRefineObservation(input: CreateObservationInput): Promise<Observation> {

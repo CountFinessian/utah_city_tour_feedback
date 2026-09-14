@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { amenityLabel, objectionLabel, type Observation } from "@/domain/observation";
 import { extractCleanExcerpt } from "@/domain/evidence-matcher";
+import { Trash2, AlertTriangle, X } from "lucide-react";
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - Date.parse(iso);
@@ -14,9 +15,19 @@ function relativeTime(iso: string): string {
 }
 
 export function KnowledgeExplorer({ observations }: { observations: Observation[] }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const highlightId = searchParams.get("highlight");
   const highlightRef = useRef<HTMLLIElement>(null);
+  const [records, setRecords] = useState<Observation[]>(observations);
+  const [confirmDeleteRecord, setConfirmDeleteRecord] = useState<Observation | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [, startTransition] = useTransition();
+
+  useEffect(() => {
+    setRecords(observations);
+  }, [observations]);
+
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
   const [intent, setIntent] = useState("all");
@@ -31,10 +42,30 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
     }
   }, [highlightId]);
 
+  async function handleDeleteEvidence(id: string) {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/observations?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        alert("Failed to delete evidence record.");
+        return;
+      }
+      setRecords((prev) => prev.filter((r) => r.id !== id));
+      setConfirmDeleteRecord(null);
+      startTransition(() => router.refresh());
+    } catch {
+      alert("Network error deleting evidence.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const options = useMemo(() => {
     const objections = new Set<string>();
     const amenities = new Set<string>();
-    for (const observation of observations) {
+    for (const observation of records) {
       observation.extraction.objections.forEach((obj) => objections.add(obj.type));
       observation.extraction.amenities.forEach((item) => amenities.add(item.name));
     }
@@ -42,11 +73,11 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
       objections: [...objections].sort(),
       amenities: [...amenities].sort(),
     };
-  }, [observations]);
+  }, [records]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return observations.filter((observation) => {
+    return records.filter((observation) => {
       const e = observation.extraction;
       const prospectName = [observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ");
       const searchable = [
@@ -133,6 +164,17 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
                       <span className="pill border-amber-200 bg-amber-50 text-amber-800">demo</span>
                     )}
                     <span className="ml-auto text-xs text-muted">{relativeTime(observation.createdAt)}</span>
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className="text-xs text-muted">{relativeTime(observation.createdAt)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteRecord(observation)}
+                        className="p-1 rounded text-muted hover:text-red-400 hover:bg-white/5 transition-colors"
+                        title="Delete this evidence record"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -193,6 +235,79 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
           </ul>
         )}
       </section>
+
+      {/* Confirmation Modal for Evidence Deletion */}
+      {confirmDeleteRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-command-border bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-command-ink">Confirm Evidence Deletion</h3>
+                  <p className="text-xs text-command-muted">Permanently remove this debrief</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteRecord(null)}
+                disabled={deleting}
+                className="text-command-muted hover:text-command-ink p-1 rounded-md hover:bg-white/5 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-red-900/40 bg-red-950/25 p-4 text-xs text-red-200/90 space-y-2 leading-relaxed">
+              <p>
+                Are you sure you want to delete this observation record from the corpus?
+              </p>
+              <div className="p-2.5 rounded bg-black/40 border border-command-border/40 text-[11px] text-command-soft space-y-1">
+                <div>
+                  <strong className="text-white">Host:</strong> {confirmDeleteRecord.hostName || "Unattributed"}
+                  {confirmDeleteRecord.prospectFirstName && (
+                    <span> · <strong className="text-white">Prospect:</strong> {confirmDeleteRecord.prospectFirstName} {confirmDeleteRecord.prospectLastName || ""}</span>
+                  )}
+                </div>
+                <div className="line-clamp-2 italic text-command-muted">
+                  &ldquo;{confirmDeleteRecord.extraction?.summary || confirmDeleteRecord.transcript}&rdquo;
+                </div>
+              </div>
+              <p className="text-[11px] text-command-muted">
+                This action is irreversible. It will be removed from all intelligence scores and sentiment analysis.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteRecord(null)}
+                disabled={deleting}
+                className="px-4 py-2 text-xs font-semibold rounded-lg border border-command-border text-command-soft hover:text-command-ink hover:border-command-border/80 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteEvidence(confirmDeleteRecord.id)}
+                disabled={deleting}
+                className="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 hover:bg-red-500 text-white flex items-center gap-2 transition-colors disabled:opacity-50"
+              >
+                {deleting ? (
+                  <span>Deleting...</span>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Confirm & Delete Record</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

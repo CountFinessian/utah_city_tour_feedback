@@ -56,6 +56,16 @@ export const fileObservationRepository: ObservationRepository = {
     const rows = await this.listObservations();
     await writeAll(rows.filter((r) => r.source !== "demo"));
   },
+
+  async deleteObservation(id: string): Promise<boolean> {
+    const rows = await this.listObservations();
+    const filtered = rows.filter((r) => r.id !== id);
+    if (filtered.length !== rows.length) {
+      await writeAll(filtered);
+      return true;
+    }
+    return false;
+  },
 };
 
 export const listObservations = fileObservationRepository.listObservations.bind(fileObservationRepository);
@@ -63,3 +73,4 @@ export const upsertObservation = fileObservationRepository.upsertObservation.bin
 export const replaceAll = fileObservationRepository.replaceAll.bind(fileObservationRepository);
 export const clearAll = fileObservationRepository.clearAll.bind(fileObservationRepository);
 export const clearDemo = fileObservationRepository.clearDemo.bind(fileObservationRepository);
+export const deleteObservation = fileObservationRepository.deleteObservation.bind(fileObservationRepository);

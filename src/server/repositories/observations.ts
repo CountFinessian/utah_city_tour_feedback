@@ -14,3 +14,4 @@ export const upsertObservation = observationRepository.upsertObservation.bind(ob
 export const replaceAll = observationRepository.replaceAll.bind(observationRepository);
 export const clearAll = observationRepository.clearAll.bind(observationRepository);
 export const clearDemo = observationRepository.clearDemo.bind(observationRepository);
+export const deleteObservation = observationRepository.deleteObservation.bind(observationRepository);

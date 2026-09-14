@@ -517,6 +517,56 @@ export async function updateUserRole(
   return { userUpdated, inviteUpdated };
 }
 
+export async function deleteUserAndInvitation(
+  email: string
+): Promise<{ userDeleted: boolean; inviteDeleted: boolean }> {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (isDbConfigured()) {
+    await ensureUserSchema();
+    return await runDbQuery(async (sql) => {
+      const userRes = await sql`
+        DELETE FROM users 
+        WHERE LOWER(email) = ${normalizedEmail}
+        RETURNING id;
+      `;
+      const invRes = await sql`
+        DELETE FROM invitations
+        WHERE LOWER(email) = ${normalizedEmail}
+        RETURNING id;
+      `;
+      return {
+        userDeleted: userRes.length > 0,
+        inviteDeleted: invRes.length > 0,
+      };
+    });
+  }
+
+  // Pure offline mode
+  await loadFromFile();
+  let userDeleted = false;
+  let inviteDeleted = false;
+
+  for (const [id, user] of memoryUsers.entries()) {
+    if (user.email.toLowerCase().trim() === normalizedEmail) {
+      memoryUsers.delete(id);
+      userDeleted = true;
+    }
+  }
+
+  for (const [token, inv] of memoryInvitations.entries()) {
+    if (inv.email.toLowerCase().trim() === normalizedEmail) {
+      memoryInvitations.delete(token);
+      inviteDeleted = true;
+    }
+  }
+
+  if (userDeleted) persistUsersToFile().catch(() => {});
+  if (inviteDeleted) persistInvitesToFile().catch(() => {});
+
+  return { userDeleted, inviteDeleted };
+}
+
 /**
  * Ensures baseline real users exist in memory and local file store:
  * Nate (Leadership) and Aiden (Tour Host) with verified credentials

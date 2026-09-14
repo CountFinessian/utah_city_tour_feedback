@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { POST as observationsPOST, GET as observationsGET } from "@/app/api/observations/route";
+import { POST as observationsPOST, GET as observationsGET, DELETE as observationsDELETE } from "@/app/api/observations/route";
 import { GET as digestGET } from "@/app/api/digest/route";
 import { POST as seedPOST, DELETE as seedDELETE } from "@/app/api/seed/route";
 import { POST as transcribePOST } from "@/app/api/transcribe/route";
@@ -136,5 +136,46 @@ describe("API routes", () => {
 
     const json = await res.json();
     expect(json.error).toContain("already exists");
+  });
+
+  it("DELETE /api/observations removes an observation by id", async () => {
+    const listBefore = await (await observationsGET()).json();
+    const target = listBefore.observations[0];
+    expect(target).toBeTruthy();
+
+    const delReq = new Request(`http://t/api/observations?id=${target.id}`, { method: "DELETE" }) as unknown as NextRequest;
+    const res = await observationsDELETE(delReq);
+    expect(res.status).toBe(200);
+
+    const listAfter = await (await observationsGET()).json();
+    expect(listAfter.observations.some((o: any) => o.id === target.id)).toBe(false);
+  });
+
+  it("DELETE /api/auth/invite removes a user account and invitation when called by leader", async () => {
+    const { DELETE: inviteDELETE, GET: inviteGET } = await import("@/app/api/auth/invite/route");
+    const { signSessionToken, SESSION_COOKIE_NAME } = await import("@/server/auth/session");
+
+    const leaderToken = await signSessionToken({
+      id: "usr_leader_nate",
+      email: "nate@utahcity.com",
+      role: "leader",
+      name: "Nate",
+    });
+
+    const req = new Request("https://demo.utahcity.com/api/auth/invite?email=newmember@utahcity.com", {
+      method: "DELETE",
+      headers: {
+        cookie: `${SESSION_COOKIE_NAME}=${leaderToken}`,
+      },
+    });
+
+    const res = await inviteDELETE(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+
+    const listRes = await inviteGET(new Request("https://demo.utahcity.com/api/auth/invite"));
+    const listJson = await listRes.json();
+    expect(listJson.invitations.some((i: any) => i.email === "newmember@utahcity.com")).toBe(false);
   });
 });
