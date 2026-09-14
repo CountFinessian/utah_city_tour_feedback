@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, AlertCircle, Shield, LifeBuoy, Mail } from "lucide-react";
+import { Lock, AlertCircle, Shield, LifeBuoy, Copy, Check } from "lucide-react";
 
 function LoginForm() {
   const router = useRouter();
@@ -13,6 +13,13 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  function copySupportEmail() {
+    navigator.clipboard.writeText("support@utahcity.app");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -43,32 +50,29 @@ function LoginForm() {
 
   return (
     <div className="min-h-screen bg-[#070b12] text-[#e8eef7] flex flex-col justify-center items-center px-4 py-12 selection:bg-[#43d9c7] selection:text-[#070b12]">
-      <div className="w-full max-w-md space-y-7">
-        {/* Brand Header */}
-        <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-gradient-to-br from-[#0b7a75] to-[#43d9c7] shadow-lg shadow-[#0b7a75]/20 font-black text-2xl text-[#070b12] tracking-wider mb-2">
-            UC
+      <div className="w-full max-w-md space-y-8">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-[#131e30] border border-[#26354c] text-[#43d9c7] mb-2 shadow-inner">
+            <Lock className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-[#f0f6ff]">
-            Utah City Host Intelligence
-          </h1>
-          <p className="text-sm text-[#8292a8]">
-            Sign in with your verified credentials
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight text-[#f0f6ff]">Sign in to Utah City</h1>
+          <p className="text-xs text-[#8292a8]">Enter your credentials to access the intelligence platform</p>
         </div>
 
-        {error && (
-          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-950/50 border border-red-800/60 text-red-200 text-sm animate-in fade-in">
-            <AlertCircle className="h-4 w-4 shrink-0 text-red-400 mt-0.5" />
-            <span>{error}</span>
-          </div>
-        )}
-
+        {/* Form Card */}
         <form
           onSubmit={handleLogin}
           suppressHydrationWarning
-          className="p-6 rounded-2xl bg-[#101827] border border-[#26354c] space-y-4 shadow-xl"
+          className="p-6 rounded-2xl bg-[#101827] border border-[#26354c] shadow-2xl space-y-4"
         >
+          {error && (
+            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center gap-2.5 text-xs text-red-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-[#b8c5d6]">Email address</label>
             <input
@@ -88,12 +92,13 @@ function LoginForm() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-[#b8c5d6]">Password</label>
-              <a
-                href="mailto:support@utahcity.app?subject=Password%20Reset%20Request%20-%20Utah%20City&body=Hi%20Utah%20City%20Support,%0A%0APlease%20help%20me%20reset%20my%20password.%0A%0AEmail:%20"
+              <button
+                type="button"
+                onClick={copySupportEmail}
                 className="text-[11px] text-[#43d9c7] hover:underline"
               >
-                Forgot password?
-              </a>
+                {copied ? "support@utahcity.app copied!" : "Forgot password?"}
+              </button>
             </div>
             <input
               type="password"
@@ -126,17 +131,27 @@ function LoginForm() {
             <div>
               <p className="font-semibold text-[#f0f6ff]">Need help with your account?</p>
               <p className="text-[#8292a8] mt-0.5">
-                Can&apos;t remember your email or password? Reach out and leadership will help reset your account.
+                Can&apos;t remember your email or password? Copy the support email below.
               </p>
             </div>
           </div>
-          <a
-            href="mailto:support@utahcity.app?subject=Account%20Access%20Help%20-%20Utah%20City&body=Hi%20Utah%20City%20Support,%0A%0AI%20need%20help%20accessing%20my%20account.%0A%0AMy%20Name:%20%0AMy%20Email:%20%0AProblem:%20"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-[#26354c] text-[#43d9c7] font-semibold transition-colors shrink-0"
+          <button
+            type="button"
+            onClick={copySupportEmail}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-[#26354c] text-[#43d9c7] font-semibold transition-colors shrink-0 cursor-pointer"
           >
-            <Mail className="h-3.5 w-3.5" />
-            <span>Contact Support</span>
-          </a>
+            {copied ? (
+              <>
+                <Check className="h-3.5 w-3.5 text-[#43d9c7]" />
+                <span className="text-[#43d9c7]">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5" />
+                <span>support@utahcity.app</span>
+              </>
+            )}
+          </button>
         </div>
 
         {/* Access Notice */}
