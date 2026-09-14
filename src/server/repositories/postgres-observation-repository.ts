@@ -3,12 +3,20 @@ import type { Extraction, Observation } from "@/domain/observation";
 import type { ObservationRepository } from "./observation-repository";
 
 export function getPgUrl(): string {
-  return (
+  const raw =
     process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_PRISMA_URL ||
-    ""
-  );
+    "";
+  if (!raw) return "";
+  try {
+    const trimmed = raw.replace(/^["']|["']$/g, "").trim();
+    const parsed = new URL(trimmed);
+    parsed.searchParams.delete("channel_binding");
+    return parsed.toString();
+  } catch {
+    return raw.replace(/^["']|["']$/g, "").trim();
+  }
 }
 
 export const PG_URL = getPgUrl();

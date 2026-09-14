@@ -141,8 +141,14 @@ function getDbUrl(): string | null {
     process.env.POSTGRES_PRISMA_URL ||
     "";
   if (!raw) return null;
-  const url = raw.replace(/^[\"']|[\"']$/g, "").trim().replace(/[?&]channel_binding=[^&]+/g, "");
-  return url || null;
+  try {
+    const trimmed = raw.replace(/^["']|["']$/g, "").trim();
+    const parsed = new URL(trimmed);
+    parsed.searchParams.delete("channel_binding");
+    return parsed.toString();
+  } catch {
+    return raw.replace(/^["']|["']$/g, "").trim() || null;
+  }
 }
 
 export function isDbConfigured(): boolean {
