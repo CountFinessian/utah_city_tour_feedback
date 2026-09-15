@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     const fromEmail = process.env.SUPPORT_FROM_EMAIL || DEFAULT_SENDER;
 
     try {
-      console.log(`[resend webhook] Inbound email received: ${emailId}. Forwarding to ${forwardTo}...`);
+      console.log(`[resend webhook] Inbound email received: ${emailId}. Attempting forwarding to ${forwardTo}...`);
 
       const { data, error } = await resend.emails.receiving.forward({
         emailId,
@@ -78,20 +78,58 @@ export async function POST(req: NextRequest) {
         from: fromEmail,
       });
 
-      if (error) {
-        console.error("[resend webhook] Resend forward error:", error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!error) {
+        console.log(`[resend webhook] Successfully forwarded inbound email ${emailId} to ${forwardTo}.`);
+        return NextResponse.json({
+          success: true,
+          forwardedTo: forwardTo,
+          emailId,
+          forwardData: data,
+        });
       }
 
-      console.log(`[resend webhook] Successfully forwarded inbound email ${emailId} to ${forwardTo}.`);
+      console.warn(`[resend webhook] Forward API failed (${error.message}). Falling back to direct email notification...`);
+      // Fallback: send notification email directly using standard sending
+      const fallbackResult = await resend.emails.send({
+        from: fromEmail,
+        to: forwardTo,
+        subject: `[Utah City Support] Inbound email from ${event.data?.from || "a user"}`,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
+            <h2 style="color: #0b7a75;">New Inbound Support Inquiry</h2>
+            <p><strong>From:</strong> ${event.data?.from || "Unknown"}</p>
+            <p><strong>Subject:</strong> ${event.data?.subject || "No Subject"}</p>
+            <p><strong>Email ID:</strong> ${emailId}</p>
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;" />
+            <p style="font-size: 14px; color: #64748b;">
+              You can view and reply to the full email directly in your Resend Dashboard:
+              <br/>
+              <a href="https://resend.com/emails" style="color: #0b7a75; font-weight: bold;">View in Resend Dashboard</a>
+            </p>
+          </div>
+        `,
+      });
+
       return NextResponse.json({
         success: true,
+        fallbackNotification: true,
         forwardedTo: forwardTo,
         emailId,
-        forwardData: data,
+        data: fallbackResult.data,
       });
     } catch (err: any) {
-      console.error("[resend webhook] Exception during email forwarding:", err);
+      console.error("[resend webhook] Exception during email forwarding fallback:", err);
+      // Try emergency notification
+      try {
+        await resend.emails.send({
+          from: fromEmail,
+          to: forwardTo,
+          subject: `[Utah City Support] New message received: ${event.data?.subject || "Support Request"}`,
+          text: `A new email was received from ${event.data?.from || "User"}. Check your Resend dashboard at https://resend.com/emails (Email ID: ${emailId})`,
+        });
+      } catch (e) {
+        console.error("[resend webhook] Emergency fallback failed:", e);
+      }
       return NextResponse.json({ error: err?.message || "Failed to forward received email" }, { status: 500 });
     }
   }
