@@ -90,16 +90,7 @@ function LoginForm() {
           </div>
 
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-[#b8c5d6]">Password</label>
-              <button
-                type="button"
-                onClick={copySupportEmail}
-                className="text-[11px] text-[#43d9c7] hover:underline"
-              >
-                {copied ? "support@utahcity.app copied!" : "Forgot password?"}
-              </button>
-            </div>
+            <label className="text-xs font-medium text-[#b8c5d6]">Password</label>
             <input
               type="password"
               name="password"

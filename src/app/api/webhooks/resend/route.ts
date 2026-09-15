@@ -115,6 +115,8 @@ export async function POST(req: NextRequest) {
           from: "Utah City Support <support@utahcity.app>",
           to: customerTargetEmail,
           subject,
+          text: replyText || "Thank you for contacting Utah City Support. We received your message and are assisting you.",
+          html: replyHtml || undefined,
           text: sendText,
         });
 
@@ -132,6 +134,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Otherwise, this is a CUSTOMER sending an email to support@utahcity.app
+    // Extract customer's name and email
     // Extract customer's name and email cleanly:
     // e.g. "Kaiden <kman16409@gmail.com>" or "kman16409@gmail.com"
     let senderName = "Customer";
@@ -158,10 +161,12 @@ export async function POST(req: NextRequest) {
 
     // Fetch the customer's actual message body from Resend
     let customerText = "";
+    let customerHtml = "";
     try {
       const emailDetails = await resend.emails.receiving.get(emailId);
       if (emailDetails.data) {
         customerText = emailDetails.data.text || "";
+        customerHtml = emailDetails.data.html || "";
       }
     } catch (e: any) {
       console.warn("[resend webhook] Could not fetch customer email text from receiving API:", e?.message);
@@ -178,6 +183,29 @@ export async function POST(req: NextRequest) {
         from: dynamicFrom,
         to: forwardTo,
         replyTo: relayReplyTo,
+        subject: `[Utah City Support] ${event.data?.subject || "New Inquiry"}`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; color: #1e293b; max-width: 600px; line-height: 1.5;">
+            <div style="background: #f1f5f9; border-left: 4px solid #0b7a75; padding: 14px 16px; border-radius: 6px; margin-bottom: 20px;">
+              <p style="margin: 0 0 6px 0; font-size: 14px;"><strong>From:</strong> ${rawSender || "Unknown"}</p>
+              <p style="margin: 0; font-size: 14px;"><strong>Subject:</strong> ${event.data?.subject || "No Subject"}</p>
+            </div>
+            
+            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 15px; color: #0f172a;">
+              ${customerHtml || (customerText ? `<p style="white-space: pre-wrap; margin: 0;">${customerText}</p>` : `<p style="color: #64748b; margin: 0;"><em>(View full email content in Resend Dashboard)</em></p>`)}
+            </div>
+
+            <p style="font-size: 13px; color: #475569; background: #e0f2fe; border: 1px solid #bae6fd; padding: 10px 14px; border-radius: 6px; margin: 0 0 20px 0;">
+              💡 <strong>How to reply:</strong> Just click <strong>Reply</strong> in your email app. Your response will be relayed to <strong>${senderEmail}</strong> from <strong>support@utahcity.app</strong>.
+            </p>
+
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;" />
+            <p style="font-size: 12px; color: #94a3b8; margin: 0;">
+              Email ID: ${emailId} &bull; <a href="https://resend.com/emails" style="color: #0b7a75; font-weight: 600; text-decoration: none;">Open Resend Dashboard &rarr;</a>
+            </p>
+          </div>
+        `,
+        text: `${customerText}\n\n---\nFrom: ${rawSender}\nTo reply, simply reply to this email. It will be sent to ${senderEmail} from support@utahcity.app.`,
         subject: event.data?.subject ? `Re: ${event.data.subject.replace(/^Re:\s*/i, "")}` : "[Utah City Support] New Inquiry",
         text: messageBody,
       });
