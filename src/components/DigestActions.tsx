@@ -3,12 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-type Action = "load" | "clear-demo" | "reset-all" | "refresh";
+type Action = "reset-all" | "refresh";
 type Feedback = { tone: "success" | "error" | "info"; message: string } | null;
 
 const ACTION_COPY: Record<Action, string> = {
-  load: "Loading demo data",
-  "clear-demo": "Clearing demo data",
   "reset-all": "Resetting corpus",
   refresh: "Refreshing",
 };
@@ -36,9 +34,7 @@ export function DigestActions({ hasData }: { hasData: boolean }) {
     setBusy(action);
     setFeedback({ tone: "info", message: `${ACTION_COPY[action]}...` });
     try {
-      const url = action === "reset-all" ? "/api/seed?scope=all" : "/api/seed";
-      const method = action === "load" ? "POST" : "DELETE";
-      const res = await fetch(url, { method });
+      const res = await fetch("/api/seed?scope=all", { method: "DELETE" });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error || "Action failed.");
@@ -46,13 +42,7 @@ export function DigestActions({ hasData }: { hasData: boolean }) {
       startTransition(() => router.refresh());
       const time = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
       setLastRefreshed(time);
-      const message =
-        action === "load"
-          ? "Demo data loaded."
-          : action === "clear-demo"
-            ? "Demo data cleared."
-            : "All corpus data reset.";
-      setFeedback({ tone: "success", message });
+      setFeedback({ tone: "success", message: "All corpus data reset." });
     } catch (err) {
       setFeedback({ tone: "error", message: err instanceof Error ? err.message : "Action failed." });
     } finally {
@@ -65,15 +55,6 @@ export function DigestActions({ hasData }: { hasData: boolean }) {
   return (
     <div className="flex flex-col items-start gap-2 lg:items-end">
       <div className="flex flex-wrap items-center gap-2">
-        {!hasData && (
-          <button
-            onClick={() => run("load")}
-            disabled={working}
-            className="btn btn-primary px-3 py-2 disabled:opacity-50"
-          >
-            {busy === "load" ? "Loading..." : "Load demo data"}
-          </button>
-        )}
         <button
           onClick={() => refresh()}
           disabled={working}
@@ -81,15 +62,6 @@ export function DigestActions({ hasData }: { hasData: boolean }) {
         >
           {busy === "refresh" ? "Refreshing..." : "Refresh"}
         </button>
-        {hasData && (
-          <button
-            onClick={() => run("clear-demo")}
-            disabled={working}
-            className="btn px-3 py-2 text-muted disabled:opacity-50"
-          >
-            {busy === "clear-demo" ? "Clearing..." : "Clear demo data"}
-          </button>
-        )}
         {hasData && (
           <button
             onClick={() => run("reset-all")}

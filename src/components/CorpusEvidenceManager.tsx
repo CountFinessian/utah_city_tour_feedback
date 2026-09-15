@@ -76,41 +76,43 @@ export function CorpusEvidenceManager({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setFilterSource("all")}
-            className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
-              filterSource === "all"
-                ? "bg-command-accent/20 text-command-ink font-semibold border border-command-accent/40"
-                : "text-command-muted hover:text-command-ink"
-            }`}
-          >
-            All ({observations.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterSource("live")}
-            className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
-              filterSource === "live"
-                ? "bg-command-accent/20 text-command-ink font-semibold border border-command-accent/40"
-                : "text-command-muted hover:text-command-ink"
-            }`}
-          >
-            Live ({observations.filter((o) => o.source === "live").length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterSource("demo")}
-            className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
-              filterSource === "demo"
-                ? "bg-command-accent/20 text-command-ink font-semibold border border-command-accent/40"
-                : "text-command-muted hover:text-command-ink"
-            }`}
-          >
-            Demo ({observations.filter((o) => o.source === "demo").length})
-          </button>
-        </div>
+        {observations.some((o) => o.source === "demo") && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setFilterSource("all")}
+              className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
+                filterSource === "all"
+                  ? "bg-command-accent/20 text-command-ink font-semibold border border-command-accent/40"
+                  : "text-command-muted hover:text-command-ink"
+              }`}
+            >
+              All ({observations.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterSource("live")}
+              className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
+                filterSource === "live"
+                  ? "bg-command-accent/20 text-command-ink font-semibold border border-command-accent/40"
+                  : "text-command-muted hover:text-command-ink"
+              }`}
+            >
+              Live ({observations.filter((o) => o.source === "live").length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterSource("demo")}
+              className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
+                filterSource === "demo"
+                  ? "bg-command-accent/20 text-command-ink font-semibold border border-command-accent/40"
+                  : "text-command-muted hover:text-command-ink"
+              }`}
+            >
+              Demo ({observations.filter((o) => o.source === "demo").length})
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Filter and search bar */}
