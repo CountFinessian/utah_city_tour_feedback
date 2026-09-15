@@ -68,9 +68,70 @@ export async function POST(req: NextRequest) {
 
     const forwardTo = process.env.SUPPORT_FORWARD_EMAIL || DEFAULT_FORWARD_TARGET;
     const rawSender = event.data?.from || "";
+    const recipients: string[] = Array.isArray(event.data?.to) ? event.data.to : [event.data?.to || ""];
     
-    // Extract name or email from sender header (e.g. "John Doe <john@example.com>" or "john@example.com")
-    let senderName = "User";
+    // Check if this incoming email is actually Jacob REPLYING to a previous support thread!
+    // A reply will be sent to `reply+...` or `support+...`
+    const relayRecipient = recipients.find((r) => r.toLowerCase().includes("reply+") || r.toLowerCase().includes("support+"));
+    const isReplyFromJacob = rawSender.toLowerCase().includes(forwardTo.toLowerCase()) || Boolean(relayRecipient);
+
+    if (relayRecipient && isReplyFromJacob) {
+      console.log(`[resend webhook] Jacob is replying via relay address: ${relayRecipient}`);
+      
+      // Decode the recipient customer email from the plus-address:
+      // e.g. reply+kman16409=gmail.com@utahcity.app -> kman16409@gmail.com
+      const matchPlus = relayRecipient.match(/(?:reply|support)\+([^@]+)@/i);
+      let customerTargetEmail = "";
+      if (matchPlus) {
+        customerTargetEmail = matchPlus[1].replace(/=/g, "@");
+      }
+
+      if (!customerTargetEmail || !customerTargetEmail.includes("@")) {
+        console.error("[resend webhook] Could not parse customer email from relay address:", relayRecipient);
+        return NextResponse.json({ error: "Invalid relay address" }, { status: 400 });
+      }
+
+      // Fetch the reply body text using Resend Receiving API
+      let replyHtml = "";
+      let replyText = "";
+      try {
+        const emailDetails = await resend.emails.receiving.get(emailId);
+        if (emailDetails.data) {
+          replyHtml = emailDetails.data.html || "";
+          replyText = emailDetails.data.text || "";
+        }
+      } catch (e: any) {
+        console.warn("[resend webhook] Could not fetch raw email text from receiving API:", e?.message);
+      }
+
+      const subject = event.data?.subject || "Re: Utah City Support";
+
+      try {
+        console.log(`[resend webhook] Relaying reply to customer ${customerTargetEmail} from support@utahcity.app...`);
+        const sendResult = await resend.emails.send({
+          from: "Utah City Support <support@utahcity.app>",
+          to: customerTargetEmail,
+          subject,
+          text: replyText || "Thank you for contacting Utah City Support. We received your message and are assisting you.",
+          html: replyHtml || undefined,
+        });
+
+        if (sendResult.error) {
+          console.error("[resend webhook] Error relaying message to customer:", sendResult.error);
+          return NextResponse.json({ error: sendResult.error.message }, { status: 500 });
+        }
+
+        console.log(`[resend webhook] Successfully relayed response to customer ${customerTargetEmail}`);
+        return NextResponse.json({ success: true, relayedTo: customerTargetEmail, data: sendResult.data });
+      } catch (err: any) {
+        console.error("[resend webhook] Exception relaying response to customer:", err);
+        return NextResponse.json({ error: err?.message || "Relay error" }, { status: 500 });
+      }
+    }
+
+    // Otherwise, this is a CUSTOMER sending an email to support@utahcity.app
+    // Extract customer's name and email
+    let senderName = "Customer";
     let senderEmail = rawSender;
     const match = rawSender.match(/^(?:"?([^"<]+)"?\s*)?<?([^>]+)>?$/);
     if (match) {
@@ -84,17 +145,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Sender display format: "Name (via Utah City Support) <support@utahcity.app>"
+    // Construct the relay reply-to address: e.g. reply+kman16409=gmail.com@utahcity.app
+    const encodedSender = senderEmail.replace(/@/g, "=");
+    const relayReplyTo = `reply+${encodedSender}@utahcity.app`;
     const dynamicFrom = `${senderName} (via Utah City Support) <support@utahcity.app>`;
 
     try {
-      console.log(`[resend webhook] Inbound email received: ${emailId} from ${rawSender}. Attempting forwarding to ${forwardTo}...`);
+      console.log(`[resend webhook] Inbound customer email received: ${emailId} from ${rawSender}. Forwarding to ${forwardTo} with relay Reply-To: ${relayReplyTo}...`);
 
       const { data, error } = await resend.emails.receiving.forward({
         emailId,
         to: forwardTo,
         from: dynamicFrom,
-        replyTo: senderEmail || undefined,
+        replyTo: relayReplyTo,
       } as any);
 
       if (!error) {
@@ -102,28 +165,28 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           success: true,
           forwardedTo: forwardTo,
+          relayReplyTo,
           emailId,
           forwardData: data,
         });
       }
 
       console.warn(`[resend webhook] Forward API failed (${error.message}). Falling back to direct email notification...`);
-      // Fallback: send notification email directly using standard sending with replyTo set
+      // Fallback: send notification email directly using standard sending with replyTo set to relay address
       const fallbackResult = await resend.emails.send({
         from: dynamicFrom,
         to: forwardTo,
-        replyTo: senderEmail || undefined,
+        replyTo: relayReplyTo,
         subject: `[Utah City Support] ${event.data?.subject || "New Inquiry"}`,
         html: `
           <div style="font-family: sans-serif; padding: 20px; color: #1e293b; max-width: 600px;">
             <div style="background: #f8fafc; border-left: 4px solid #0b7a75; padding: 16px; border-radius: 4px; margin-bottom: 20px;">
               <h3 style="margin: 0 0 8px 0; color: #0b7a75;">New Inbound Support Inquiry</h3>
               <p style="margin: 4px 0; font-size: 14px;"><strong>From:</strong> ${rawSender || "Unknown"}</p>
-              <p style="margin: 4px 0; font-size: 14px;"><strong>Reply-To:</strong> ${senderEmail || "N/A"}</p>
               <p style="margin: 4px 0; font-size: 14px;"><strong>Subject:</strong> ${event.data?.subject || "No Subject"}</p>
             </div>
             <p style="font-size: 14px; color: #475569;">
-              💡 <em>You can click <strong>Reply</strong> in your email client to respond directly to ${senderEmail}.</em>
+              💡 <em>Just click <strong>Reply</strong> in your email app. Your response will automatically be sent to ${senderEmail} from <strong>support@utahcity.app</strong>.</em>
             </p>
             <hr style="margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;" />
             <p style="font-size: 13px; color: #94a3b8;">
@@ -138,6 +201,7 @@ export async function POST(req: NextRequest) {
         success: true,
         fallbackNotification: true,
         forwardedTo: forwardTo,
+        relayReplyTo,
         emailId,
         data: fallbackResult.data,
       });
@@ -148,9 +212,9 @@ export async function POST(req: NextRequest) {
         await resend.emails.send({
           from: dynamicFrom,
           to: forwardTo,
-          replyTo: senderEmail || undefined,
+          replyTo: relayReplyTo,
           subject: `[Utah City Support] New message received from ${senderName}`,
-          text: `A new email was received from ${rawSender}. Reply directly to this email or check your Resend dashboard at https://resend.com/emails (Email ID: ${emailId})`,
+          text: `A new email was received from ${rawSender}. Reply directly to this email to respond from support@utahcity.app (Email ID: ${emailId})`,
         });
       } catch (e) {
         console.error("[resend webhook] Emergency fallback failed:", e);
