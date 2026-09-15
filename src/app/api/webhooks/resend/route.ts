@@ -131,18 +131,23 @@ export async function POST(req: NextRequest) {
 
     // Otherwise, this is a CUSTOMER sending an email to support@utahcity.app
     // Extract customer's name and email
+    // Extract customer's name and email cleanly:
+    // e.g. "Kaiden <kman16409@gmail.com>" or "kman16409@gmail.com"
     let senderName = "Customer";
-    let senderEmail = rawSender;
-    const match = rawSender.match(/^(?:"?([^"<]+)"?\s*)?<?([^>]+)>?$/);
-    if (match) {
-      if (match[1]?.trim()) {
-        senderName = match[1].trim();
-      } else if (match[2]?.trim()) {
-        senderName = match[2].trim().split("@")[0];
+    let senderEmail = rawSender.trim();
+
+    const angleMatch = rawSender.match(/<([^>]+)>/);
+    if (angleMatch) {
+      senderEmail = angleMatch[1].trim();
+      const namePart = rawSender.split("<")[0].replace(/["']/g, "").trim();
+      if (namePart) {
+        senderName = namePart;
+      } else {
+        senderName = senderEmail.split("@")[0];
       }
-      if (match[2]?.trim()) {
-        senderEmail = match[2].trim();
-      }
+    } else {
+      senderEmail = rawSender.replace(/["']/g, "").trim();
+      senderName = senderEmail.split("@")[0] || "Customer";
     }
 
     // Construct the relay reply-to address: e.g. reply+kman16409=gmail.com@utahcity.app
