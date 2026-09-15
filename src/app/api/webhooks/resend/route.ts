@@ -150,63 +150,66 @@ export async function POST(req: NextRequest) {
     const relayReplyTo = `reply+${encodedSender}@utahcity.app`;
     const dynamicFrom = `${senderName} (via Utah City Support) <support@utahcity.app>`;
 
+    // Fetch the customer's actual message body from Resend
+    let customerText = "";
+    let customerHtml = "";
     try {
-      console.log(`[resend webhook] Inbound customer email received: ${emailId} from ${rawSender}. Forwarding to ${forwardTo} with relay Reply-To: ${relayReplyTo}...`);
-
-      const { data, error } = await resend.emails.receiving.forward({
-        emailId,
-        to: forwardTo,
-        from: dynamicFrom,
-        replyTo: relayReplyTo,
-      } as any);
-
-      if (!error) {
-        console.log(`[resend webhook] Successfully forwarded inbound email ${emailId} to ${forwardTo}.`);
-        return NextResponse.json({
-          success: true,
-          forwardedTo: forwardTo,
-          relayReplyTo,
-          emailId,
-          forwardData: data,
-        });
+      const emailDetails = await resend.emails.receiving.get(emailId);
+      if (emailDetails.data) {
+        customerText = emailDetails.data.text || "";
+        customerHtml = emailDetails.data.html || "";
       }
+    } catch (e: any) {
+      console.warn("[resend webhook] Could not fetch customer email text from receiving API:", e?.message);
+    }
 
-      console.warn(`[resend webhook] Forward API failed (${error.message}). Falling back to direct email notification...`);
-      // Fallback: send notification email directly using standard sending with replyTo set to relay address
-      const fallbackResult = await resend.emails.send({
+    try {
+      console.log(`[resend webhook] Delivering customer email ${emailId} to ${forwardTo} with Reply-To: ${relayReplyTo}...`);
+
+      const sendResult = await resend.emails.send({
         from: dynamicFrom,
         to: forwardTo,
         replyTo: relayReplyTo,
         subject: `[Utah City Support] ${event.data?.subject || "New Inquiry"}`,
         html: `
-          <div style="font-family: sans-serif; padding: 20px; color: #1e293b; max-width: 600px;">
-            <div style="background: #f8fafc; border-left: 4px solid #0b7a75; padding: 16px; border-radius: 4px; margin-bottom: 20px;">
-              <h3 style="margin: 0 0 8px 0; color: #0b7a75;">New Inbound Support Inquiry</h3>
-              <p style="margin: 4px 0; font-size: 14px;"><strong>From:</strong> ${rawSender || "Unknown"}</p>
-              <p style="margin: 4px 0; font-size: 14px;"><strong>Subject:</strong> ${event.data?.subject || "No Subject"}</p>
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; color: #1e293b; max-width: 600px; line-height: 1.5;">
+            <div style="background: #f1f5f9; border-left: 4px solid #0b7a75; padding: 14px 16px; border-radius: 6px; margin-bottom: 20px;">
+              <p style="margin: 0 0 6px 0; font-size: 14px;"><strong>From:</strong> ${rawSender || "Unknown"}</p>
+              <p style="margin: 0; font-size: 14px;"><strong>Subject:</strong> ${event.data?.subject || "No Subject"}</p>
             </div>
-            <p style="font-size: 14px; color: #475569;">
-              💡 <em>Just click <strong>Reply</strong> in your email app. Your response will automatically be sent to ${senderEmail} from <strong>support@utahcity.app</strong>.</em>
+            
+            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 15px; color: #0f172a;">
+              ${customerHtml || (customerText ? `<p style="white-space: pre-wrap; margin: 0;">${customerText}</p>` : `<p style="color: #64748b; margin: 0;"><em>(View full email content in Resend Dashboard)</em></p>`)}
+            </div>
+
+            <p style="font-size: 13px; color: #475569; background: #e0f2fe; border: 1px solid #bae6fd; padding: 10px 14px; border-radius: 6px; margin: 0 0 20px 0;">
+              💡 <strong>How to reply:</strong> Just click <strong>Reply</strong> in your email app. Your response will be relayed to <strong>${senderEmail}</strong> from <strong>support@utahcity.app</strong>.
             </p>
+
             <hr style="margin: 20px 0; border: none; border-top: 1px solid #e2e8f0;" />
-            <p style="font-size: 13px; color: #94a3b8;">
-              Email ID: ${emailId}<br/>
-              <a href="https://resend.com/emails" style="color: #0b7a75; font-weight: bold; text-decoration: underline;">View Full Email in Resend Dashboard &rarr;</a>
+            <p style="font-size: 12px; color: #94a3b8; margin: 0;">
+              Email ID: ${emailId} &bull; <a href="https://resend.com/emails" style="color: #0b7a75; font-weight: 600; text-decoration: none;">Open Resend Dashboard &rarr;</a>
             </p>
           </div>
         `,
+        text: `${customerText}\n\n---\nFrom: ${rawSender}\nTo reply, simply reply to this email. It will be sent to ${senderEmail} from support@utahcity.app.`,
       });
 
+      if (sendResult.error) {
+        console.error("[resend webhook] Failed to deliver forwarded customer inquiry:", sendResult.error);
+        return NextResponse.json({ error: sendResult.error.message }, { status: 500 });
+      }
+
+      console.log(`[resend webhook] Successfully delivered inbound email ${emailId} to ${forwardTo}.`);
       return NextResponse.json({
         success: true,
-        fallbackNotification: true,
         forwardedTo: forwardTo,
         relayReplyTo,
         emailId,
-        data: fallbackResult.data,
+        sendData: sendResult.data,
       });
     } catch (err: any) {
-      console.error("[resend webhook] Exception during email forwarding fallback:", err);
+      console.error("[resend webhook] Exception during customer email delivery:", err);
       // Try emergency notification
       try {
         await resend.emails.send({
