@@ -244,50 +244,5 @@ export async function getCommandView() {
       topObjectionLabel: topObjection ? objectionLabel(topObjection.type) : "None yet",
       topAmenityLabel: topAmenity ? amenityLabel(topAmenity.name) : "None yet",
     },
-    demographics: buildDemographics(observations),
   };
-}
-
-function categorizeHousehold(family: string | null): string {
-  if (!family) return "Unknown";
-  const lower = family.toLowerCase();
-  if (/\b(kid|child|daughter|son|baby|famil)/i.test(lower)) return "Families";
-  if (/\b(couple|wife|husband|spouse|partner|fiancé)/i.test(lower)) return "Couples";
-  if (/\b(single|just me|myself|solo)/i.test(lower)) return "Singles";
-  if (/\b(roommate)/i.test(lower)) return "Roommates";
-  if (/\b(retir|senior|downsize)/i.test(lower)) return "Retirees";
-  return "Other";
-}
-
-function buildDemographics(observations: Observation[]) {
-  // Household breakdown
-  const householdMap = new Map<string, { count: number; hot: number; warm: number; cold: number }>();
-  for (const o of observations) {
-    const cat = categorizeHousehold(o.extraction.familyComposition);
-    const cur = householdMap.get(cat) ?? { count: 0, hot: 0, warm: 0, cold: 0 };
-    cur.count += 1;
-    const intent = o.extraction.prospectIntent;
-    if (intent === "hot") cur.hot += 1;
-    else if (intent === "warm") cur.warm += 1;
-    else if (intent === "cold") cur.cold += 1;
-    householdMap.set(cat, cur);
-  }
-  const households = [...householdMap.entries()]
-    .map(([category, data]) => ({ category, ...data }))
-    .sort((a, b) => b.count - a.count);
-
-  // Lifestyle signal frequency
-  const lifestyleMap = new Map<string, number>();
-  for (const o of observations) {
-    for (const signal of o.extraction.lifestyleSignals) {
-      const key = signal.trim().toLowerCase();
-      if (key) lifestyleMap.set(key, (lifestyleMap.get(key) ?? 0) + 1);
-    }
-  }
-  const lifestyleSignals = [...lifestyleMap.entries()]
-    .map(([signal, count]) => ({ signal, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8);
-
-  return { households, lifestyleSignals };
 }

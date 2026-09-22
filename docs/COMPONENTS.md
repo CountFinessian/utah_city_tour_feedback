@@ -73,15 +73,6 @@ This document provides a comprehensive reference for all 14 React components in 
 - **API Calls:** None
 - **Child Components:** Recharts components (`AreaChart`, `BarChart`, `ResponsiveContainer`, etc.)
 
-### `DemographicPanel`
-- **Path:** `src/components/domain/DemographicPanel.tsx`
-- **Type:** Client Component
-- **Props:** `{ households: HouseholdRow[], lifestyleSignals: LifestyleItem[] }`
-- **Purpose:** Visualizes household mix via a Recharts donut chart and lists top lifestyle signals extracted from debriefs.
-- **Key State:** None
-- **API Calls:** None
-- **Child Components:** Recharts components (`PieChart`, `Pie`, `Cell`, etc.)
-
 ### `EvidencePopover`
 - **Path:** `src/components/domain/EvidencePopover.tsx`
 - **Type:** Client Component
@@ -158,7 +149,6 @@ app/page.tsx (Index / Capture route)
 
 app/command/page.tsx (Executive OS)
 ├── StatusBar
-├── DemographicPanel
 ├── CommandCharts (SentimentTimeline, IntentFunnelChart)
 ├── MetricTile
 ├── SignalBar

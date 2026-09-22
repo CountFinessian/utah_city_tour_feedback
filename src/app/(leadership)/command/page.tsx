@@ -11,7 +11,6 @@ import {
 } from "@/components/domain/CommandComponents";
 import { EvidencePopover } from "@/components/domain/EvidencePopover";
 import { IntentFunnelChart, SentimentTimeline } from "@/components/domain/CommandCharts";
-import { DemographicPanel } from "@/components/domain/DemographicPanel";
 
 import { getCommandView } from "@/server/command/command-view";
 
@@ -110,11 +109,6 @@ export default async function CommandPage() {
         <SentimentTimeline data={view.sentimentTimeline} sampleSize={view.observations.length} />
         <IntentFunnelChart data={view.intentFunnel} sampleSize={view.observations.length} />
       </section>
-
-      <DemographicPanel
-        households={view.demographics.households}
-        lifestyleSignals={view.demographics.lifestyleSignals}
-      />
 
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <div className="command-panel">

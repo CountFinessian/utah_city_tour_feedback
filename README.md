@@ -71,7 +71,7 @@ Mobile-first tour debrief capture. Hosts tap the mic and talk (transcribed on-de
 
 Check wiring at `/api/status` (reports storage backend, extraction engine, model).
 ### Command Center (`/command`)
-Executive dashboard for leadership. Intelligence score, KPI tiles with week-over-week deltas, sentiment timeline, intent funnel, demographic breakdown, top objections, amenity reactions, AI-generated executive narrative, journey rail, and ranked recommendations — all backed by verbatim evidence popovers.
+Executive dashboard for leadership. Intelligence score, KPI tiles with week-over-week deltas, sentiment timeline, intent funnel, top objections, amenity reactions, AI-generated executive narrative, journey rail, and ranked recommendations — all backed by verbatim evidence popovers.
 
 ### AI Analyst (`/analyst`)
 Conversational RAG interface. Leadership can query the entire corpus in natural language (e.g. "Why are tours not converting?") and receive evidence-backed answers with confidence ratings, sample sizes, and supporting quotes.
