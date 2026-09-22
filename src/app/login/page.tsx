@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, AlertCircle, Shield, LifeBuoy, Copy, Check, Mail, X, CheckCircle2, ArrowRight } from "lucide-react";
+import { Lock, AlertCircle, Shield, LifeBuoy, Copy, Check, Mail, X, CheckCircle2 } from "lucide-react";
 
 function LoginForm() {
   const router = useRouter();
@@ -164,7 +164,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-[#43d9c7] text-[#070b12] font-bold text-sm hover:bg-[#38c4b3] transition-colors shadow-lg shadow-[#43d9c7]/20 disabled:opacity-50 mt-4"
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-[#43d9c7] text-[#070b12] font-bold text-sm hover:bg-[#38c4b3] transition-colors shadow-lg shadow-[#43d9c7]/20 disabled:opacity-50 mt-4 cursor-pointer"
           >
             <Lock className="h-4 w-4" />
             <span>{loading ? "Authenticating..." : "Sign in to workspace"}</span>
@@ -178,7 +178,7 @@ function LoginForm() {
             <div>
               <p className="font-semibold text-[#f0f6ff]">Need help with your account?</p>
               <p className="text-[#8292a8] mt-0.5">
-                Can&apos;t remember your email or password? Copy the support email below.
+                Can&apos;t remember your email or need assistance? Contact support below.
               </p>
             </div>
           </div>

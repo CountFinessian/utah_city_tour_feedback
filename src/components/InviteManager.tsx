@@ -1,18 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  UserPlus,
-  Copy,
-  Check,
-  ShieldCheck,
-  AlertCircle,
-  Trash2,
-  X,
-  Mail,
-  KeyRound,
-  CheckCircle2,
-} from "lucide-react";
+import { UserPlus, Check, AlertCircle, Trash2, X, Mail } from "lucide-react";
 
 type InviteItem = {
   email: string;
@@ -28,22 +17,10 @@ export function InviteManager() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"host" | "leader">("host");
   const [submitting, setSubmitting] = useState(false);
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [createdUrl, setCreatedUrl] = useState<string | null>(null);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
-  const [emailSent, setEmailSent] = useState<boolean | null>(null);
-  const [emailError, setEmailError] = useState<string | null>(null);
-  const [upgradingEmail, setUpgradingEmail] = useState<string | null>(null);
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
-  const [resettingEmail, setResettingEmail] = useState<string | null>(null);
   const [confirmRemoveUser, setConfirmRemoveUser] = useState<InviteItem | null>(null);
-  const [resetResultModal, setResetResultModal] = useState<{
-    email: string;
-    name: string;
-    resetUrl: string;
-    emailSent: boolean;
-  } | null>(null);
   const [removing, setRemoving] = useState(false);
 
   async function loadInvites() {
@@ -72,10 +49,7 @@ export function InviteManager() {
 
     setSubmitting(true);
     setError(null);
-    setCreatedUrl(null);
     setEmailNotice(null);
-    setEmailSent(null);
-    setEmailError(null);
 
     try {
       const res = await fetch("/api/auth/invite", {
@@ -92,14 +66,10 @@ export function InviteManager() {
         return;
       }
 
-      setCreatedUrl(data.setupUrl);
-      setEmailSent(Boolean(data.emailSent));
-      setEmailError(data.emailError || null);
-
       if (data.emailSent) {
         setEmailNotice(`Invitation email successfully dispatched to ${email.trim()}!`);
       } else if (data.emailError) {
-        setEmailNotice(`Activation link generated. Email dispatch notice: ${data.emailError}`);
+        setEmailNotice(`Account setup created. Email notice: ${data.emailError}`);
       } else {
         setEmailNotice(`Invitation created for ${email.trim()}.`);
       }
@@ -126,12 +96,6 @@ export function InviteManager() {
     }
   }
 
-  function copyToClipboard(url: string) {
-    navigator.clipboard.writeText(url);
-    setCopiedUrl(url);
-    setTimeout(() => setCopiedUrl(null), 2500);
-  }
-
   async function handleResendSetup(targetEmail: string) {
     setResendingEmail(targetEmail);
     setError(null);
@@ -147,66 +111,12 @@ export function InviteManager() {
         setError(data.error || "Failed to resend setup invitation.");
         return;
       }
-      setEmailNotice(data.message || `Account setup email successfully resent to ${targetEmail}!`);
+      setEmailNotice(data.message || `Account setup email resent to ${targetEmail}!`);
       loadInvites();
     } catch {
       setError("Network error resending setup invitation.");
     } finally {
       setResendingEmail(null);
-    }
-  }
-
-  async function handleResetPassword(inv: InviteItem) {
-    setResettingEmail(inv.email);
-    setError(null);
-    setEmailNotice(null);
-    try {
-      const res = await fetch("/api/auth/resend-invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: inv.email, action: "reset-password" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to generate password reset.");
-        return;
-      }
-      setResetResultModal({
-        email: inv.email,
-        name: inv.name || inv.email,
-        resetUrl: data.resetUrl,
-        emailSent: Boolean(data.emailSent),
-      });
-      setEmailNotice(data.message || `Password reset instructions dispatched to ${inv.email}.`);
-    } catch {
-      setError("Network error triggering password reset.");
-    } finally {
-      setResettingEmail(null);
-    }
-  }
-
-  async function handleRoleChange(targetEmail: string, newRole: "host" | "leader") {
-    setUpgradingEmail(targetEmail);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/invite", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: targetEmail, role: newRole }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to update member authority.");
-        return;
-      }
-      setInvites((prev) =>
-        prev.map((i) => (i.email.toLowerCase() === targetEmail.toLowerCase() ? { ...i, role: newRole } : i))
-      );
-      setEmailNotice(`${targetEmail} authority upgraded to Leadership.`);
-    } catch {
-      setError("Network error updating role.");
-    } finally {
-      setUpgradingEmail(null);
     }
   }
 
@@ -308,11 +218,8 @@ export function InviteManager() {
       {/* Existing Accounts List */}
       <div className="rounded-xl border border-command-border bg-white/[0.02] p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-command-ink">Accounts & Invitations</h3>
-            <p className="text-xs text-command-muted">Manage active credentials, resend lost links, or initiate password resets</p>
-          </div>
-          <span className="text-xs text-command-muted font-medium">{invites.length} registered</span>
+          <h3 className="text-sm font-bold text-command-ink">Accounts</h3>
+          <span className="text-xs text-command-muted">{invites.length} registered</span>
         </div>
 
         {loading ? (
@@ -322,9 +229,9 @@ export function InviteManager() {
         ) : (
           <div className="divide-y divide-command-border">
             {invites.map((inv) => (
-              <div key={inv.email} className="py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div key={inv.email} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-command-ink">{inv.name || inv.email}</span>
                     {inv.name && <span className="text-xs text-command-muted">({inv.email})</span>}
                     <span
@@ -360,78 +267,20 @@ export function InviteManager() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap shrink-0">
-                  {/* Pending Setup Actions: Resend Email & Copy Link */}
+                <div className="flex items-center gap-2 shrink-0">
                   {!inv.claimed && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleResendSetup(inv.email)}
-                        disabled={resendingEmail === inv.email}
-                        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
-                        title={`Resend account setup email to ${inv.email}`}
-                      >
-                        <Mail className="h-3.5 w-3.5" />
-                        <span>{resendingEmail === inv.email ? "Resending..." : "Resend Setup Email"}</span>
-                      </button>
-
-                      {inv.setupUrl && (
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(inv.setupUrl)}
-                          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-command-border hover:border-command-accent text-command-soft hover:text-command-ink transition-colors shrink-0 cursor-pointer"
-                          title="Copy direct account setup link"
-                        >
-                          {copiedUrl === inv.setupUrl ? (
-                            <>
-                              <Check className="h-3.5 w-3.5 text-emerald-400" />
-                              <span className="text-emerald-400">Copied Link!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3.5 w-3.5" />
-                              <span>Copy Link</span>
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </>
-                  )}
-
-                  {/* Active Claimed Actions: Reset Password */}
-                  {inv.claimed && (
                     <button
                       type="button"
-                      onClick={() => handleResetPassword(inv)}
-                      disabled={resettingEmail === inv.email}
-                      className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-command-border hover:border-sky-500/50 bg-white/[0.03] hover:bg-sky-500/10 text-command-soft hover:text-sky-300 transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
-                      title={`Send password reset link to ${inv.email}`}
+                      onClick={() => handleResendSetup(inv.email)}
+                      disabled={resendingEmail === inv.email}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-command-border hover:border-command-accent text-command-soft hover:text-command-ink transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
+                      title={`Resend account setup email to ${inv.email}`}
                     >
-                      <KeyRound className="h-3.5 w-3.5 text-sky-400" />
-                      <span>{resettingEmail === inv.email ? "Resetting..." : "Reset Password"}</span>
+                      <Mail className="h-3.5 w-3.5 text-command-accent" />
+                      <span>{resendingEmail === inv.email ? "Sending..." : "Resend Invite"}</span>
                     </button>
                   )}
 
-                  {/* Role authority action */}
-                  {inv.role === "host" ? (
-                    <button
-                      type="button"
-                      onClick={() => handleRoleChange(inv.email, "leader")}
-                      disabled={upgradingEmail === inv.email}
-                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 hover:border-sky-500/50 transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
-                      title="Upgrade this host to leadership authority"
-                    >
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                      <span>{upgradingEmail === inv.email ? "Upgrading..." : "Make Leader"}</span>
-                    </button>
-                  ) : (
-                    <span className="flex items-center gap-1 text-[11px] font-medium text-sky-400/80 px-2 py-1 shrink-0">
-                      <ShieldCheck className="h-3.5 w-3.5 text-sky-400" />
-                      <span>Leadership</span>
-                    </span>
-                  )}
-
-                  {/* Remove user button */}
                   <button
                     type="button"
                     onClick={() => setConfirmRemoveUser(inv)}
@@ -447,85 +296,6 @@ export function InviteManager() {
           </div>
         )}
       </div>
-
-      {/* Password Reset Result Modal */}
-      {resetResultModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl border border-command-border bg-slate-900 p-6 shadow-2xl space-y-4">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400">
-                  <KeyRound className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-command-ink">Password Reset Ready</h3>
-                  <p className="text-xs text-command-muted">Direct reset credentials for {resetResultModal.email}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setResetResultModal(null)}
-                className="text-command-muted hover:text-command-ink p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="rounded-xl border border-sky-900/40 bg-sky-950/25 p-4 text-xs text-sky-200/90 leading-relaxed space-y-2">
-              <p className="flex items-center gap-1.5 text-sky-300 font-semibold">
-                <CheckCircle2 className="h-4 w-4 text-sky-400 shrink-0" />
-                <span>
-                  {resetResultModal.emailSent
-                    ? "Password reset email dispatched successfully!"
-                    : "Password reset link generated."}
-                </span>
-              </p>
-              <p className="text-command-soft">
-                An email was sent to <strong className="text-white">{resetResultModal.email}</strong>. If the user cannot find the email or is waiting on a phone, you can also copy and share the direct reset link below:
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-command-soft block">Direct Reset Link</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={resetResultModal.resetUrl}
-                  className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-command-border text-xs text-command-ink font-mono select-all focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(resetResultModal.resetUrl)}
-                  className="px-3 py-2 rounded-lg bg-command-accent text-slate-900 font-bold text-xs flex items-center gap-1 shrink-0 hover:bg-command-accent/90 transition-colors cursor-pointer"
-                >
-                  {copiedUrl === resetResultModal.resetUrl ? (
-                    <>
-                      <Check className="h-3.5 w-3.5" />
-                      <span>Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3.5 w-3.5" />
-                      <span>Copy Link</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setResetResultModal(null)}
-                className="px-4 py-2 text-xs font-semibold rounded-lg bg-white/[0.08] hover:bg-white/[0.12] text-command-ink transition-colors cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Account Removal Confirmation Modal */}
       {confirmRemoveUser && (
