@@ -151,4 +151,58 @@ describe("Real Database & Invitation Authentication", () => {
     const reInviteJson = await reInviteRes.json();
     expect(reInviteJson.error).toContain("already exists");
   });
+
+  it("handles password reset lifecycle: forgot -> verify token -> reset -> authenticate", async () => {
+    const { signPasswordResetToken, verifyPasswordResetToken } = await import("../src/server/auth/session");
+    const { POST: forgotPOST } = await import("../src/app/api/auth/forgot-password/route");
+    const { GET: resetGET, POST: resetPOST } = await import("../src/app/api/auth/reset-password/route");
+
+    // Ensure user exists (we know nate@utahcity.com exists from baseline)
+    const resetEmail = "nate@utahcity.com";
+
+    // 1. POST /api/auth/forgot-password
+    const forgotReq = new Request("https://demo.utahcity.com/api/auth/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: resetEmail }),
+    });
+    const forgotRes = await forgotPOST(forgotReq);
+    expect(forgotRes.status).toBe(200);
+    const forgotJson = await forgotRes.json();
+    expect(forgotJson.success).toBe(true);
+
+    // 2. Generate token directly and test verification
+    const token = await signPasswordResetToken({ email: resetEmail });
+    expect(token.startsWith("reset_")).toBe(true);
+
+    const verified = await verifyPasswordResetToken(token);
+    expect(verified).not.toBeNull();
+    expect(verified?.email).toBe(resetEmail);
+
+    // 3. GET /api/auth/reset-password?token=...
+    const getResetReq = new Request(`https://demo.utahcity.com/api/auth/reset-password?token=${token}`);
+    const getResetRes = await resetGET(getResetReq);
+    expect(getResetRes.status).toBe(200);
+    const getResetJson = await getResetRes.json();
+    expect(getResetJson.email).toBe(resetEmail);
+    expect(getResetJson.valid).toBe(true);
+
+    // 4. POST /api/auth/reset-password updates password
+    const newPassword = "BrandNewPassword2026!";
+    const postResetReq = new Request("https://demo.utahcity.com/api/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, password: newPassword }),
+    });
+    const postResetRes = await resetPOST(postResetReq);
+    expect(postResetRes.status).toBe(200);
+    const postResetJson = await postResetRes.json();
+    expect(postResetJson.success).toBe(true);
+
+    // 5. Verify authentication succeeds with the new password
+    const authResult = await verifyUserCredentials(resetEmail, newPassword);
+    expect(authResult).not.toBeNull();
+    expect(authResult?.email).toBe(resetEmail);
+  });
 });
+

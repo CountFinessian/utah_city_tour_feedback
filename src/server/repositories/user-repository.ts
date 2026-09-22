@@ -517,6 +517,43 @@ export async function updateUserRole(
   return { userUpdated, inviteUpdated };
 }
 
+export async function updateUserPassword(
+  email: string,
+  passwordHash: string,
+  passwordSalt: string
+): Promise<boolean> {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (isDbConfigured()) {
+    await ensureUserSchema();
+    return await runDbQuery(async (sql) => {
+      const res = await sql`
+        UPDATE users
+        SET password_hash = ${passwordHash},
+            password_salt = ${passwordSalt},
+            updated_at = NOW()
+        WHERE LOWER(email) = ${normalizedEmail}
+        RETURNING id;
+      `;
+      return res.length > 0;
+    });
+  }
+
+  // Pure offline mode
+  await loadFromFile();
+  let updated = false;
+  for (const user of memoryUsers.values()) {
+    if (user.email.toLowerCase().trim() === normalizedEmail) {
+      user.passwordHash = passwordHash;
+      user.passwordSalt = passwordSalt;
+      updated = true;
+    }
+  }
+
+  if (updated) persistUsersToFile().catch(() => {});
+  return updated;
+}
+
 export async function deleteUserAndInvitation(
   email: string
 ): Promise<{ userDeleted: boolean; inviteDeleted: boolean }> {
