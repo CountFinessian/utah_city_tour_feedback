@@ -58,8 +58,21 @@ export async function sendInvitationEmail({
     </p>
 
     <div style="margin:28px 0;">
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${setupUrl}" style="height:44px;v-text-anchor:middle;width:220px;" arcsize="14%" stroke="f" fillcolor="#111827">
+        <w:anchorlock/>
+        <center style="color:#ffffff;font-family:sans-serif;font-size:14px;font-weight:bold;">Set Up Your Account &rarr;</center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-->
       <a href="${setupUrl}" style="background-color:#111827;color:#ffffff;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;display:inline-block;">Set Up Your Account &rarr;</a>
+      <!--<![endif]-->
     </div>
+
+    <p style="font-size:13px;color:#6b7280;margin:20px 0 0 0;line-height:1.5;">
+      If the button above does not work in your email client, copy and paste this link into your browser:<br />
+      <a href="${setupUrl}" style="color:#0284c7;text-decoration:underline;word-break:break-all;">${setupUrl}</a>
+    </p>
 
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0 20px 0;" />
     

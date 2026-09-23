@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { UserPlus, Check, AlertCircle, Trash2, X, Mail } from "lucide-react";
+import { UserPlus, Check, AlertCircle, Trash2, X, Copy } from "lucide-react";
 
 type InviteItem = {
   email: string;
@@ -17,9 +17,10 @@ export function InviteManager() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"host" | "leader">("host");
   const [submitting, setSubmitting] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
-  const [resendingEmail, setResendingEmail] = useState<string | null>(null);
+  const [createdUrl, setCreatedUrl] = useState<string | null>(null);
   const [confirmRemoveUser, setConfirmRemoveUser] = useState<InviteItem | null>(null);
   const [removing, setRemoving] = useState(false);
 
@@ -43,6 +44,12 @@ export function InviteManager() {
     loadInvites();
   }, []);
 
+  function copyToClipboard(url: string) {
+    navigator.clipboard.writeText(url);
+    setCopiedUrl(url);
+    setTimeout(() => setCopiedUrl(null), 2500);
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
@@ -50,6 +57,7 @@ export function InviteManager() {
     setSubmitting(true);
     setError(null);
     setEmailNotice(null);
+    setCreatedUrl(null);
 
     try {
       const res = await fetch("/api/auth/invite", {
@@ -66,12 +74,12 @@ export function InviteManager() {
         return;
       }
 
+      setCreatedUrl(data.setupUrl || null);
+
       if (data.emailSent) {
-        setEmailNotice(`Invitation email successfully dispatched to ${email.trim()}!`);
-      } else if (data.emailError) {
-        setEmailNotice(`Account setup created. Email notice: ${data.emailError}`);
+        setEmailNotice(`Invitation email dispatched to ${email.trim()}. You can also copy the link below:`);
       } else {
-        setEmailNotice(`Invitation created for ${email.trim()}.`);
+        setEmailNotice(`Account setup link generated for ${email.trim()}:`);
       }
 
       if (data.invite) {
@@ -93,30 +101,6 @@ export function InviteManager() {
       setError("Network error creating invitation");
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function handleResendSetup(targetEmail: string) {
-    setResendingEmail(targetEmail);
-    setError(null);
-    setEmailNotice(null);
-    try {
-      const res = await fetch("/api/auth/resend-invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: targetEmail, action: "resend-setup" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to resend setup invitation.");
-        return;
-      }
-      setEmailNotice(data.message || `Account setup email resent to ${targetEmail}!`);
-      loadInvites();
-    } catch {
-      setError("Network error resending setup invitation.");
-    } finally {
-      setResendingEmail(null);
     }
   }
 
@@ -159,9 +143,38 @@ export function InviteManager() {
         )}
 
         {emailNotice && (
-          <div className="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/50 text-emerald-200 text-xs flex items-center gap-2">
-            <Check className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-emerald-300">{emailNotice}</span>
+          <div className="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/50 text-emerald-200 text-xs space-y-2">
+            <div className="flex items-center gap-2">
+              <Check className="h-4 w-4 text-emerald-400 shrink-0" />
+              <span className="font-semibold text-emerald-300">{emailNotice}</span>
+            </div>
+            {createdUrl && (
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="text"
+                  readOnly
+                  value={createdUrl}
+                  className="w-full px-2.5 py-1 rounded bg-black/40 border border-emerald-800/60 text-[11px] font-mono text-emerald-100 select-all focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(createdUrl)}
+                  className="px-2.5 py-1 rounded bg-command-accent text-slate-900 font-bold text-[11px] flex items-center gap-1 shrink-0 hover:bg-command-accent/90 transition-colors cursor-pointer"
+                >
+                  {copiedUrl === createdUrl ? (
+                    <>
+                      <Check className="h-3 w-3" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3" />
+                      <span>Copy Link</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -268,16 +281,24 @@ export function InviteManager() {
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  {!inv.claimed && (
+                  {!inv.claimed && inv.setupUrl && (
                     <button
                       type="button"
-                      onClick={() => handleResendSetup(inv.email)}
-                      disabled={resendingEmail === inv.email}
-                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-command-border hover:border-command-accent text-command-soft hover:text-command-ink transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
-                      title={`Resend account setup email to ${inv.email}`}
+                      onClick={() => copyToClipboard(inv.setupUrl)}
+                      className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-command-border hover:border-command-accent text-command-soft hover:text-command-ink transition-colors shrink-0 cursor-pointer"
+                      title="Copy setup account link to clipboard to send via personal email"
                     >
-                      <Mail className="h-3.5 w-3.5 text-command-accent" />
-                      <span>{resendingEmail === inv.email ? "Sending..." : "Resend Invite"}</span>
+                      {copiedUrl === inv.setupUrl ? (
+                        <>
+                          <Check className="h-3.5 w-3.5 text-emerald-400" />
+                          <span className="text-emerald-400 font-medium">Copied Link!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3.5 w-3.5 text-command-accent" />
+                          <span>Copy Setup Link</span>
+                        </>
+                      )}
                     </button>
                   )}
 
