@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -18,6 +18,13 @@ export const metadata: Metadata = {
   title: "Utah City — Operational Intelligence",
   description:
     "Capture operational reality across the resident journey and turn it into structured intelligence for Utah City leadership.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

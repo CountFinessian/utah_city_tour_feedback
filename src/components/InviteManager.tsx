@@ -78,6 +78,8 @@ export function InviteManager() {
 
       if (data.emailSent) {
         setEmailNotice(`Invitation email dispatched to ${email.trim()}. You can also copy the link below:`);
+      } else if (data.emailError) {
+        setEmailNotice(`Account setup link generated for ${email.trim()}:`);
       } else {
         setEmailNotice(`Account setup link generated for ${email.trim()}:`);
       }
@@ -103,6 +105,7 @@ export function InviteManager() {
       setSubmitting(false);
     }
   }
+
 
   async function handleRemoveUser(targetEmail: string) {
     setRemoving(true);

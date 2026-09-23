@@ -38,7 +38,15 @@ export function Recorder({
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      // Detect best audio format: prefer webm/opus (Chrome/Android), fall back to mp4 (Safari/iOS WKWebView)
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : undefined;
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       chunksRef.current = [];
       startTimeRef.current = Date.now();
       recorder.ondataavailable = (e) => {
@@ -54,7 +62,8 @@ export function Recorder({
           setPhase("idle");
           return;
         }
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        const detectedType = recorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type: detectedType });
         await handleBlob(blob);
       };
       recorder.start();
@@ -63,7 +72,13 @@ export function Recorder({
       setSeconds(0);
       timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     } catch {
-      setNote("Microphone permission denied. Type your debrief below.");
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (typeof (window as unknown as Record<string, unknown>).Capacitor !== "undefined");
+      setNote(
+        isIOS
+          ? "Microphone permission denied. Open Settings → Utah City → Microphone to enable, or type your debrief below."
+          : "Microphone permission denied. Type your debrief below."
+      );
       setPhase("idle");
     }
   }
@@ -85,7 +100,8 @@ export function Recorder({
       setPhase("transcribing");
       try {
         const fd = new FormData();
-        fd.append("audio", blob, "debrief.webm");
+        const ext = blob.type.includes("mp4") ? "m4a" : "webm";
+        fd.append("audio", blob, `debrief.${ext}`);
         const res = await fetch("/api/transcribe", { method: "POST", body: fd });
         const json = await res.json();
         const text = (json.text as string | undefined)?.trim();

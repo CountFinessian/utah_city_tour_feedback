@@ -1309,7 +1309,7 @@ select {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1.15rem 1.25rem 0.9rem;
+    padding: max(1.15rem, env(safe-area-inset-top)) 1.25rem 0.9rem;
   }
 
   .mobile-app-header h1 {
@@ -1462,7 +1462,7 @@ select {
     margin: 0 -1rem -1rem;
     border-top: 1px solid var(--mobile-border);
     background: rgba(7, 11, 18, 0.88);
-    padding: 0.8rem 1rem 1rem;
+    padding: 0.8rem 1rem max(1rem, env(safe-area-inset-bottom));
     backdrop-filter: blur(16px);
   }
 

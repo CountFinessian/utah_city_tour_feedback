@@ -1,0 +1,57 @@
+name: Build & Deploy iOS to TestFlight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "www/**"
+      - "ios/**"
+      - "capacitor.config.ts"
+      - "package.json"
+      - ".github/workflows/deploy-ios.yml"
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build iOS & Upload to TestFlight
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
+
+      - name: Setup Ruby for Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: ios/App
+
+      - name: Install CocoaPods
+        working-directory: ios/App
+        run: pod install
+
+      - name: Build and Deploy to TestFlight
+        working-directory: ios/App
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+        run: bundle exec fastlane beta
+

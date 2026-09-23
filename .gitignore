@@ -53,3 +53,13 @@ next-env.d.ts
 
 # local admin & seed scripts
 scripts/
+
+# iOS / Capacitor
+ios/App/Pods/
+ios/App/build/
+ios/App/DerivedData/
+ios/App/App/public/
+ios/App/*.xcworkspace/xcuserdata/
+ios/App/*.xcodeproj/xcuserdata/
+*.ipa
+

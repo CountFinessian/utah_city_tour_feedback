@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Utah City</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #070b12;
+      color: #e8eef7;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      min-height: 100dvh;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    .splash {
+      text-align: center;
+      animation: fadeIn 0.4s ease-out;
+    }
+    .splash h1 {
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #8190a6;
+      margin-bottom: 8px;
+    }
+    .splash p {
+      font-size: 14px;
+      color: #8190a6;
+    }
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid #293852;
+      border-top-color: #41d7c7;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 16px auto 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <div class="splash">
+    <h1>Utah City</h1>
+    <p>Loading&hellip;</p>
+    <div class="spinner"></div>
+  </div>
+</body>
+</html>
+
