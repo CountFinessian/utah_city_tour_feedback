@@ -1,4 +1,4 @@
-name: Build & Deploy iOS to TestFlight
+name: Build & Deploy iOS to App Store
 
 on:
   push:
@@ -11,6 +11,15 @@ on:
       - "package.json"
       - ".github/workflows/deploy-ios.yml"
   workflow_dispatch:
+    inputs:
+      lane:
+        description: "Fastlane deployment target"
+        required: true
+        default: "release"
+        type: choice
+        options:
+          - release
+          - beta
 
 jobs:
   build-ios:
@@ -53,5 +62,5 @@ jobs:
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-        run: bundle exec fastlane beta
+        run: bundle exec fastlane ${{ inputs.lane || 'release' }}
 
