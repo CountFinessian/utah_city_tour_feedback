@@ -1,17 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { Loader2, Mic, Square } from "lucide-react";
 import { transcribeBlob, type WhisperProgress } from "@/lib/whisper-client";
 
 type Phase = "idle" | "recording" | "loading" | "transcribing";
 
-export function Recorder({
-  onText,
-  serverAsr = true,
-  variant = "compact",
-}: {
 export interface RecorderRef {
   start: () => Promise<void>;
   stop: () => void;
@@ -21,7 +15,6 @@ export interface RecorderProps {
   onText: (text: string) => void;
   serverAsr?: boolean;
   variant?: "compact" | "card";
-}) {
   onBeforeRecord?: () => boolean;
 }
 
@@ -296,5 +289,4 @@ export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder
       )}
     </div>
   );
-}
 });

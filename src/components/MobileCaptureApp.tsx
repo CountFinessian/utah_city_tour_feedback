@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -21,7 +20,6 @@ import {
   Sparkles,
   Mic,
 } from "lucide-react";
-import { Recorder } from "./Recorder";
 import { Recorder, type RecorderRef } from "./Recorder";
 import { amenityLabel, objectionLabel, type Observation } from "@/domain/observation";
 
@@ -319,14 +317,6 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                   <span>{currentUser.name.trim().split(" ")[0]}</span>
                 </button>
               )}
-              {currentUser?.role === "leader" && (
-                <Link
-                  href="/settings"
-                  className="text-[11px] font-semibold px-2 py-1 rounded-md bg-white/[0.06] hover:bg-white/10 text-slate-300 border border-white/10 transition-colors flex items-center h-7"
-                >
-                  Settings
-                </Link>
-              )}
               <button
                 onClick={handleLogout}
                 title="Sign out of workspace"
@@ -364,7 +354,6 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                 onProspectLastName={setProspectLastName}
                 onProspectEmail={setProspectEmail}
                 onContextOpen={() => setContextOpen((value) => !value)}
-                onSubmit={() => void submit(transcript.trim())}
                 recorderRef={recorderRef}
                 onBeforeRecord={() => requestConsent("record")}
                 onSubmit={() => {
@@ -437,9 +426,6 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                       <Sparkles className="h-4 w-4" />
                       <span>AI Voice & Analysis Consent</span>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
-                      Active
-                    </span>
                     {hasConsent ? (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
                         Consent Active
@@ -634,7 +620,6 @@ function CaptureScreen({
     <div className="space-y-4 pb-24">
       {/* 1. Voice debrief stage */}
       <section className="mobile-card mobile-voice-card">
-        <Recorder variant="card" serverAsr={serverAsr} onText={onText} />
         <Recorder
           ref={recorderRef}
           variant="card"
