@@ -11,7 +11,8 @@ platform :ios do
       is_key_content_base64: true
     )
 
-    app_id = ENV["APP_IDENTIFIER"] || "com.utahcity.host"
+    raw_id = ENV["APP_IDENTIFIER"].to_s.strip
+    app_id = raw_id.empty? ? "com.utahcity.host" : raw_id
 
     # Fetch matching App Store Provisioning Profile
     get_provisioning_profile(
@@ -53,7 +54,8 @@ platform :ios do
       is_key_content_base64: true
     )
 
-    app_id = ENV["APP_IDENTIFIER"] || "com.utahcity.host"
+    raw_id = ENV["APP_IDENTIFIER"].to_s.strip
+    app_id = raw_id.empty? ? "com.utahcity.host" : raw_id
 
     get_provisioning_profile(
       api_key: api_key,

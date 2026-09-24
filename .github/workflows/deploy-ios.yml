@@ -64,13 +64,17 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "ci_password" "$KEYCHAIN_PATH" || true
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
+          # Install Provisioning Profile directly for Xcode
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp ios/App/certs/AppStore_com.utahcity.host.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/3d4d804d-af86-4056-923b-a49fc3103e2d.mobileprovision"
+
       - name: Build and Deploy to App Store
         working-directory: ios/App
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-          APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
+          APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER || 'com.utahcity.host' }}
           CI_KEYCHAIN_PATH: /Users/runner/Library/Keychains/ci_keychain.keychain-db
           CI_KEYCHAIN_PASSWORD: ci_password
           TARGET_LANE: ${{ inputs.lane }}
