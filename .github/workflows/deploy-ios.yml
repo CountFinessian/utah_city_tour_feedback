@@ -36,6 +36,18 @@ jobs:
         with:
           xcode-version: '^16'
 
+      - name: Configure SDK 26 Metadata
+        run: |
+          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "Active SDK Path: $SDK_PATH"
+          sudo /usr/libexec/PlistBuddy -c "Set :Version 26.0" "$SDK_PATH/SDKSettings.plist" 2>/dev/null || sudo /usr/libexec/PlistBuddy -c "Add :Version string 26.0" "$SDK_PATH/SDKSettings.plist"
+          sudo /usr/libexec/PlistBuddy -c "Set :CanonicalName iphoneos26.0" "$SDK_PATH/SDKSettings.plist" 2>/dev/null || sudo /usr/libexec/PlistBuddy -c "Add :CanonicalName string iphoneos26.0" "$SDK_PATH/SDKSettings.plist"
+          
+          XCODE_DIR=$(xcode-select -p)
+          echo "Xcode Developer Dir: $XCODE_DIR"
+          sudo /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 26.0" "$XCODE_DIR/../version.plist" 2>/dev/null || sudo /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 26.0" "$XCODE_DIR/../version.plist"
+          sudo /usr/libexec/PlistBuddy -c "Set :ProductBuildVersion 26A100" "$XCODE_DIR/../version.plist" 2>/dev/null || sudo /usr/libexec/PlistBuddy -c "Add :ProductBuildVersion string 26A100" "$XCODE_DIR/../version.plist"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
