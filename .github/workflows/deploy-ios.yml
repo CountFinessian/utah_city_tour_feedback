@@ -46,10 +46,9 @@ jobs:
       - name: Setup Ruby for Fastlane
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.2"
+          ruby-version: "3.3"
           bundler-cache: true
           working-directory: ios/App
-
 
       - name: Build and Deploy to App Store
         working-directory: ios/App
