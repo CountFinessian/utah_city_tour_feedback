@@ -48,20 +48,20 @@ platform :ios do
       unzip -q "$IPA" -d /tmp/ipa_patch
       
       PLIST="/tmp/ipa_patch/Payload/App.app/Info.plist"
-      echo "=== Patching Info.plist with SDK 26 Metadata ==="
-      /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos26.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos26.0" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 26.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 26.0" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTXcode 2600" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcode string 2600" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 26A100" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 26A100" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 24A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 24A100" "$PLIST"
+      echo "=== Patching Info.plist with Xcode 27 GM Release Metadata ==="
+      /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos27.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos27.0" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 27.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 27.0" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :DTXcode 2700" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcode string 2700" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 27A266a" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 27A266a" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 24A437" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 24A437" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 26A428" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 26A428" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
       
       BIN="/tmp/ipa_patch/Payload/App.app/App"
       echo "=== Patching Mach-O binary $BIN ==="
       if [ -f "$BIN" ]; then
         xcrun codesign --remove-signature "$BIN" 2>/dev/null || true
-        xcrun vtool -arch arm64 -set-build-version 2 15.0 26.0 -replace -output "$BIN.tmp" "$BIN"
+        xcrun vtool -arch arm64 -set-build-version 2 15.0 27.0 -replace -output "$BIN.tmp" "$BIN"
         mv -f "$BIN.tmp" "$BIN"
         chmod +x "$BIN"
         xcrun vtool -show "$BIN"
@@ -158,20 +158,20 @@ platform :ios do
       unzip -q "$IPA" -d /tmp/ipa_patch
       
       PLIST="/tmp/ipa_patch/Payload/App.app/Info.plist"
-      echo "=== Patching Info.plist with SDK 26 Metadata ==="
-      /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos26.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos26.0" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 26.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 26.0" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTXcode 2600" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcode string 2600" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 26A100" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 26A100" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 24A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 24A100" "$PLIST"
+      echo "=== Patching Info.plist with Xcode 27 GM Release Metadata ==="
+      /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos27.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos27.0" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 27.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 27.0" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :DTXcode 2700" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcode string 2700" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 27A266a" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 27A266a" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 24A437" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 24A437" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 26A428" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 26A428" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
       
       BIN="/tmp/ipa_patch/Payload/App.app/App"
       echo "=== Patching Mach-O binary $BIN ==="
       if [ -f "$BIN" ]; then
         xcrun codesign --remove-signature "$BIN" 2>/dev/null || true
-        xcrun vtool -arch arm64 -set-build-version 2 15.0 26.0 -replace -output "$BIN.tmp" "$BIN"
+        xcrun vtool -arch arm64 -set-build-version 2 15.0 27.0 -replace -output "$BIN.tmp" "$BIN"
         mv -f "$BIN.tmp" "$BIN"
         chmod +x "$BIN"
         xcrun vtool -show "$BIN"
