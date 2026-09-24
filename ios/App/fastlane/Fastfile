@@ -36,72 +36,7 @@ platform :ios do
     )
 
     ipa_path = lane_context[SharedValues::IPA_OUTPUT_PATH] || File.expand_path("./build/UtahCity.ipa")
-    UI.message("Original IPA path: #{ipa_path}")
-
-    # Patch IPA Info.plist and Mach-O binary to satisfy App Store Connect requirements
-    sh <<-SHELL
-      set -e
-      IPA="#{ipa_path}"
-      echo "=== Processing IPA: $IPA ==="
-      rm -rf /tmp/ipa_patch
-      mkdir -p /tmp/ipa_patch
-      unzip -q "$IPA" -d /tmp/ipa_patch
-      
-      PLIST="/tmp/ipa_patch/Payload/App.app/Info.plist"
-      echo "=== Patching Info.plist with Xcode 27 GM Release Metadata ==="
-      /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos27.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos27.0" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 27.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 27.0" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTXcode 2700" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcode string 2700" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 27A266a" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 27A266a" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 24A437" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 24A437" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 26A428" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 26A428" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
-      
-      # Enforce iPhone-only device family (1) so iPad screenshots are not requested
-      /usr/libexec/PlistBuddy -c "Delete :UIDeviceFamily" "$PLIST" 2>/dev/null || true
-      /usr/libexec/PlistBuddy -c "Add :UIDeviceFamily array" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Add :UIDeviceFamily:0 integer 1" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" "$PLIST" 2>/dev/null || true
-      
-      BIN="/tmp/ipa_patch/Payload/App.app/App"
-      echo "=== Patching Mach-O binary $BIN ==="
-      if [ -f "$BIN" ]; then
-        xcrun codesign --remove-signature "$BIN" 2>/dev/null || true
-        xcrun vtool -arch arm64 -set-build-version 2 15.0 27.0 -replace -output "$BIN.tmp" "$BIN"
-        mv -f "$BIN.tmp" "$BIN"
-        chmod +x "$BIN"
-        xcrun vtool -show "$BIN"
-      fi
-
-      KEYCHAIN="$HOME/Library/Keychains/ci_keychain.keychain-db"
-      SIGN_ID=$(security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep "Apple Distribution" | head -n 1 | awk -F'"' '{print $2}')
-      if [ -z "$SIGN_ID" ]; then
-        SIGN_ID="Apple Distribution: Jacob Williams (P9BDC2B2V9)"
-      fi
-      echo "=== Using Signing Identity: $SIGN_ID ==="
-
-      echo "=== Extracting Entitlements from Provisioning Profile ==="
-      security cms -D -i /tmp/ipa_patch/Payload/App.app/embedded.mobileprovision > /tmp/profile.plist
-      /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' /tmp/profile.plist > /tmp/entitlements.plist
-      echo "Extracted entitlements:"
-      cat /tmp/entitlements.plist
-
-      echo "=== Re-signing Frameworks and Application ==="
-      find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none {} + 2>/dev/null || true
-      codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --entitlements /tmp/entitlements.plist --timestamp=none /tmp/ipa_patch/Payload/App.app
-      codesign -vvv /tmp/ipa_patch/Payload/App.app
-      echo "Embedded entitlements verification:"
-      codesign -d --entitlements - /tmp/ipa_patch/Payload/App.app
-
-      echo "=== Re-zipping $IPA ==="
-      rm -f "$IPA"
-      cd /tmp/ipa_patch && zip -qr "$IPA" Payload
-      rm -rf /tmp/ipa_patch
-      echo "=== Repackaging Complete ==="
-    SHELL
-
-    Actions.lane_context[SharedValues::XCODEBUILD_ARCHIVE] = nil
-    Actions.lane_context[SharedValues::IPA_OUTPUT_PATH] = ipa_path
+    UI.message("Release IPA built successfully: #{ipa_path}")
 
     upload_to_app_store(
       api_key: api_key,
@@ -152,72 +87,7 @@ platform :ios do
     )
 
     ipa_path = lane_context[SharedValues::IPA_OUTPUT_PATH] || File.expand_path("./build/UtahCity.ipa")
-    UI.message("Original IPA path: #{ipa_path}")
-
-    # Patch IPA Info.plist and Mach-O binary to satisfy App Store Connect requirements
-    sh <<-SHELL
-      set -e
-      IPA="#{ipa_path}"
-      echo "=== Processing IPA: $IPA ==="
-      rm -rf /tmp/ipa_patch
-      mkdir -p /tmp/ipa_patch
-      unzip -q "$IPA" -d /tmp/ipa_patch
-      
-      PLIST="/tmp/ipa_patch/Payload/App.app/Info.plist"
-      echo "=== Patching Info.plist with Xcode 27 GM Release Metadata ==="
-      /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos27.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos27.0" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 27.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 27.0" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTXcode 2700" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcode string 2700" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 27A266a" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 27A266a" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 24A437" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 24A437" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 26A428" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 26A428" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
-      
-      # Enforce iPhone-only device family (1) so iPad screenshots are not requested
-      /usr/libexec/PlistBuddy -c "Delete :UIDeviceFamily" "$PLIST" 2>/dev/null || true
-      /usr/libexec/PlistBuddy -c "Add :UIDeviceFamily array" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Add :UIDeviceFamily:0 integer 1" "$PLIST"
-      /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" "$PLIST" 2>/dev/null || true
-      
-      BIN="/tmp/ipa_patch/Payload/App.app/App"
-      echo "=== Patching Mach-O binary $BIN ==="
-      if [ -f "$BIN" ]; then
-        xcrun codesign --remove-signature "$BIN" 2>/dev/null || true
-        xcrun vtool -arch arm64 -set-build-version 2 15.0 27.0 -replace -output "$BIN.tmp" "$BIN"
-        mv -f "$BIN.tmp" "$BIN"
-        chmod +x "$BIN"
-        xcrun vtool -show "$BIN"
-      fi
-
-      KEYCHAIN="$HOME/Library/Keychains/ci_keychain.keychain-db"
-      SIGN_ID=$(security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep "Apple Distribution" | head -n 1 | awk -F'"' '{print $2}')
-      if [ -z "$SIGN_ID" ]; then
-        SIGN_ID="Apple Distribution: Jacob Williams (P9BDC2B2V9)"
-      fi
-      echo "=== Using Signing Identity: $SIGN_ID ==="
-
-      echo "=== Extracting Entitlements from Provisioning Profile ==="
-      security cms -D -i /tmp/ipa_patch/Payload/App.app/embedded.mobileprovision > /tmp/profile.plist
-      /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' /tmp/profile.plist > /tmp/entitlements.plist
-      echo "Extracted entitlements:"
-      cat /tmp/entitlements.plist
-
-      echo "=== Re-signing Frameworks and Application ==="
-      find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none {} + 2>/dev/null || true
-      codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --entitlements /tmp/entitlements.plist --timestamp=none /tmp/ipa_patch/Payload/App.app
-      codesign -vvv /tmp/ipa_patch/Payload/App.app
-      echo "Embedded entitlements verification:"
-      codesign -d --entitlements - /tmp/ipa_patch/Payload/App.app
-
-      echo "=== Re-zipping $IPA ==="
-      rm -f "$IPA"
-      cd /tmp/ipa_patch && zip -qr "$IPA" Payload
-      rm -rf /tmp/ipa_patch
-      echo "=== Repackaging Complete ==="
-    SHELL
-
-    Actions.lane_context[SharedValues::XCODEBUILD_ARCHIVE] = nil
-    Actions.lane_context[SharedValues::IPA_OUTPUT_PATH] = ipa_path
+    UI.message("Beta IPA built successfully: #{ipa_path}")
 
     upload_to_testflight(
       api_key: api_key,
