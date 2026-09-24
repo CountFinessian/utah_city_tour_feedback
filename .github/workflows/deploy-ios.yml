@@ -50,9 +50,6 @@ jobs:
           bundler-cache: true
           working-directory: ios/App
 
-      - name: Install CocoaPods
-        working-directory: ios/App
-        run: pod install
 
       - name: Build and Deploy to App Store
         working-directory: ios/App
