@@ -7,7 +7,6 @@ platform :ios do
     keychain_name = "ci_keychain"
     keychain_password = "fastlane_password"
 
-    # Create and unlock a dedicated CI keychain to prevent permission popups
     create_keychain(
       name: keychain_name,
       password: keychain_password,
@@ -28,14 +27,12 @@ platform :ios do
 
     app_id = ENV["APP_IDENTIFIER"] || "com.utahcity.host"
 
-    # Fetch or generate Distribution Certificate into the unlocked CI keychain
     get_certificates(
       api_key: api_key,
       keychain_path: keychain_path,
       keychain_password: keychain_password
     )
 
-    # Fetch or generate App Store Provisioning Profile
     get_provisioning_profile(
       api_key: api_key,
       app_identifier: app_id

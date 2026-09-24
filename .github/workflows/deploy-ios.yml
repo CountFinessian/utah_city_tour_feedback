@@ -57,5 +57,9 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
-        run: bundle exec fastlane ${{ inputs.lane || 'release' }}
+          TARGET_LANE: ${{ inputs.lane }}
+        run: |
+          LANE="${TARGET_LANE:-release}"
+          echo "Executing Fastlane lane: $LANE"
+          bundle exec fastlane $LANE
 

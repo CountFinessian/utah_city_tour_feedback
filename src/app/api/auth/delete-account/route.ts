@@ -41,3 +41,4 @@ export async function POST() {
     return NextResponse.json({ error: `Database error: ${message}` }, { status: 500 });
   }
 }
+
