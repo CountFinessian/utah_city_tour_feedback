@@ -206,7 +206,11 @@ function LoginForm() {
         <div className="p-4 rounded-xl bg-[#101827]/60 border border-[#26354c]/60 flex items-start gap-3 text-xs text-[#8292a8]">
           <Shield className="h-4 w-4 shrink-0 text-[#43d9c7] mt-0.5" />
           <p className="leading-relaxed">
-            Access is restricted to authorized Utah City hosts and leaders. If you received an invitation on your device, please open your setup link to create your credentials.
+            Access is restricted to authorized Utah City tour hosts and leaders. To request host access, contact your team administrator or visit our{" "}
+            <Link href="/support" className="text-[#43d9c7] hover:underline font-medium">
+              Support Center
+            </Link>{" "}
+            to request an account setup invitation.
           </p>
         </div>
 

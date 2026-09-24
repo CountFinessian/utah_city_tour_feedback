@@ -14,6 +14,10 @@ import {
   Plus,
   SkipForward,
   User,
+  Trash2,
+  X,
+  Shield,
+  Sparkles,
 } from "lucide-react";
 import { Recorder } from "./Recorder";
 import { amenityLabel, objectionLabel, type Observation } from "@/domain/observation";
@@ -50,6 +54,29 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   const [contextOpen, setContextOpen] = useState(false);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [skipFollowUp, setSkipFollowUp] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleDeleteAccount() {
+    setDeletingAccount(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/auth/delete-account", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteError(data.error || "Failed to delete account.");
+        setDeletingAccount(false);
+        return;
+      }
+      router.push("/login?deleted=true");
+      router.refresh();
+    } catch {
+      setDeleteError("Network error while deleting account.");
+      setDeletingAccount(false);
+    }
+  }
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -226,9 +253,15 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
             </div>
             <div className="flex items-center gap-2">
               {currentUser && (
-                <span className="text-[11px] px-2.5 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold flex items-center h-7">
-                  {currentUser.name.trim().split(" ")[0]}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAccountModal(true)}
+                  className="text-[11px] px-2.5 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold flex items-center gap-1.5 h-7 hover:bg-emerald-500/25 transition-colors cursor-pointer"
+                  title="Account settings & AI privacy"
+                >
+                  <User className="h-3 w-3" />
+                  <span>{currentUser.name.trim().split(" ")[0]}</span>
+                </button>
               )}
               {currentUser?.role === "leader" && (
                 <Link
@@ -297,6 +330,120 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
           {(notice || error) && (
             <div className={`mobile-toast ${error ? "mobile-toast-error" : ""}`}>
               {error || notice}
+            </div>
+          )}
+
+          {/* Account Settings & AI Privacy Modal */}
+          {showAccountModal && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-150">
+              <div className="w-full max-w-md rounded-2xl border border-[#26354c] bg-[#101827] p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-white/[0.04] border border-white/10 text-[#43d9c7]">
+                      <User className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white">Account & AI Privacy</h3>
+                      <p className="text-[11px] text-[#8292a8]">{currentUser?.email || "Host Account"}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAccountModal(false);
+                      setShowDeleteConfirm(false);
+                      setDeleteError(null);
+                    }}
+                    className="text-[#8292a8] hover:text-white p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {deleteError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span>{deleteError}</span>
+                  </div>
+                )}
+
+                {/* AI Consent Card */}
+                <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[#43d9c7] font-semibold">
+                      <Sparkles className="h-4 w-4" />
+                      <span>AI Voice & Analysis Consent</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+                      Active
+                    </span>
+                  </div>
+                  <p className="text-[#8292a8] text-[11px] leading-relaxed">
+                    Spoken tour audio is transcribed via automated AI speech recognition and synthesized into operational tour insights. Audio recordings are securely encrypted and are never sold or shared with external advertisers.
+                  </p>
+                </div>
+
+                {/* Legal Links */}
+                <div className="p-3 rounded-xl bg-white/[0.02] border border-white/10 flex items-center justify-between text-xs">
+                  <span className="text-[#8292a8]">Policies & Help</span>
+                  <div className="flex items-center gap-3">
+                    <Link href="/privacy" className="text-[#43d9c7] hover:underline">
+                      Privacy Policy
+                    </Link>
+                    <span className="text-[#26354c]">·</span>
+                    <Link href="/support" className="text-[#43d9c7] hover:underline">
+                      Support
+                    </Link>
+                  </div>
+                </div>
+
+                {/* In-App Account Deletion (Apple Guideline 5.1.1(v)) */}
+                <div className="pt-2 border-t border-white/10 space-y-3">
+                  {!showDeleteConfirm ? (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold text-white">Delete Account</p>
+                        <p className="text-[11px] text-[#8292a8]">Permanently remove your account & access</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-semibold transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>Delete Account</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 space-y-3">
+                      <div className="flex items-start gap-2 text-xs text-red-200">
+                        <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                        <p className="leading-relaxed">
+                          Are you sure you want to permanently delete your host account? This action is immediate and cannot be undone.
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowDeleteConfirm(false)}
+                          disabled={deletingAccount}
+                          className="px-3 py-1.5 rounded-lg border border-white/10 text-xs text-slate-300 hover:bg-white/5 transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteAccount}
+                          disabled={deletingAccount}
+                          className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {deletingAccount ? "Deleting..." : "Yes, Delete Account"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
