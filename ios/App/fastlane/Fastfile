@@ -30,7 +30,9 @@ platform :ios do
       export_method: "app-store",
       clean: true,
       output_directory: "./build",
-      output_name: "UtahCity.ipa"
+      output_name: "UtahCity.ipa",
+      export_team_id: "P9BDC2B2V9",
+      xcargs: "DEVELOPMENT_TEAM=P9BDC2B2V9"
     )
 
     upload_to_app_store(
@@ -72,7 +74,9 @@ platform :ios do
       export_method: "app-store",
       clean: true,
       output_directory: "./build",
-      output_name: "UtahCity.ipa"
+      output_name: "UtahCity.ipa",
+      export_team_id: "P9BDC2B2V9",
+      xcargs: "DEVELOPMENT_TEAM=P9BDC2B2V9"
     )
 
     upload_to_testflight(
