@@ -37,6 +37,7 @@ platform :ios do
 
     upload_to_app_store(
       api_key: api_key,
+      app_identifier: app_id,
       force: true,
       skip_screenshots: true,
       skip_metadata: true,
@@ -81,6 +82,7 @@ platform :ios do
 
     upload_to_testflight(
       api_key: api_key,
+      app_identifier: app_id,
       skip_waiting_for_build_processing: true
     )
   end
