@@ -34,7 +34,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: "npm"
 
       - name: Install dependencies
@@ -50,6 +50,9 @@ jobs:
           bundler-cache: true
           working-directory: ios/App
 
+      - name: Install CocoaPods
+        working-directory: ios/App
+        run: pod install
 
       - name: Build and Deploy to App Store
         working-directory: ios/App
