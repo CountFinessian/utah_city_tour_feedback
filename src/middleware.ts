@@ -24,6 +24,9 @@ const LEADERSHIP_APIS = [
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  const userAgent = req.headers.get("user-agent") || "";
+  const isMobile = /iPhone|iPad|iPod|Android|Mobile/i.test(userAgent);
+
   // 1. Allow public routes
   if (
     pathname === "/login" ||
@@ -38,11 +41,13 @@ export async function middleware(req: NextRequest) {
     pathname.includes(".") // static files: favicon.ico, images, etc.
   ) {
     // If visiting /login while already authenticated, redirect to role home
+    // If visiting /login while already authenticated, redirect to role home (or / if mobile)
     if (pathname === "/login") {
       const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
       const session = await verifySessionToken(token);
       if (session) {
         const dest = session.role === "host" ? "/" : "/command";
+        const dest = (session.role === "host" || isMobile) ? "/" : "/command";
         return NextResponse.redirect(new URL(dest, req.url));
       }
     }
@@ -65,8 +70,14 @@ export async function middleware(req: NextRequest) {
   }
 
   // 3. Enforce Role-Based Access Control
+  // 3. Enforce Role-Based Access Control and Mobile Surface Constraints
   const isLeadershipRoute = LEADERSHIP_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));
   const isLeadershipApi = LEADERSHIP_APIS.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+
+  // Mobile users (even leadership) are restricted to the streamlined capture screen
+  if (isMobile && isLeadershipRoute) {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
 
   if (session.role !== "leader") {
     if (isLeadershipRoute) {

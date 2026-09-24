@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { Loader2, Mic, Square } from "lucide-react";
 import { transcribeBlob, type WhisperProgress } from "@/lib/whisper-client";
 
@@ -11,10 +12,28 @@ export function Recorder({
   serverAsr = true,
   variant = "compact",
 }: {
+export interface RecorderRef {
+  start: () => Promise<void>;
+  stop: () => void;
+}
+
+export interface RecorderProps {
   onText: (text: string) => void;
   serverAsr?: boolean;
   variant?: "compact" | "card";
 }) {
+  onBeforeRecord?: () => boolean;
+}
+
+export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder(
+  {
+    onText,
+    serverAsr = true,
+    variant = "compact",
+    onBeforeRecord,
+  },
+  ref
+) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [seconds, setSeconds] = useState(0);
   const [dlPct, setDlPct] = useState<number | null>(null);
@@ -30,8 +49,16 @@ export function Recorder({
     timerRef.current = null;
   }
 
+  useImperativeHandle(ref, () => ({
+    start,
+    stop,
+  }));
+
   async function start() {
     setNote(null);
+    if (onBeforeRecord && !onBeforeRecord()) {
+      return;
+    }
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setNote("Voice input isn't available in this browser. Type your debrief below.");
       return;
@@ -270,3 +297,4 @@ export function Recorder({
     </div>
   );
 }
+});

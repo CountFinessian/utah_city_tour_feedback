@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -18,8 +19,10 @@ import {
   X,
   Shield,
   Sparkles,
+  Mic,
 } from "lucide-react";
 import { Recorder } from "./Recorder";
+import { Recorder, type RecorderRef } from "./Recorder";
 import { amenityLabel, objectionLabel, type Observation } from "@/domain/observation";
 
 type AppState = "capture" | "structuring" | "done" | "failed";
@@ -58,6 +61,59 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // One-time AI Consent Management (Apple App Store Guideline 5.1.2(i))
+  const AI_CONSENT_KEY = "uc_ai_consent_accepted";
+  const [hasConsent, setHasConsent] = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"record" | "submit" | null>(null);
+  const recorderRef = useRef<RecorderRef>(null);
+
+  useEffect(() => {
+    try {
+      const accepted = localStorage.getItem(AI_CONSENT_KEY) === "true";
+      setHasConsent(accepted);
+    } catch {}
+  }, []);
+
+  function requestConsent(action: "record" | "submit"): boolean {
+    if (hasConsent) return true;
+    setPendingAction(action);
+    setShowConsentModal(true);
+    return false;
+  }
+
+  function handleAcceptConsent() {
+    try {
+      localStorage.setItem(AI_CONSENT_KEY, "true");
+    } catch {}
+    setHasConsent(true);
+    setShowConsentModal(false);
+    const action = pendingAction;
+    setPendingAction(null);
+
+    if (action === "record") {
+      setTimeout(() => {
+        void recorderRef.current?.start();
+      }, 150);
+    } else if (action === "submit") {
+      void submit(transcript.trim());
+    }
+  }
+
+  function handleDeclineConsent() {
+    setShowConsentModal(false);
+    setPendingAction(null);
+    setNotice("AI consent is required before recording or analyzing debriefs with AI.");
+  }
+
+  function handleRevokeConsent() {
+    try {
+      localStorage.removeItem(AI_CONSENT_KEY);
+    } catch {}
+    setHasConsent(false);
+    setNotice("AI consent has been revoked. You will be prompted before future AI debrief actions.");
+  }
 
   async function handleDeleteAccount() {
     setDeletingAccount(true);
@@ -309,6 +365,13 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                 onProspectEmail={setProspectEmail}
                 onContextOpen={() => setContextOpen((value) => !value)}
                 onSubmit={() => void submit(transcript.trim())}
+                recorderRef={recorderRef}
+                onBeforeRecord={() => requestConsent("record")}
+                onSubmit={() => {
+                  if (requestConsent("submit")) {
+                    void submit(transcript.trim());
+                  }
+                }}
                 error={error}
                 onErrorClear={() => setError(null)}
               />
@@ -377,10 +440,40 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
                       Active
                     </span>
+                    {hasConsent ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+                        Consent Active
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                        Pending
+                      </span>
+                    )}
                   </div>
                   <p className="text-[#8292a8] text-[11px] leading-relaxed">
                     Spoken tour audio is transcribed via automated AI speech recognition and synthesized into operational tour insights. Audio recordings are securely encrypted and are never sold or shared with external advertisers.
                   </p>
+                  <div className="pt-1 flex items-center justify-between text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAccountModal(false);
+                        setShowConsentModal(true);
+                      }}
+                      className="text-[#43d9c7] hover:underline font-semibold"
+                    >
+                      Review AI terms
+                    </button>
+                    {hasConsent && (
+                      <button
+                        type="button"
+                        onClick={handleRevokeConsent}
+                        className="text-amber-400/80 hover:text-amber-300 hover:underline"
+                      >
+                        Revoke consent
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Legal Links */}
@@ -446,6 +539,13 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
               </div>
             </div>
           )}
+
+          {/* Explicit AI Consent Modal (Apple Guideline 5.1.2(i)) */}
+          <AiConsentModal
+            isOpen={showConsentModal}
+            onAccept={handleAcceptConsent}
+            onDecline={handleDeclineConsent}
+          />
         </div>
       </section>
     </div>
@@ -502,6 +602,8 @@ function CaptureScreen({
   onProspectEmail,
   onContextOpen,
   onSubmit,
+  recorderRef,
+  onBeforeRecord,
 }: {
   transcript: string;
   hostName: string;
@@ -523,6 +625,8 @@ function CaptureScreen({
   onProspectEmail: (value: string) => void;
   onContextOpen: () => void;
   onSubmit: () => void;
+  recorderRef?: React.RefObject<RecorderRef | null>;
+  onBeforeRecord?: () => boolean;
 }) {
   const prospectAssigned = Boolean(prospectFirstName.trim() || prospectLastName.trim() || prospectEmail.trim());
 
@@ -531,6 +635,13 @@ function CaptureScreen({
       {/* 1. Voice debrief stage */}
       <section className="mobile-card mobile-voice-card">
         <Recorder variant="card" serverAsr={serverAsr} onText={onText} />
+        <Recorder
+          ref={recorderRef}
+          variant="card"
+          serverAsr={serverAsr}
+          onText={onText}
+          onBeforeRecord={onBeforeRecord}
+        />
       </section>
 
       {/* 2. Transcript preview and notes */}
@@ -821,5 +932,110 @@ function MobileField({
         className="mobile-input mt-1.5"
       />
     </label>
+  );
+}
+
+function AiConsentModal({
+  isOpen,
+  onAccept,
+  onDecline,
+}: {
+  isOpen: boolean;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200">
+      <div className="w-full max-w-md rounded-2xl border border-[#26354c] bg-[#0c121e] p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2.5 rounded-xl bg-[#43d9c7]/10 border border-[#43d9c7]/20 text-[#43d9c7]">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">AI Voice & Analysis Consent</h3>
+              <p className="text-xs text-[#8292a8]">Required before submitting or recording debriefs</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onDecline}
+            className="text-[#8292a8] hover:text-white p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <p className="text-xs text-[#cad5e2] leading-relaxed">
+          Utah City uses automated artificial intelligence to help tour hosts capture and summarize visitor feedback quickly. To comply with Apple App Store privacy requirements (Guideline 5.1.2(i)), we ask for your explicit permission before transmitting debrief notes or voice audio to our AI processing services.
+        </p>
+
+        <div className="space-y-2.5 text-xs">
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 space-y-1">
+            <div className="flex items-center gap-2 font-semibold text-white">
+              <Mic className="h-3.5 w-3.5 text-[#43d9c7]" />
+              <span>Voice Speech Recognition</span>
+            </div>
+            <p className="text-[#8292a8] text-[11px] leading-relaxed">
+              When using microphone voice recording, spoken audio is sent to automated speech-to-text models to generate your written tour debrief transcript.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 space-y-1">
+            <div className="flex items-center gap-2 font-semibold text-white">
+              <Sparkles className="h-3.5 w-3.5 text-[#43d9c7]" />
+              <span>AI Language Model Debrief Analysis</span>
+            </div>
+            <p className="text-[#8292a8] text-[11px] leading-relaxed">
+              Both spoken transcripts and manually typed debrief notes are processed by enterprise language models to extract visitor interest signals, sentiment, and follow-up action items.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/10 space-y-1">
+            <div className="flex items-center gap-2 font-semibold text-white">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Enterprise Privacy & Encryption</span>
+            </div>
+            <p className="text-[#8292a8] text-[11px] leading-relaxed">
+              Data is encrypted in transit and at rest. Your notes and recordings are strictly confidential to Utah City and are never sold, shared with external advertisers, or used to train public AI models.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex items-center justify-between text-[11px]">
+          <span className="text-[#8292a8]">Policies & Help</span>
+          <div className="flex items-center gap-3">
+            <Link href="/privacy" className="text-[#43d9c7] hover:underline" target="_blank">
+              Privacy Policy
+            </Link>
+            <span className="text-[#26354c]">·</span>
+            <Link href="/support" className="text-[#43d9c7] hover:underline" target="_blank">
+              Support
+            </Link>
+          </div>
+        </div>
+
+        <div className="pt-2 flex items-center justify-end gap-2.5">
+          <button
+            type="button"
+            onClick={onDecline}
+            className="px-4 py-2.5 rounded-xl border border-white/10 text-xs font-semibold text-slate-300 hover:bg-white/5 transition-colors cursor-pointer"
+          >
+            Not Now
+          </button>
+          <button
+            type="button"
+            onClick={onAccept}
+            className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#070b12] font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            <span>I Consent & Continue</span>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -30,6 +30,9 @@ export async function POST(req: Request) {
 
     const token = await signSessionToken(user);
     const redirectTo = user.role === "host" ? "/" : "/command";
+    const userAgent = req.headers.get("user-agent") || "";
+    const isMobile = /iPhone|iPad|iPod|Android|Mobile/i.test(userAgent);
+    const redirectTo = (user.role === "host" || isMobile) ? "/" : "/command";
 
     const response = NextResponse.json({
       success: true,
