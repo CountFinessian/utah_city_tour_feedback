@@ -20,14 +20,12 @@ platform :ios do
       produce(
         api_key: api_key,
         app_identifier: app_id,
-        app_name: "Utah City",
         app_name: "Utah City Tour Host",
         sku: "utahcityhost01",
         language: "en-US",
         skip_itc: false
       )
     rescue => ex
-      UI.message("App already exists or notice: #{ex.message}")
       UI.message("Notice during app creation: #{ex.message}")
     end
 
@@ -47,7 +45,6 @@ platform :ios do
     )
 
     build_app(
-      workspace: "App.xcworkspace",
       project: "App.xcodeproj",
       scheme: "App",
       export_method: "app-store",
@@ -95,7 +92,6 @@ platform :ios do
     )
 
     build_app(
-      workspace: "App.xcworkspace",
       project: "App.xcodeproj",
       scheme: "App",
       export_method: "app-store",
@@ -113,7 +109,6 @@ platform :ios do
   desc "Build only (no upload) - for testing"
   lane :build_only do
     build_app(
-      workspace: "App.xcworkspace",
       project: "App.xcodeproj",
       scheme: "App",
       export_method: "development",
@@ -124,4 +119,3 @@ platform :ios do
     )
   end
 end
-
