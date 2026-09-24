@@ -28,6 +28,9 @@ export async function middleware(req: NextRequest) {
   if (
     pathname === "/login" ||
     pathname === "/setup-account" ||
+    pathname === "/reset-password" ||
+    pathname === "/privacy" ||
+    pathname === "/support" ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/webhooks") ||
     pathname === "/api/status" ||

@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Lock, AlertCircle, Shield, LifeBuoy, Copy, Check, Mail, X, CheckCircle2 } from "lucide-react";
 
@@ -212,6 +213,16 @@ function LoginForm() {
         <p className="text-center text-xs text-[#65758b]">
           Utah City Host Intelligence Platform
         </p>
+
+        <div className="flex items-center justify-center gap-3 text-xs text-[#65758b]">
+          <Link href="/privacy" className="hover:text-slate-300 transition-colors">
+            Privacy Policy
+          </Link>
+          <span>·</span>
+          <Link href="/support" className="hover:text-slate-300 transition-colors">
+            Support Center
+          </Link>
+        </div>
       </div>
 
       {/* Forgot Password Modal */}
