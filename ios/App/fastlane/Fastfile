@@ -55,6 +55,7 @@ platform :ios do
       /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 26A100" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 26A100" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 24A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 24A100" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
       
       BIN="/tmp/ipa_patch/Payload/App.app/App"
       echo "=== Patching Mach-O binary $BIN ==="
@@ -164,6 +165,7 @@ platform :ios do
       /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 26A100" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 26A100" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 24A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 24A100" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
       
       BIN="/tmp/ipa_patch/Payload/App.app/App"
       echo "=== Patching Mach-O binary $BIN ==="
