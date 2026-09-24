@@ -4,9 +4,6 @@ default_platform(:ios)
 platform :ios do
   desc "Build and submit directly to the App Store for Review"
   lane :release do
-    keychain_path = ENV["CI_KEYCHAIN_PATH"] || File.expand_path("~/Library/Keychains/ci_keychain.keychain-db")
-    keychain_password = ENV["CI_KEYCHAIN_PASSWORD"] || "ci_password"
-
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
@@ -16,12 +13,7 @@ platform :ios do
 
     app_id = ENV["APP_IDENTIFIER"] || "com.utahcity.host"
 
-    get_certificates(
-      api_key: api_key,
-      keychain_path: keychain_path,
-      keychain_password: keychain_password
-    )
-
+    # Fetch matching App Store Provisioning Profile
     get_provisioning_profile(
       api_key: api_key,
       app_identifier: app_id
@@ -54,9 +46,6 @@ platform :ios do
 
   desc "Build and upload to TestFlight"
   lane :beta do
-    keychain_path = ENV["CI_KEYCHAIN_PATH"] || File.expand_path("~/Library/Keychains/ci_keychain.keychain-db")
-    keychain_password = ENV["CI_KEYCHAIN_PASSWORD"] || "ci_password"
-
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
@@ -65,12 +54,6 @@ platform :ios do
     )
 
     app_id = ENV["APP_IDENTIFIER"] || "com.utahcity.host"
-
-    get_certificates(
-      api_key: api_key,
-      keychain_path: keychain_path,
-      keychain_password: keychain_password
-    )
 
     get_provisioning_profile(
       api_key: api_key,
