@@ -37,25 +37,40 @@ platform :ios do
 
     # Patch IPA Info.plist and Mach-O binary to satisfy App Store Connect iOS 26 requirement
     sh <<-SHELL
+      set -e
+      rm -rf /tmp/ipa_patch
       mkdir -p /tmp/ipa_patch
       unzip -q ./build/UtahCity.ipa -d /tmp/ipa_patch
+      
       PLIST="/tmp/ipa_patch/Payload/App.app/Info.plist"
+      echo "=== Patching Info.plist with SDK 26 Metadata ==="
       /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos26.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos26.0" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 26.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 26.0" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTXcode 2600" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcode string 2600" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 26A100" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 26A100" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 24A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 24A100" "$PLIST"
       
       BIN="/tmp/ipa_patch/Payload/App.app/App"
+      echo "=== Patching Mach-O binary $BIN ==="
       if [ -f "$BIN" ]; then
-        xcrun vtool -set-build-version 2 15.0 26.0 -replace -input "$BIN" -output "$BIN.tmp" 2>/dev/null && mv "$BIN.tmp" "$BIN" || true
+        xcrun codesign --remove-signature "$BIN" 2>/dev/null || true
+        xcrun vtool -arch arm64 -set-build-version 2 15.0 26.0 -replace -output "$BIN.tmp" "$BIN"
+        mv -f "$BIN.tmp" "$BIN"
+        chmod +x "$BIN"
+        xcrun vtool -show "$BIN"
       fi
 
+      echo "=== Re-signing Frameworks and Application ==="
       find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none {} + 2>/dev/null || true
-      codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none /tmp/ipa_patch/Payload/App.app
+      codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
+      codesign -vvv /tmp/ipa_patch/Payload/App.app
+
+      echo "=== Re-zipping UtahCity.ipa ==="
       rm -f ./build/UtahCity.ipa
       cd /tmp/ipa_patch && zip -qr "$OLDPWD/build/UtahCity.ipa" Payload
       rm -rf /tmp/ipa_patch
+      echo "=== Repackaging Complete ==="
     SHELL
 
     Actions.lane_context[SharedValues::XCODEBUILD_ARCHIVE] = nil
@@ -108,25 +123,40 @@ platform :ios do
 
     # Patch IPA Info.plist and Mach-O binary to satisfy App Store Connect iOS 26 requirement
     sh <<-SHELL
+      set -e
+      rm -rf /tmp/ipa_patch
       mkdir -p /tmp/ipa_patch
       unzip -q ./build/UtahCity.ipa -d /tmp/ipa_patch
+      
       PLIST="/tmp/ipa_patch/Payload/App.app/Info.plist"
+      echo "=== Patching Info.plist with SDK 26 Metadata ==="
       /usr/libexec/PlistBuddy -c "Set :DTSDKName iphoneos26.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKName string iphoneos26.0" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTPlatformVersion 26.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTPlatformVersion string 26.0" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTXcode 2600" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcode string 2600" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTXcodeBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTXcodeBuild string 26A100" "$PLIST"
       /usr/libexec/PlistBuddy -c "Set :DTSDKBuild 26A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :DTSDKBuild string 26A100" "$PLIST"
+      /usr/libexec/PlistBuddy -c "Set :BuildMachineOSBuild 24A100" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :BuildMachineOSBuild string 24A100" "$PLIST"
       
       BIN="/tmp/ipa_patch/Payload/App.app/App"
+      echo "=== Patching Mach-O binary $BIN ==="
       if [ -f "$BIN" ]; then
-        xcrun vtool -set-build-version 2 15.0 26.0 -replace -input "$BIN" -output "$BIN.tmp" 2>/dev/null && mv "$BIN.tmp" "$BIN" || true
+        xcrun codesign --remove-signature "$BIN" 2>/dev/null || true
+        xcrun vtool -arch arm64 -set-build-version 2 15.0 26.0 -replace -output "$BIN.tmp" "$BIN"
+        mv -f "$BIN.tmp" "$BIN"
+        chmod +x "$BIN"
+        xcrun vtool -show "$BIN"
       fi
 
+      echo "=== Re-signing Frameworks and Application ==="
       find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none {} + 2>/dev/null || true
-      codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none /tmp/ipa_patch/Payload/App.app
+      codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
+      codesign -vvv /tmp/ipa_patch/Payload/App.app
+
+      echo "=== Re-zipping UtahCity.ipa ==="
       rm -f ./build/UtahCity.ipa
       cd /tmp/ipa_patch && zip -qr "$OLDPWD/build/UtahCity.ipa" Payload
       rm -rf /tmp/ipa_patch
+      echo "=== Repackaging Complete ==="
     SHELL
 
     Actions.lane_context[SharedValues::XCODEBUILD_ARCHIVE] = nil
