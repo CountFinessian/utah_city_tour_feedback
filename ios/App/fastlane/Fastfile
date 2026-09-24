@@ -66,9 +66,16 @@ platform :ios do
         xcrun vtool -show "$BIN"
       fi
 
+      KEYCHAIN="$HOME/Library/Keychains/ci_keychain.keychain-db"
+      SIGN_ID=$(security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep "Apple Distribution" | head -n 1 | awk -F'"' '{print $2}')
+      if [ -z "$SIGN_ID" ]; then
+        SIGN_ID="Apple Distribution: Jacob Williams (P9BDC2B2V9)"
+      fi
+      echo "=== Using Signing Identity: $SIGN_ID ==="
+
       echo "=== Re-signing Frameworks and Application ==="
-      find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none {} + 2>/dev/null || true
-      codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
+      find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none {} + 2>/dev/null || true
+      codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
       codesign -vvv /tmp/ipa_patch/Payload/App.app
 
       echo "=== Re-zipping $IPA ==="
@@ -158,9 +165,16 @@ platform :ios do
         xcrun vtool -show "$BIN"
       fi
 
+      KEYCHAIN="$HOME/Library/Keychains/ci_keychain.keychain-db"
+      SIGN_ID=$(security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep "Apple Distribution" | head -n 1 | awk -F'"' '{print $2}')
+      if [ -z "$SIGN_ID" ]; then
+        SIGN_ID="Apple Distribution: Jacob Williams (P9BDC2B2V9)"
+      fi
+      echo "=== Using Signing Identity: $SIGN_ID ==="
+
       echo "=== Re-signing Frameworks and Application ==="
-      find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none {} + 2>/dev/null || true
-      codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
+      find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none {} + 2>/dev/null || true
+      codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
       codesign -vvv /tmp/ipa_patch/Payload/App.app
 
       echo "=== Re-zipping $IPA ==="
