@@ -103,6 +103,8 @@ platform :ios do
       force: true,
       skip_screenshots: true,
       skip_metadata: true,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
       reject_if_possible: true,
       submission_information: {
         add_id_info_uses_idfa: false
