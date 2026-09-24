@@ -35,12 +35,17 @@ platform :ios do
       xcargs: "DEVELOPMENT_TEAM=P9BDC2B2V9"
     )
 
+    ipa_path = lane_context[SharedValues::IPA_OUTPUT_PATH] || File.expand_path("./build/UtahCity.ipa")
+    UI.message("Original IPA path: #{ipa_path}")
+
     # Patch IPA Info.plist and Mach-O binary to satisfy App Store Connect iOS 26 requirement
     sh <<-SHELL
       set -e
+      IPA="#{ipa_path}"
+      echo "=== Processing IPA: $IPA ==="
       rm -rf /tmp/ipa_patch
       mkdir -p /tmp/ipa_patch
-      unzip -q ./build/UtahCity.ipa -d /tmp/ipa_patch
+      unzip -q "$IPA" -d /tmp/ipa_patch
       
       PLIST="/tmp/ipa_patch/Payload/App.app/Info.plist"
       echo "=== Patching Info.plist with SDK 26 Metadata ==="
@@ -66,19 +71,20 @@ platform :ios do
       codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
       codesign -vvv /tmp/ipa_patch/Payload/App.app
 
-      echo "=== Re-zipping UtahCity.ipa ==="
-      rm -f ./build/UtahCity.ipa
-      cd /tmp/ipa_patch && zip -qr "$OLDPWD/build/UtahCity.ipa" Payload
+      echo "=== Re-zipping $IPA ==="
+      rm -f "$IPA"
+      cd /tmp/ipa_patch && zip -qr "$IPA" Payload
       rm -rf /tmp/ipa_patch
       echo "=== Repackaging Complete ==="
     SHELL
 
     Actions.lane_context[SharedValues::XCODEBUILD_ARCHIVE] = nil
+    Actions.lane_context[SharedValues::IPA_OUTPUT_PATH] = ipa_path
 
     upload_to_app_store(
       api_key: api_key,
       app_identifier: app_id,
-      ipa: File.expand_path("./build/UtahCity.ipa"),
+      ipa: ipa_path,
       force: true,
       skip_screenshots: true,
       skip_metadata: true,
@@ -121,12 +127,17 @@ platform :ios do
       xcargs: "DEVELOPMENT_TEAM=P9BDC2B2V9"
     )
 
+    ipa_path = lane_context[SharedValues::IPA_OUTPUT_PATH] || File.expand_path("./build/UtahCity.ipa")
+    UI.message("Original IPA path: #{ipa_path}")
+
     # Patch IPA Info.plist and Mach-O binary to satisfy App Store Connect iOS 26 requirement
     sh <<-SHELL
       set -e
+      IPA="#{ipa_path}"
+      echo "=== Processing IPA: $IPA ==="
       rm -rf /tmp/ipa_patch
       mkdir -p /tmp/ipa_patch
-      unzip -q ./build/UtahCity.ipa -d /tmp/ipa_patch
+      unzip -q "$IPA" -d /tmp/ipa_patch
       
       PLIST="/tmp/ipa_patch/Payload/App.app/Info.plist"
       echo "=== Patching Info.plist with SDK 26 Metadata ==="
@@ -152,19 +163,20 @@ platform :ios do
       codesign --force --sign "Apple Distribution: Jacob Williams (98ZN8Z4T63)" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
       codesign -vvv /tmp/ipa_patch/Payload/App.app
 
-      echo "=== Re-zipping UtahCity.ipa ==="
-      rm -f ./build/UtahCity.ipa
-      cd /tmp/ipa_patch && zip -qr "$OLDPWD/build/UtahCity.ipa" Payload
+      echo "=== Re-zipping $IPA ==="
+      rm -f "$IPA"
+      cd /tmp/ipa_patch && zip -qr "$IPA" Payload
       rm -rf /tmp/ipa_patch
       echo "=== Repackaging Complete ==="
     SHELL
 
     Actions.lane_context[SharedValues::XCODEBUILD_ARCHIVE] = nil
+    Actions.lane_context[SharedValues::IPA_OUTPUT_PATH] = ipa_path
 
     upload_to_testflight(
       api_key: api_key,
       app_identifier: app_id,
-      ipa: File.expand_path("./build/UtahCity.ipa"),
+      ipa: ipa_path,
       skip_waiting_for_build_processing: true
     )
   end
