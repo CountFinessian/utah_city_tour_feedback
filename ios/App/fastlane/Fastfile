@@ -73,10 +73,18 @@ platform :ios do
       fi
       echo "=== Using Signing Identity: $SIGN_ID ==="
 
+      echo "=== Extracting Entitlements from Provisioning Profile ==="
+      security cms -D -i /tmp/ipa_patch/Payload/App.app/embedded.mobileprovision > /tmp/profile.plist
+      /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' /tmp/profile.plist > /tmp/entitlements.plist
+      echo "Extracted entitlements:"
+      cat /tmp/entitlements.plist
+
       echo "=== Re-signing Frameworks and Application ==="
       find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none {} + 2>/dev/null || true
-      codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
+      codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --entitlements /tmp/entitlements.plist --timestamp=none /tmp/ipa_patch/Payload/App.app
       codesign -vvv /tmp/ipa_patch/Payload/App.app
+      echo "Embedded entitlements verification:"
+      codesign -d --entitlements - /tmp/ipa_patch/Payload/App.app
 
       echo "=== Re-zipping $IPA ==="
       rm -f "$IPA"
@@ -172,10 +180,18 @@ platform :ios do
       fi
       echo "=== Using Signing Identity: $SIGN_ID ==="
 
+      echo "=== Extracting Entitlements from Provisioning Profile ==="
+      security cms -D -i /tmp/ipa_patch/Payload/App.app/embedded.mobileprovision > /tmp/profile.plist
+      /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' /tmp/profile.plist > /tmp/entitlements.plist
+      echo "Extracted entitlements:"
+      cat /tmp/entitlements.plist
+
       echo "=== Re-signing Frameworks and Application ==="
       find /tmp/ipa_patch/Payload/App.app/Frameworks -type d -name '*.framework' -exec codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none {} + 2>/dev/null || true
-      codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --timestamp=none --preserve-metadata=entitlements /tmp/ipa_patch/Payload/App.app
+      codesign --keychain "$KEYCHAIN" --force --sign "$SIGN_ID" --entitlements /tmp/entitlements.plist --timestamp=none /tmp/ipa_patch/Payload/App.app
       codesign -vvv /tmp/ipa_patch/Payload/App.app
+      echo "Embedded entitlements verification:"
+      codesign -d --entitlements - /tmp/ipa_patch/Payload/App.app
 
       echo "=== Re-zipping $IPA ==="
       rm -f "$IPA"
