@@ -83,3 +83,11 @@ jobs:
           echo "Executing Fastlane lane: $LANE"
           bundle exec fastlane $LANE
 
+      - name: Upload IPA Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UtahCity-ipa
+          path: ios/App/build/*.ipa
+          if-no-files-found: ignore
+
