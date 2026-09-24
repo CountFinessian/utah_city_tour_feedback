@@ -4,19 +4,8 @@ default_platform(:ios)
 platform :ios do
   desc "Build and submit directly to the App Store for Review"
   lane :release do
-    keychain_name = "ci_keychain"
-    keychain_password = "fastlane_password"
-
-    create_keychain(
-      name: keychain_name,
-      password: keychain_password,
-      default_keychain: true,
-      unlock: true,
-      timeout: 3600,
-      lock_when_sleeping: false
-    ) rescue nil
-
-    keychain_path = File.expand_path("~/Library/Keychains/#{keychain_name}-db")
+    keychain_path = ENV["CI_KEYCHAIN_PATH"] || File.expand_path("~/Library/Keychains/ci_keychain.keychain-db")
+    keychain_password = ENV["CI_KEYCHAIN_PASSWORD"] || "ci_password"
 
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
@@ -65,19 +54,8 @@ platform :ios do
 
   desc "Build and upload to TestFlight"
   lane :beta do
-    keychain_name = "ci_keychain"
-    keychain_password = "fastlane_password"
-
-    create_keychain(
-      name: keychain_name,
-      password: keychain_password,
-      default_keychain: true,
-      unlock: true,
-      timeout: 3600,
-      lock_when_sleeping: false
-    ) rescue nil
-
-    keychain_path = File.expand_path("~/Library/Keychains/#{keychain_name}-db")
+    keychain_path = ENV["CI_KEYCHAIN_PATH"] || File.expand_path("~/Library/Keychains/ci_keychain.keychain-db")
+    keychain_password = ENV["CI_KEYCHAIN_PASSWORD"] || "ci_password"
 
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],

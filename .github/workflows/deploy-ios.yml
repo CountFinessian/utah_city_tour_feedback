@@ -50,6 +50,15 @@ jobs:
           bundler-cache: true
           working-directory: ios/App
 
+      - name: Setup CI Keychain
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/ci_keychain.keychain-db"
+          security create-keychain -p "ci_password" "$KEYCHAIN_PATH" || true
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "ci_password" "$KEYCHAIN_PATH"
+          security set-keychain-settings -t 3600 -u "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
       - name: Build and Deploy to App Store
         working-directory: ios/App
         env:
@@ -57,6 +66,8 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
           APP_IDENTIFIER: ${{ secrets.APP_IDENTIFIER }}
+          CI_KEYCHAIN_PATH: /Users/runner/Library/Keychains/ci_keychain.keychain-db
+          CI_KEYCHAIN_PASSWORD: ci_password
           TARGET_LANE: ${{ inputs.lane }}
         run: |
           LANE="${TARGET_LANE:-release}"
