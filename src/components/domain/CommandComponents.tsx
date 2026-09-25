@@ -81,7 +81,7 @@ export function StatusBar({
 }: {
   score: number;
   confidence: ConfidenceLevel;
-  coverage: number;
+  coverage?: number;
   freshness: string;
   liveCount: number;
   demoCount: number;
@@ -97,7 +97,6 @@ export function StatusBar({
       </div>
       <div className="status-divider" />
       <StatusAtom label="Data reliability" value={confidence} icon={<ShieldCheck className="h-4 w-4" />} />
-      <StatusAtom label="Completeness" value={`${Math.round(coverage * 100)}%`} icon={<CheckCircle2 className="h-4 w-4" />} />
       <StatusAtom label="Last capture" value={freshness} icon={<Clock3 className="h-4 w-4" />} />
       <StatusAtom label="Data source" value={`${liveCount} live · ${demoCount} demo`} icon={<CircleAlert className="h-4 w-4" />} />
     </section>

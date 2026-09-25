@@ -18,11 +18,6 @@ export const metadata: Metadata = {
   title: "Utah City — Operational Intelligence",
   description:
     "Capture operational reality across the resident journey and turn it into structured intelligence for Utah City leadership.",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "Utah City",
-  },
 };
 
 export const viewport: Viewport = {
@@ -39,7 +34,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} h-full antialiased bg-[#070b12] text-[#f0f6ff]`}>
-      <body className="min-h-full bg-[#070b12] text-[#f0f6ff]" suppressHydrationWarning>
+      <body className="h-full h-[100dvh] max-h-[100dvh] overflow-hidden overscroll-none bg-[#070b12]" suppressHydrationWarning>
         {children}
       </body>
     </html>

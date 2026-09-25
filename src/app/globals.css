@@ -1711,7 +1711,6 @@ select {
       overflow: hidden;
       overscroll-behavior: none;
       padding: 0;
-      background-color: #070b12 !important;
     }
 
     .mobile-product-note {
@@ -1725,7 +1724,7 @@ select {
       overflow: hidden;
       overscroll-behavior: none;
       border-radius: 0;
-      background: #070b12 !important;
+      background: transparent;
       padding: 0;
       box-shadow: none;
     }
@@ -1739,9 +1738,8 @@ select {
       overscroll-behavior: none;
       border: 0;
       border-radius: 0;
-      padding-top: max(0.6rem, env(safe-area-inset-top));
-      padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
-      background: #070b12 !important;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
     }
   }
 

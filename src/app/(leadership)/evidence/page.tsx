@@ -18,16 +18,15 @@ export default async function EvidencePage() {
           Evidence Library
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-command-soft md:text-base">
-          Search captured conversations, extracted signals, and transcript evidence. Follow-ups are questions the host should have asked but didn't.
+          Search captured conversations, extracted signals, and transcript evidence.
         </p>
       </header>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Interactions" value={String(observations.length)} />
         <Kpi label="Objections" value={String(objectionCount)} />
         <Kpi label="Amenity signals" value={String(amenityCount)} />
         <Kpi label="Questions" value={String(questionCount)} />
-        <Kpi label="Unanswered follow-ups" value={String(gaps)} />
       </section>
 
       <div className="evidence-dark">

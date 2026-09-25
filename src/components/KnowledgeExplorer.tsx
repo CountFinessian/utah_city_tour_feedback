@@ -159,11 +159,9 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="pill border-slate-200 bg-slate-50 text-slate-700">{e.prospectIntent}</span>
                     <span className="pill border-slate-200 bg-white text-slate-700">sentiment {e.overallSentiment}</span>
-                    <span className="pill border-slate-200 bg-white text-slate-700">coverage {Math.round(e.coverageScore * 100)}%</span>
                     {observation.source === "demo" && (
                       <span className="pill border-amber-200 bg-amber-50 text-amber-800">demo</span>
                     )}
-                    <span className="ml-auto text-xs text-muted">{relativeTime(observation.createdAt)}</span>
                     <div className="ml-auto flex items-center gap-2">
                       <span className="text-xs text-muted">{relativeTime(observation.createdAt)}</span>
                       <button
@@ -184,11 +182,16 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
                         {extractCleanExcerpt(observation.transcript, [query, ...e.objections.map((obj) => obj.detail), ...e.amenities.map((item) => item.detail)])}
                       </p>
                     </div>
-                    <div className="text-xs text-muted">
-                      <div>{[observation.hostName, observation.floorPlan].filter(Boolean).join(" · ") || "Unattributed"}</div>
-                      <div className="mt-1">{observation.prospectTag || "No prospect tag"}</div>
-                      <div>{[observation.hostName, [observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "Unattributed"}</div>
-                      {observation.prospectEmail && <div className="mt-1">{observation.prospectEmail}</div>}
+                    <div className="text-xs space-y-1">
+                      <div className="font-semibold text-command-ink">{observation.hostName || "Host Unattributed"}</div>
+                      {[observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ") && (
+                        <div className="text-command-soft font-medium">
+                          {[observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ")}
+                        </div>
+                      )}
+                      {observation.prospectEmail && <div className="text-command-muted">{observation.prospectEmail}</div>}
+                      {observation.floorPlan && <div className="text-command-muted">Plan: {observation.floorPlan}</div>}
+                      {observation.prospectTag && <div className="text-command-muted">Tag: {observation.prospectTag}</div>}
                     </div>
                   </div>
 
@@ -203,31 +206,13 @@ export function KnowledgeExplorer({ observations }: { observations: Observation[
                         {amenityLabel(item.name)} · {item.reaction}
                       </span>
                     ))}
-                    {e.followUpQuestions.length > 0 && (
-                      <span className="pill border-amber-200 bg-amber-50 text-amber-800">
-                        {e.followUpQuestions.length} follow-ups needed
-                      </span>
-                    )}
                   </div>
-
-                  {e.followUpQuestions.length > 0 && (
-                    <details className="mt-2 w-full text-sm">
-                      <summary className="cursor-pointer select-none text-xs font-semibold text-command-soft">
-                        What was missed?
-                      </summary>
-                      <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-command-soft">
-                        {e.followUpQuestions.map((q, qi) => (
-                          <li key={qi}>{q}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
 
                   <details className="mt-4 rounded-[8px] border border-border bg-slate-50 px-3 py-2">
                     <summary className="cursor-pointer select-none text-sm font-semibold text-ink-soft">
                       Source transcript
                     </summary>
-                    <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted">{observation.transcript}</p>
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-white font-medium">{observation.transcript}</p>
                   </details>
                 </li>
               );

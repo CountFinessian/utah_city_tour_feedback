@@ -172,7 +172,6 @@ export function CorpusEvidenceManager({
       ) : (
         <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
           {filtered.map((obs) => {
-            const hasFollowups = (obs.extraction?.followUpQuestions?.length ?? 0) > 0;
             const prospectName = [obs.prospectFirstName, obs.prospectLastName].filter(Boolean).join(" ");
 
             return (
@@ -202,12 +201,6 @@ export function CorpusEvidenceManager({
 
                     {obs.floorPlan && (
                       <span className="text-command-muted">· {obs.floorPlan}</span>
-                    )}
-
-                    {hasFollowups && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                        {obs.extraction.followUpQuestions.length} follow-ups incomplete
-                      </span>
                     )}
 
                     <span className="ml-auto text-[11px] text-command-muted">
