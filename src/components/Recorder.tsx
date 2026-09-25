@@ -186,17 +186,17 @@ export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder
             onClick={start}
             disabled={busy}
             aria-label="Record voice debrief"
-            className="w-full py-2.5 px-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/15 active:scale-[0.99] flex items-center justify-center gap-2.5 transition shadow-sm cursor-pointer"
+            className="w-full py-3.5 px-4 rounded-2xl border border-emerald-500/35 bg-gradient-to-r from-emerald-500/15 to-teal-500/15 hover:from-emerald-500/20 hover:to-teal-500/20 active:scale-[0.99] flex items-center justify-center gap-3 transition-all shadow-md cursor-pointer"
           >
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-400 text-slate-950 font-bold">
-              <Mic className="h-4 w-4" />
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-400 text-slate-950 font-bold shadow-sm">
+              <Mic className="h-4.5 w-4.5" />
             </span>
-            <span className="text-sm font-bold text-emerald-300">Tap to speak debrief</span>
+            <span className="text-sm sm:text-base font-bold text-emerald-200 tracking-wide">Tap to speak debrief</span>
           </button>
         )}
 
         {phase === "recording" && (
-          <div className="w-full py-2 px-4 rounded-xl border border-rose-500/40 bg-rose-500/10 flex items-center justify-between gap-3 animate-in fade-in">
+          <div className="w-full py-3 px-4 rounded-2xl border border-rose-500/40 bg-rose-500/10 flex items-center justify-between gap-3 animate-in fade-in shadow-md">
             <div className="flex items-center gap-2.5">
               <span className="relative flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
@@ -211,7 +211,7 @@ export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder
               onClick={stop}
               aria-label="Stop recording"
               title="Stop recording"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition active:scale-95 shadow-sm cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition active:scale-95 shadow-sm cursor-pointer"
             >
               <Square className="h-3 w-3 fill-current" />
               <span>Done</span>
@@ -220,7 +220,7 @@ export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder
         )}
 
         {busy && (
-          <div className="w-full py-2.5 px-4 rounded-xl border border-teal-500/30 bg-teal-500/10 flex items-center justify-center gap-2 text-teal-300 text-xs font-semibold animate-in fade-in">
+          <div className="w-full py-3 px-4 rounded-2xl border border-teal-500/30 bg-teal-500/10 flex items-center justify-center gap-2 text-teal-300 text-xs font-semibold animate-in fade-in">
             <Loader2 className="h-4 w-4 animate-spin text-teal-400" />
             <span>Transcribing into notes...</span>
           </div>

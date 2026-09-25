@@ -17,6 +17,8 @@ import {
   Sparkles,
   Mic,
   ExternalLink,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { Recorder, type RecorderRef } from "./Recorder";
 
@@ -39,6 +41,9 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   const [prospectLastName, setProspectLastName] = useState("");
   const [prospectEmail, setProspectEmail] = useState("");
   const [transcript, setTranscript] = useState("");
+  const [history, setHistory] = useState<string[]>([""]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+
   const [submitting, setSubmitting] = useState(false);
   const [processingIndex, setProcessingIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -180,8 +185,36 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
 
   const canSubmit = transcript.trim().length > 0 && !submitting;
 
+  function updateTranscript(next: string) {
+    setTranscript(next);
+    setHistory((prev) => {
+      const current = prev[historyIndex];
+      if (current === next) return prev;
+      const updated = [...prev.slice(0, historyIndex + 1), next];
+      if (updated.length > 50) updated.shift();
+      return updated;
+    });
+    setHistoryIndex((prev) => Math.min(prev + 1, 49));
+  }
+
   function appendText(text: string) {
-    setTranscript((prev) => (prev ? `${prev} ${text}` : text));
+    updateTranscript(transcript ? `${transcript} ${text}` : text);
+  }
+
+  function handleUndo() {
+    if (historyIndex > 0) {
+      const nextIndex = historyIndex - 1;
+      setHistoryIndex(nextIndex);
+      setTranscript(history[nextIndex] ?? "");
+    }
+  }
+
+  function handleRedo() {
+    if (historyIndex < history.length - 1) {
+      const nextIndex = historyIndex + 1;
+      setHistoryIndex(nextIndex);
+      setTranscript(history[nextIndex] ?? "");
+    }
   }
 
   async function submit(nextTranscript: string) {
@@ -212,6 +245,8 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       }
       // Single-page flow: Clear inputs and display "Entry submitted" toast popup
       setTranscript("");
+      setHistory([""]);
+      setHistoryIndex(0);
       setProspectFirstName("");
       setProspectLastName("");
       setProspectEmail("");
@@ -226,7 +261,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
 
   // Common application UI content used across both native app and web presentation
   const appContent = (
-    <div className="h-full flex flex-col justify-between overflow-hidden gap-1.5 flex-1 min-h-0">
+    <div className="h-full flex flex-col justify-between overflow-hidden gap-2 flex-1 min-h-0">
       {/* Leadership warning if non-leader tried to access command */}
       {unauthorizedWarning && (
         <div className="mb-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2 shrink-0">
@@ -283,6 +318,10 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <CaptureScreen
           transcript={transcript}
+          canUndo={historyIndex > 0}
+          canRedo={historyIndex < history.length - 1}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
           hostName={currentUser?.name || hostName || "Tour Host"}
           prospectFirstName={prospectFirstName}
           prospectLastName={prospectLastName}
@@ -294,7 +333,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
           canSubmit={canSubmit}
           serverAsr={serverAsr}
           onText={appendText}
-          onTranscript={setTranscript}
+          onTranscript={updateTranscript}
           onProspectFirstName={setProspectFirstName}
           onProspectLastName={setProspectLastName}
           onProspectEmail={setProspectEmail}
@@ -551,6 +590,10 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
 
 function CaptureScreen({
   transcript,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
   hostName,
   prospectFirstName,
   prospectLastName,
@@ -574,6 +617,10 @@ function CaptureScreen({
   onBeforeRecord,
 }: {
   transcript: string;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
   hostName: string;
   prospectFirstName: string;
   prospectLastName: string;
@@ -599,8 +646,8 @@ function CaptureScreen({
   const prospectAssigned = Boolean(prospectFirstName.trim() || prospectLastName.trim() || prospectEmail.trim());
 
   return (
-    <div className="h-full flex flex-col justify-between overflow-hidden gap-2 pb-1 flex-1 min-h-0">
-      {/* 1. Voice debrief stage - compact bar */}
+    <div className="h-full flex flex-col justify-between overflow-hidden gap-3 py-1 flex-1 min-h-0">
+      {/* 1. Voice debrief stage - enlarged prominent record button */}
       <section className="shrink-0">
         <Recorder
           ref={recorderRef}
@@ -611,8 +658,8 @@ function CaptureScreen({
         />
       </section>
 
-      {/* 2. Apple Notes-Style Debrief Textbox */}
-      <section className="apple-notes-card flex-1 min-h-0 flex flex-col">
+      {/* 2. Apple Notes-Style Debrief Textbox (~half height with Undo / Redo toolbar) */}
+      <section className="apple-notes-card h-[160px] sm:h-[185px] shrink-0 flex flex-col shadow-inner">
         <div className="apple-notes-header shrink-0">
           <div className="flex items-center gap-2">
             <span className="mobile-section-label">Debrief notes</span>
@@ -622,18 +669,41 @@ function CaptureScreen({
               </span>
             )}
           </div>
-          {transcript.length > 0 && (
+          {/* Apple Notes Toolbar: Undo, Redo, Clear */}
+          <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => {
-                onTranscript("");
-                if (error) onErrorClear?.();
-              }}
-              className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded hover:bg-white/5 transition-colors cursor-pointer"
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="h-7 w-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed transition cursor-pointer"
+              title="Undo"
+              aria-label="Undo"
             >
-              Clear
+              <Undo2 className="h-3.5 w-3.5" />
             </button>
-          )}
+            <button
+              type="button"
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="h-7 w-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed transition cursor-pointer"
+              title="Redo"
+              aria-label="Redo"
+            >
+              <Redo2 className="h-3.5 w-3.5" />
+            </button>
+            {transcript.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  onTranscript("");
+                  if (error) onErrorClear?.();
+                }}
+                className="text-[11px] text-slate-400 hover:text-white px-2 py-1 rounded-md hover:bg-white/5 transition cursor-pointer ml-1"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
         <textarea
           id="mobile-transcript"
@@ -656,22 +726,31 @@ function CaptureScreen({
         )}
       </section>
 
-      {/* 3. Compact prospect trigger */}
+      {/* 3. Client details in CRM logging button (enlarged & more prominent) */}
       <div className="shrink-0">
         <button
           type="button"
           onClick={onContextOpen}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.06] transition-colors text-left cursor-pointer"
+          className="w-full flex items-center justify-between px-3.5 py-3 rounded-2xl bg-white/[0.04] border border-white/10 hover:bg-white/[0.08] transition-all text-left cursor-pointer shadow-sm"
         >
-          <div className="flex items-center gap-2 min-w-0">
-            <User className="h-3.5 w-3.5 text-[#36cdbd]" />
-            <span className="text-xs text-slate-300 truncate">
-              {prospectAssigned
-                ? [prospectFirstName, prospectLastName, prospectEmail].filter(Boolean).join(" · ")
-                : "Add prospect details (optional)"}
-            </span>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-1.5 rounded-lg bg-[#36cdbd]/15 text-[#36cdbd] shrink-0">
+              <User className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-white truncate">
+                {prospectAssigned
+                  ? [prospectFirstName, prospectLastName].filter(Boolean).join(" ") || prospectEmail
+                  : "Client details in CRM logging"}
+              </p>
+              <p className="text-[11px] text-[#8292a8] truncate">
+                {prospectAssigned
+                  ? (prospectEmail ? `${prospectEmail} attached` : "CRM profile attached")
+                  : "Attach prospect name & email (optional)"}
+              </p>
+            </div>
           </div>
-          <ChevronDown className={`h-3.5 w-3.5 text-slate-400 shrink-0 transition-transform ${contextOpen ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-4 w-4 text-slate-400 shrink-0 transition-transform ${contextOpen ? "rotate-180" : ""}`} />
         </button>
       </div>
 
@@ -698,7 +777,7 @@ function CaptureScreen({
             </div>
             <MobileField label="Email" value={prospectEmail} onChange={onProspectEmail} placeholder="client@example.com" />
             
-            {/* Host field - read-only */}
+            {/* Host field - read-only without redundant badges */}
             <label className="mobile-field">
               <span>Tour Host</span>
               <input
@@ -732,21 +811,21 @@ function CaptureScreen({
         </div>
       )}
 
-      {/* 5. Anchored bottom submit bar */}
-      <div className="shrink-0 pt-2 pb-1 flex items-center justify-between gap-3 border-t border-white/10">
+      {/* 5. Anchored bottom submit bar (enlarged & more spaced out) */}
+      <div className="shrink-0 pt-3 pb-1 flex items-center justify-between gap-3 border-t border-white/10">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-white truncate">
-            {canSubmit ? "Ready to structure" : "Add debrief to begin"}
+          <p className="text-xs font-bold text-white truncate">
+            {canSubmit ? "Ready to submit" : "Add debrief to begin"}
           </p>
-          <p className="text-[11px] text-[#8292a8] truncate">Zero forms after submit.</p>
+          <p className="text-[11px] text-[#8292a8] truncate">Zero follow-up forms.</p>
         </div>
         <button
           type="button"
           disabled={submitting || !canSubmit}
           onClick={onSubmit}
-          className="mobile-primary-button disabled:opacity-40 disabled:cursor-not-allowed shrink-0 cursor-pointer"
+          className="mobile-primary-button px-5 py-3 rounded-xl text-sm font-black disabled:opacity-40 disabled:cursor-not-allowed shrink-0 cursor-pointer flex items-center gap-2 shadow-lg shadow-teal-500/20"
         >
-          Submit debrief
+          <span>Submit debrief</span>
           <ArrowRight className="h-4 w-4" />
         </button>
       </div>
