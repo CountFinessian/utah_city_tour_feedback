@@ -6,7 +6,7 @@ import { Recorder } from "./Recorder";
 import { amenityLabel, objectionLabel, type Observation } from "@/lib/ontology";
 import { extractCleanExcerpt } from "@/domain/evidence-matcher";
 
-type WorkflowState = "draft" | "structuring" | "review" | "follow_up" | "complete" | "failed";
+type WorkflowState = "draft" | "structuring" | "review" | "complete" | "failed";
 
 const INTENT_STYLE: Record<string, string> = {
   hot: "border-red-200 bg-red-50 text-red-800",
@@ -31,7 +31,6 @@ const PROCESSING_MESSAGES = [
   "Cleaning transcript",
   "Identifying prospect context",
   "Extracting objections and amenity signals",
-  "Checking journey coverage",
   "Preparing review",
 ];
 
@@ -39,7 +38,6 @@ const WORKFLOW_STEPS: { state: WorkflowState; label: string; helper: string }[] 
   { state: "draft", label: "Capture", helper: "Transcript and context" },
   { state: "structuring", label: "Structure", helper: "AI extraction" },
   { state: "review", label: "Review", helper: "Evidence and signals" },
-  { state: "follow_up", label: "Follow up", helper: "Close coverage gaps" },
   { state: "complete", label: "Complete", helper: "Ready for corpus" },
 ];
 
@@ -49,28 +47,6 @@ function sentimentLabel(s: number): string {
 
 function workflowRank(state: WorkflowState): number {
   return WORKFLOW_STEPS.findIndex((step) => step.state === state);
-}
-
-function coverageStatus(score: number): { label: string; tone: string; helper: string } {
-  if (score >= 0.75) {
-    return {
-      label: "Capture complete",
-      tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
-      helper: "Enough context for leadership intelligence.",
-    };
-  }
-  if (score >= 0.45) {
-    return {
-      label: "Acceptable with gaps",
-      tone: "border-amber-200 bg-amber-50 text-amber-800",
-      helper: "Usable now, but follow-up would improve confidence.",
-    };
-  }
-  return {
-    label: "Needs follow-up",
-    tone: "border-red-200 bg-red-50 text-red-800",
-    helper: "Answer the missing context before treating this as leadership-grade.",
-  };
 }
 
 export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
@@ -105,7 +81,6 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
     if (submitting) return "structuring";
     if (!result) return "draft";
     if (confirmed) return "complete";
-    if (result.extraction.followUpQuestions.length > 0 && result.extraction.coverageScore < 0.75) return "follow_up";
     return "review";
   }, [confirmed, error, result, submitting]);
 
@@ -115,7 +90,7 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
     setTranscript((prev) => (prev ? `${prev} ${text}` : text));
   }
 
-  async function submit(combinedTranscript: string, id?: string) {
+  async function submit(combinedTranscript: string) {
     setProcessingIndex(0);
     setSubmitting(true);
     setError(null);
@@ -131,7 +106,6 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
           prospectFirstName,
           prospectLastName,
           prospectEmail,
-          id,
         }),
       });
       const json = await res.json();
@@ -143,7 +117,7 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
       setTranscript(combinedTranscript);
       setAnswers({});
       setSkipped({});
-      setNotice(id ? "Debrief refined. Review the updated intelligence." : "Debrief structured. Review before closing the capture.");
+      setNotice("Debrief structured. Review before closing the capture.");
     } catch {
       setError("Couldn't reach the server.");
     } finally {
@@ -164,15 +138,6 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
     setProspectLastName("");
     setProspectEmail("");
     setConfirmed(false);
-  }
-
-  function answerFollowUp(index: number) {
-    if (!result) return;
-    const answer = answers[index]?.trim();
-    if (!answer) return;
-    const question = result.extraction.followUpQuestions[index];
-    const addition = `Follow-up: ${question} ${answer}`;
-    void submit(`${transcript} ${addition}`.trim(), result.id);
   }
 
   return (
@@ -206,18 +171,7 @@ export function CaptureForm({ serverAsr = false }: { serverAsr?: boolean }) {
           <IntelligenceReview
             observation={result}
             confirmed={confirmed}
-            answers={answers}
-            skipped={skipped}
             submitting={submitting}
-            serverAsr={serverAsr}
-            onAnswer={(index, value) => setAnswers((prev) => ({ ...prev, [index]: value }))}
-            onSkip={(index) => setSkipped((prev) => ({ ...prev, [index]: !prev[index] }))}
-            onSubmitAnswer={answerFollowUp}
-            onRecorderText={(text) => {
-              const firstOpen = result.extraction.followUpQuestions.findIndex((_, index) => !skipped[index]);
-              const target = firstOpen >= 0 ? firstOpen : 0;
-              setAnswers((prev) => ({ ...prev, [target]: prev[target] ? `${prev[target]} ${text}` : text }));
-            }}
             onConfirm={() => {
               setConfirmed(true);
               setNotice("Capture complete. This record is now ready for leadership intelligence.");
@@ -390,33 +344,17 @@ function CaptureDraft({
 function IntelligenceReview({
   observation,
   confirmed,
-  answers,
-  skipped,
   submitting,
-  serverAsr,
-  onAnswer,
-  onSkip,
-  onSubmitAnswer,
-  onRecorderText,
   onConfirm,
   onReset,
 }: {
   observation: Observation;
   confirmed: boolean;
-  answers: Record<number, string>;
-  skipped: Record<number, boolean>;
   submitting: boolean;
-  serverAsr: boolean;
-  onAnswer: (index: number, value: string) => void;
-  onSkip: (index: number) => void;
-  onSubmitAnswer: (index: number) => void;
-  onRecorderText: (text: string) => void;
   onConfirm: () => void;
   onReset: () => void;
 }) {
   const e = observation.extraction;
-  const coverage = coverageStatus(e.coverageScore);
-  const needsFollowUp = e.followUpQuestions.length > 0 && e.coverageScore < 0.75;
 
   return (
     <div className="space-y-5">
@@ -424,28 +362,15 @@ function IntelligenceReview({
         <div className="eyebrow-row">
           <span className={`pill capitalize ${INTENT_STYLE[e.prospectIntent]}`}>{e.prospectIntent} lead</span>
           <span className="pill border-slate-200 bg-slate-50 text-slate-700">{sentimentLabel(e.overallSentiment)}</span>
-          <span className={`pill ${coverage.tone}`}>{coverage.label}</span>
           <span className="pill ml-auto border-slate-200 bg-white text-muted">
             {observation.engine === "llm" ? "AI extracted" : "Heuristic extract"}
           </span>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_260px]">
-          <div>
-            <h2 className="text-xl font-bold text-foreground">Intelligence review</h2>
-            <p className="mt-3 max-w-3xl text-[15px] leading-relaxed text-ink-soft">{e.summary}</p>
-            <div className="evidence-row mt-4">{extractCleanExcerpt(observation.transcript, [e.summary])}</div>
-          </div>
-          <div>
-            <div className="mb-2 flex items-center justify-between text-xs font-semibold text-muted">
-              <span className="uppercase">Coverage</span>
-              <span>{Math.round(e.coverageScore * 100)}%</span>
-            </div>
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: `${Math.round(e.coverageScore * 100)}%` }} />
-            </div>
-            <p className="mt-3 text-sm leading-relaxed text-muted">{coverage.helper}</p>
-          </div>
+        <div className="mt-5">
+          <h2 className="text-xl font-bold text-foreground">Intelligence review</h2>
+          <p className="mt-3 max-w-3xl text-[15px] leading-relaxed text-ink-soft">{e.summary}</p>
+          <div className="evidence-row mt-4">{extractCleanExcerpt(observation.transcript, [e.summary])}</div>
         </div>
       </section>
 
@@ -521,56 +446,6 @@ function IntelligenceReview({
         </ReviewSection>
       </div>
 
-      {needsFollowUp && (
-        <section className="panel border-accent/30 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="section-label">Follow-up queue</p>
-              <h3 className="mt-2 text-lg font-bold">Close the highest-value gaps</h3>
-            </div>
-            <span className="pill border-amber-200 bg-amber-50 text-amber-800">
-              {e.followUpQuestions.length} open
-            </span>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {e.followUpQuestions.map((q, i) => (
-              <article key={`${q}-${i}`} className={`signal-card ${skipped[i] ? "opacity-60" : ""}`}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="max-w-2xl text-sm font-semibold leading-relaxed">{q}</p>
-                  <button type="button" className="btn px-3 py-1.5 text-xs" onClick={() => onSkip(i)}>
-                    {skipped[i] ? "Reopen" : "Mark unknown"}
-                  </button>
-                </div>
-                {!skipped[i] && (
-                  <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
-                    <textarea
-                      value={answers[i] ?? ""}
-                      onChange={(event) => onAnswer(i, event.target.value)}
-                      placeholder="Answer this gap..."
-                      className="field min-h-16 resize-y text-sm"
-                      rows={2}
-                    />
-                    <button
-                      type="button"
-                      disabled={submitting || !(answers[i] ?? "").trim()}
-                      onClick={() => onSubmitAnswer(i)}
-                      className="btn btn-primary self-end px-4 py-3 text-sm disabled:opacity-50"
-                    >
-                      {submitting ? "Refining..." : "Apply"}
-                    </button>
-                  </div>
-                )}
-              </article>
-            ))}
-          </div>
-
-          <div className="mt-4 rounded-[8px] border border-border bg-slate-50 p-3">
-            <Recorder serverAsr={serverAsr} onText={onRecorderText} />
-          </div>
-        </section>
-      )}
-
       <details className="panel-flat p-4">
         <summary className="cursor-pointer select-none text-sm font-semibold text-ink-soft">Source transcript</summary>
         <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-muted">{observation.transcript}</p>
@@ -583,10 +458,10 @@ function IntelligenceReview({
         <button
           type="button"
           onClick={onConfirm}
-          disabled={confirmed}
+          disabled={confirmed || submitting}
           className="btn btn-secondary disabled:opacity-60"
         >
-          {confirmed ? "Confirmed" : needsFollowUp ? "Accept with gaps" : "Confirm intelligence"}
+          {confirmed ? "Confirmed" : "Confirm intelligence"}
         </button>
         <Link href="/executive" className="btn btn-primary">
           Open command center
@@ -628,7 +503,7 @@ function CaptureRail({ state, result }: { state: WorkflowState; result: Observat
           <StandardRow label="Reality" value={result ? "Transcript saved" : "Awaiting transcript"} />
           <StandardRow label="Structure" value={result ? "Signals extracted" : "Not started"} />
           <StandardRow label="Evidence" value={result ? "Review available" : "Not available"} />
-          <StandardRow label="Action" value={result?.extraction.followUpQuestions.length ? "Follow-up queued" : result ? "No gaps found" : "Pending"} />
+          <StandardRow label="Action" value={result ? "Intelligence ready" : "Pending"} />
         </div>
       </section>
     </aside>

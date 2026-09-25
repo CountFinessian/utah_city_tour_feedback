@@ -32,9 +32,8 @@ Hard rules:
   Emergent amenities not in the catalog are allowed as short snake_case names.
 - Extract any amenities, community spaces, or features the prospect reacted to (positively, negatively, or neutrally) in lowercase snake_case (e.g. pool, fitness_center, dog_park, rooftop_deck, e_bikes, pickleball, etc.). Do not limit to a static list; capture any emergent community feature mentioned.
 - overallSentiment is the PROSPECT's sentiment, not the host's.
-- followUpQuestions are coverage gaps: the most useful 1-4 things the host could still tell us
-  (e.g. budget, move-in timing, who they're moving with, decision timeline) when those are missing.
-- coverageScore reflects how complete the debrief is (0 = almost nothing, 1 = rich and decision-ready).`;
+- followUpQuestions must always be an empty array [].
+- coverageScore must always be 0.`;
 
 function buildPrompt(transcript: string, ctx: ExtractContext): string {
   const prospectName = [ctx.prospectFirstName, ctx.prospectLastName].filter(Boolean).join(" ");
@@ -170,18 +169,7 @@ export function heuristicExtract(transcript: string): Extraction {
   else prospectIntent = "unknown";
 
   const followUpQuestions: string[] = [];
-  if (objections.length === 0) followUpQuestions.push("Did they raise any concerns about price, parking, or timing?");
-  if (prospectIntent === "unknown") followUpQuestions.push("How likely are they to apply, and on what timeline?");
-  if (amenities.length === 0) followUpQuestions.push("Which amenities did they react to?");
-
-  const present = [
-    objections.length > 0,
-    amenities.length > 0,
-    prospectIntent !== "unknown",
-    questionsAsked.length > 0,
-    lifestyleSignals.length > 0,
-  ].filter(Boolean).length;
-  const coverageScore = Math.round((present / 5) * 100) / 100;
+  const coverageScore = 0;
 
   const summary =
     sents[0]?.slice(0, 240) ??
@@ -199,7 +187,7 @@ export function heuristicExtract(transcript: string): Extraction {
     questionsAsked,
     objections,
     amenities,
-    followUpQuestions: followUpQuestions.slice(0, 4),
+    followUpQuestions,
     coverageScore,
   };
 }

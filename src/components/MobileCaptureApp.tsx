@@ -12,7 +12,6 @@ import {
   LogOut,
   AlertCircle,
   Plus,
-  SkipForward,
   User,
   Trash2,
   X,
@@ -53,8 +52,6 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
-  const [answers, setAnswers] = useState<Record<number, string>>({});
-  const [skipFollowUp, setSkipFollowUp] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
@@ -184,7 +181,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
     setTranscript((prev) => (prev ? `${prev} ${text}` : text));
   }
 
-  async function submit(nextTranscript: string, id?: string) {
+  async function submit(nextTranscript: string) {
     if (!nextTranscript.trim()) {
       setError("Please add debrief notes or voice to continue.");
       return;
@@ -203,7 +200,6 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
           prospectFirstName,
           prospectLastName,
           prospectEmail,
-          id,
         }),
       });
       const json = await res.json();
@@ -213,8 +209,10 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       }
       setResult(json.observation as Observation);
       setTranscript(nextTranscript);
-      setAnswers({});
-      setNotice(id ? "Updated debrief saved." : "Debrief saved.");
+      // Auto-reset back to capture screen after a short confirmation pause
+      setTimeout(() => {
+        reset();
+      }, 2200);
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -229,18 +227,8 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
     setProspectLastName("");
     setProspectEmail("");
     setResult(null);
-    setAnswers({});
-    setSkipFollowUp(false);
     setError(null);
     setNotice(null);
-  }
-
-  function answerFollowUp(index: number) {
-    if (!result) return;
-    const answer = answers[index]?.trim();
-    if (!answer) return;
-    const question = result.extraction.followUpQuestions[index];
-    void submit(`${transcript} Follow-up: ${question} ${answer}`.trim(), result.id);
   }
 
   return (
@@ -367,12 +355,6 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
             ) : (
               <ReviewScreen
                 observation={result}
-                answers={answers}
-                submitting={submitting}
-                skipFollowUp={skipFollowUp}
-                onSkipFollowUp={() => setSkipFollowUp(true)}
-                onAnswer={(index, value) => setAnswers((prev) => ({ ...prev, [index]: value }))}
-                onSubmitAnswer={answerFollowUp}
                 onReset={reset}
                 isLeader={currentUser?.role === "leader"}
               />
@@ -716,22 +698,10 @@ function CaptureScreen({
 
 function ReviewScreen({
   observation,
-  answers,
-  submitting,
-  skipFollowUp,
-  onSkipFollowUp,
-  onAnswer,
-  onSubmitAnswer,
   onReset,
   isLeader,
 }: {
   observation: Observation;
-  answers: Record<number, string>;
-  submitting: boolean;
-  skipFollowUp: boolean;
-  onSkipFollowUp: () => void;
-  onAnswer: (index: number, value: string) => void;
-  onSubmitAnswer: (index: number) => void;
   onReset: () => void;
   isLeader: boolean;
 }) {
@@ -739,12 +709,10 @@ function ReviewScreen({
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const prospectDisplayName = [observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ");
-  const singleFollowUp = e.followUpQuestions[0];
-  const hasFollowUp = Boolean(singleFollowUp && !skipFollowUp);
 
   return (
     <div className="space-y-4 pb-24 animate-in fade-in duration-300">
-      {/* 1. Confirmed Success Hero */}
+      {/* Confirmed Success Hero */}
       <section className="mobile-card bg-gradient-to-b from-[#123631] to-[#0d1a1d] border-[#36cdbd]/40 text-center py-5">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-[#36cdbd]/20 border border-[#36cdbd]/40 text-[#36cdbd] mb-3">
           <CheckCircle2 className="h-7 w-7" />
@@ -764,64 +732,16 @@ function ReviewScreen({
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <span className="mobile-chip font-bold text-xs">{e.prospectIntent} lead</span>
           <span className="mobile-chip text-xs">{sentimentLabel(e.overallSentiment)}</span>
-          <span className="mobile-chip text-xs text-slate-300">
-            {Math.round(e.coverageScore * 100)}% completeness
-          </span>
         </div>
       </section>
 
-      {/* 2. One Optional Skippable LLM Follow-up Question */}
-      {hasFollowUp && (
-        <section className="mobile-card border-[#36cdbd]/30 bg-[#36cdbd]/[0.03] animate-in fade-in duration-200">
-          <div className="flex items-center justify-between">
-            <p className="text-xs uppercase font-bold tracking-wider text-[#43d9c7]">
-              Quick follow-up (optional)
-            </p>
-            <button
-              type="button"
-              onClick={onSkipFollowUp}
-              className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 font-medium transition-colors"
-            >
-              Skip
-              <SkipForward className="h-3 w-3" />
-            </button>
-          </div>
-          <div className="mt-2.5 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-sm font-semibold text-slate-200 leading-snug">{singleFollowUp}</p>
-            <textarea
-              value={answers[0] ?? ""}
-              onChange={(event) => onAnswer(0, event.target.value)}
-              className="mobile-textarea mt-2.5 min-h-[64px]"
-              placeholder="Type or speak a quick answer..."
-            />
-            <div className="mt-2.5 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={onSkipFollowUp}
-                className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
-              >
-                Dismiss
-              </button>
-              <button
-                type="button"
-                disabled={submitting || !(answers[0] ?? "").trim()}
-                onClick={() => onSubmitAnswer(0)}
-                className="mobile-primary-button py-1.5 px-3 text-xs disabled:opacity-40"
-              >
-                Save answer
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* 3. Summary Card */}
+      {/* Summary Card */}
       <section className="mobile-card">
         <h3 className="mobile-section-label">Executive summary</h3>
         <p className="mt-2 text-sm leading-relaxed text-mobile-soft">{e.summary}</p>
       </section>
 
-      {/* 4. Collapsible Signal Drilldown */}
+      {/* Collapsible Signal Drilldown */}
       <section className="mobile-card">
         <button
           type="button"
@@ -870,7 +790,7 @@ function ReviewScreen({
         )}
       </section>
 
-      {/* 5. Frictionless Bottom Bar: prominent "Log another tour" */}
+      {/* Bottom bar — auto-reset fires after 2.2s; this is a manual shortcut */}
       <div className="mobile-bottom-bar">
         <button
           type="button"
@@ -881,7 +801,6 @@ function ReviewScreen({
           Log another tour
         </button>
 
-        {/* Desktop-only link to Command for leadership accounts */}
         {isLeader && (
           <Link
             href="/command"
