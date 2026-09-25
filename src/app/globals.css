@@ -98,11 +98,13 @@
     max-height: 100dvh;
     overflow: hidden !important;
     overscroll-behavior: none !important;
+    background-color: #070b12 !important;
+    color-scheme: dark;
   }
 }
 
 body {
-  background: var(--command-bg);
+  background: #070b12;
   color: var(--command-ink);
   font-family: var(--font-sans);
   letter-spacing: 0;

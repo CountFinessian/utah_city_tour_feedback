@@ -4,6 +4,7 @@ const config: CapacitorConfig = {
   appId: "com.utahcity.host",
   appName: "Utah City",
   webDir: "www",
+  backgroundColor: "#070b12",
   server: {
     url: "https://www.utahcity.app",
     cleartext: false,
@@ -21,7 +22,8 @@ const config: CapacitorConfig = {
   },
   ios: {
     scheme: "Utah City",
-    contentInset: "automatic",
+    backgroundColor: "#070b12",
+    contentInset: "never",
     allowsLinkPreview: false,
     scrollEnabled: false,
     preferredContentMode: "mobile",

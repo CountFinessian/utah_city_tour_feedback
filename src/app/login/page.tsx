@@ -104,7 +104,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen bg-[#070b12] text-[#e8eef7] flex flex-col justify-center items-center px-4 py-12 selection:bg-[#43d9c7] selection:text-[#070b12]">
+    <div className="min-h-[100dvh] w-full bg-[#070b12] text-[#e8eef7] flex flex-col justify-center items-center px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] selection:bg-[#43d9c7] selection:text-[#070b12]">
       <div className="w-full max-w-md space-y-8">
         {/* Header */}
         <div className="text-center space-y-2">
