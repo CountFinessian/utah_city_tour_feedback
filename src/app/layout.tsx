@@ -24,7 +24,6 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false,
   viewportFit: "cover",
   themeColor: "#070b12",
 };
@@ -34,7 +33,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} h-full antialiased bg-[#070b12] text-[#f0f6ff]`}>
-      <body className="h-full h-[100dvh] max-h-[100dvh] overflow-hidden overscroll-none bg-[#070b12]" suppressHydrationWarning>
+      <body className="min-h-full" suppressHydrationWarning>
         {children}
       </body>
     </html>

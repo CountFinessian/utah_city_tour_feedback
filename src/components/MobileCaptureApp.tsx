@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import {
   ArrowRight,
   CheckCircle2,
@@ -32,6 +33,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<{ name: string; role: string; email: string } | null>(null);
 
+  const [isNativeApp, setIsNativeApp] = useState(false);
   const [hostName, setHostName] = useState("");
   const [prospectFirstName, setProspectFirstName] = useState("");
   const [prospectLastName, setProspectLastName] = useState("");
@@ -46,6 +48,17 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Detect whether running inside the native mobile app (Capacitor iOS)
+  useEffect(() => {
+    try {
+      if (Capacitor.isNativePlatform()) {
+        setIsNativeApp(true);
+        document.documentElement.classList.add("native-app-locked");
+        document.body.classList.add("native-app-locked");
+      }
+    } catch {}
+  }, []);
 
   // One-time AI Consent Management (Apple App Store Guideline 5.1.2(i))
   const AI_CONSENT_KEY = "uc_ai_consent_accepted";
@@ -211,265 +224,327 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
     }
   }
 
-  return (
-    <div className="fixed inset-0 w-full h-[100dvh] max-h-[100dvh] overflow-hidden overscroll-none bg-[#070b12] text-[#f0f6ff] flex flex-col items-center select-none">
-      <div className="w-full max-w-md h-full flex flex-col justify-between overflow-hidden px-3.5 pt-[max(0.6rem,env(safe-area-inset-top))] pb-[max(0.6rem,env(safe-area-inset-bottom))]">
-        {/* Leadership warning if non-leader tried to access command */}
-        {unauthorizedWarning && (
-          <div className="mb-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2 shrink-0">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-            <p className="text-[11px] text-amber-200/90 leading-tight">
-              Leadership intelligence is restricted to leadership accounts. Your host workspace is ready below.
-            </p>
-          </div>
-        )}
+  // Common application UI content used across both native app and web presentation
+  const appContent = (
+    <div className="h-full flex flex-col justify-between overflow-hidden gap-1.5 flex-1 min-h-0">
+      {/* Leadership warning if non-leader tried to access command */}
+      {unauthorizedWarning && (
+        <div className="mb-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2 shrink-0">
+          <AlertCircle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+          <p className="text-[11px] text-amber-200/90 leading-tight">
+            Leadership intelligence is restricted to leadership accounts. Your host workspace is ready below.
+          </p>
+        </div>
+      )}
 
-        {/* Mobile App Header */}
-        <header className="flex items-center justify-between py-1.5 shrink-0">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-mobile-muted">Utah City</p>
-            <h1 className="text-lg font-black text-white tracking-tight leading-tight">Guided tour debrief</h1>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {currentUser?.role === "leader" && (
-              <Link
-                href="/command"
-                className="text-[11px] px-2 py-1 rounded-md bg-white/[0.06] border border-white/10 text-slate-300 font-medium hover:bg-white/10 transition-colors"
-              >
-                Command
-              </Link>
-            )}
-            {currentUser && (
+      {/* Mobile App Header */}
+      <header className="flex items-center justify-between py-1 shrink-0">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-mobile-muted">Utah City</p>
+          <h1 className="text-base sm:text-lg font-black text-white tracking-tight leading-tight">Guided tour debrief</h1>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {currentUser?.role === "leader" && (
+            <Link
+              href="/command"
+              className="text-[11px] px-2 py-1 rounded-md bg-white/[0.06] border border-white/10 text-slate-300 font-medium hover:bg-white/10 transition-colors"
+            >
+              Command
+            </Link>
+          )}
+          {currentUser && (
+            <button
+              type="button"
+              onClick={() => setShowAccountModal(true)}
+              className="text-[11px] px-2.5 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold flex items-center gap-1.5 h-7 hover:bg-emerald-500/25 transition-colors cursor-pointer"
+              title="Account settings & AI privacy"
+            >
+              <User className="h-3 w-3" />
+              <span>{currentUser.name.trim().split(" ")[0]}</span>
+            </button>
+          )}
+          <button
+            onClick={handleLogout}
+            title="Sign out of workspace"
+            className="h-7 w-7 rounded-md flex items-center justify-center bg-white/[0.04] hover:bg-red-500/15 text-slate-400 hover:text-red-300 border border-white/10 hover:border-red-500/25 transition-colors shrink-0 cursor-pointer"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </header>
+
+      {/* Security / trust indicator */}
+      <div className="flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-white/[0.03] border border-white/5 text-[11px] text-slate-400 font-medium shrink-0 mb-1">
+        <ShieldCheck className="h-3.5 w-3.5 text-[#36cdbd]" />
+        <span>{serverAsr ? "AI transcription active" : "On-device voice ready"}</span>
+      </div>
+
+      {/* Single-page capture screen */}
+      <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <CaptureScreen
+          transcript={transcript}
+          hostName={currentUser?.name || hostName || "Tour Host"}
+          prospectFirstName={prospectFirstName}
+          prospectLastName={prospectLastName}
+          prospectEmail={prospectEmail}
+          contextOpen={contextOpen}
+          submitting={submitting}
+          processingIndex={processingIndex}
+          processingMessages={PROCESSING_MESSAGES}
+          canSubmit={canSubmit}
+          serverAsr={serverAsr}
+          onText={appendText}
+          onTranscript={setTranscript}
+          onProspectFirstName={setProspectFirstName}
+          onProspectLastName={setProspectLastName}
+          onProspectEmail={setProspectEmail}
+          onContextOpen={() => setContextOpen((value) => !value)}
+          recorderRef={recorderRef}
+          onBeforeRecord={() => requestConsent("record")}
+          onSubmit={() => {
+            if (requestConsent("submit")) {
+              void submit(transcript.trim());
+            }
+          }}
+          error={error}
+          onErrorClear={() => setError(null)}
+        />
+      </main>
+
+      {/* Top floating toast popup for "Entry submitted" and errors */}
+      {notice && (
+        <div className="mobile-toast">
+          <CheckCircle2 className="h-4 w-4 text-[#36cdbd]" />
+          <span>{notice}</span>
+        </div>
+      )}
+      {error && (
+        <div className="mobile-toast mobile-toast-error">
+          <AlertCircle className="h-4 w-4 text-rose-400" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Account Settings & AI Privacy Modal */}
+      {showAccountModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-[#26354c] bg-[#101827] p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-white/[0.04] border border-white/10 text-[#43d9c7]">
+                  <User className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Account & AI Privacy</h3>
+                  <p className="text-[11px] text-[#8292a8]">{currentUser?.email || "Host Account"}</p>
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => setShowAccountModal(true)}
-                className="text-[11px] px-2.5 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold flex items-center gap-1.5 h-7 hover:bg-emerald-500/25 transition-colors cursor-pointer"
-                title="Account settings & AI privacy"
+                onClick={() => {
+                  setShowAccountModal(false);
+                  setShowDeleteConfirm(false);
+                  setDeleteError(null);
+                }}
+                className="text-[#8292a8] hover:text-white p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer"
               >
-                <User className="h-3 w-3" />
-                <span>{currentUser.name.trim().split(" ")[0]}</span>
+                <X className="h-4 w-4" />
               </button>
+            </div>
+
+            {deleteError && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{deleteError}</span>
+              </div>
             )}
-            <button
-              onClick={handleLogout}
-              title="Sign out of workspace"
-              className="h-7 w-7 rounded-md flex items-center justify-center bg-white/[0.04] hover:bg-red-500/15 text-slate-400 hover:text-red-300 border border-white/10 hover:border-red-500/25 transition-colors shrink-0 cursor-pointer"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </header>
 
-        {/* Security / trust indicator */}
-        <div className="flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-white/[0.03] border border-white/5 text-[11px] text-slate-400 font-medium shrink-0 mb-1">
-          <ShieldCheck className="h-3.5 w-3.5 text-[#36cdbd]" />
-          <span>{serverAsr ? "AI transcription active" : "On-device voice ready"}</span>
-        </div>
-
-        {/* Single-page capture screen */}
-        <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          <CaptureScreen
-            transcript={transcript}
-            hostName={currentUser?.name || hostName || "Tour Host"}
-            prospectFirstName={prospectFirstName}
-            prospectLastName={prospectLastName}
-            prospectEmail={prospectEmail}
-            contextOpen={contextOpen}
-            submitting={submitting}
-            processingIndex={processingIndex}
-            processingMessages={PROCESSING_MESSAGES}
-            canSubmit={canSubmit}
-            serverAsr={serverAsr}
-            onText={appendText}
-            onTranscript={setTranscript}
-            onProspectFirstName={setProspectFirstName}
-            onProspectLastName={setProspectLastName}
-            onProspectEmail={setProspectEmail}
-            onContextOpen={() => setContextOpen((value) => !value)}
-            recorderRef={recorderRef}
-            onBeforeRecord={() => requestConsent("record")}
-            onSubmit={() => {
-              if (requestConsent("submit")) {
-                void submit(transcript.trim());
-              }
-            }}
-            error={error}
-            onErrorClear={() => setError(null)}
-          />
-        </main>
-
-        {/* Top floating toast popup for "Entry submitted" and errors */}
-        {notice && (
-          <div className="mobile-toast">
-            <CheckCircle2 className="h-4 w-4 text-[#36cdbd]" />
-            <span>{notice}</span>
-          </div>
-        )}
-        {error && (
-          <div className="mobile-toast mobile-toast-error">
-            <AlertCircle className="h-4 w-4 text-rose-400" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Account Settings & AI Privacy Modal */}
-        {showAccountModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-150">
-            <div className="w-full max-w-md rounded-2xl border border-[#26354c] bg-[#101827] p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-white/[0.04] border border-white/10 text-[#43d9c7]">
-                    <User className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-white">Account & AI Privacy</h3>
-                    <p className="text-[11px] text-[#8292a8]">{currentUser?.email || "Host Account"}</p>
-                  </div>
+            {/* AI Consent Card */}
+            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[#43d9c7] font-semibold">
+                  <Sparkles className="h-4 w-4" />
+                  <span>AI Voice & Analysis Consent</span>
                 </div>
+                {hasConsent ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+                    Consent Active
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                    Pending
+                  </span>
+                )}
+              </div>
+              <p className="text-[#8292a8] text-[11px] leading-relaxed">
+                Spoken tour audio is transcribed via automated AI speech recognition and synthesized into operational tour insights. Audio recordings are securely encrypted and are never sold or shared with external advertisers.
+              </p>
+              <div className="pt-1 flex items-center justify-between text-[11px]">
                 <button
                   type="button"
                   onClick={() => {
                     setShowAccountModal(false);
-                    setShowDeleteConfirm(false);
-                    setDeleteError(null);
+                    setShowConsentModal(true);
                   }}
-                  className="text-[#8292a8] hover:text-white p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer"
+                  className="text-[#43d9c7] hover:underline font-semibold"
                 >
-                  <X className="h-4 w-4" />
+                  Review AI terms
                 </button>
-              </div>
-
-              {deleteError && (
-                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400 flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{deleteError}</span>
-                </div>
-              )}
-
-              {/* AI Consent Card */}
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-[#43d9c7] font-semibold">
-                    <Sparkles className="h-4 w-4" />
-                    <span>AI Voice & Analysis Consent</span>
-                  </div>
-                  {hasConsent ? (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
-                      Consent Active
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300">
-                      Pending
-                    </span>
-                  )}
-                </div>
-                <p className="text-[#8292a8] text-[11px] leading-relaxed">
-                  Spoken tour audio is transcribed via automated AI speech recognition and synthesized into operational tour insights. Audio recordings are securely encrypted and are never sold or shared with external advertisers.
-                </p>
-                <div className="pt-1 flex items-center justify-between text-[11px]">
+                {hasConsent && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowAccountModal(false);
-                      setShowConsentModal(true);
-                    }}
-                    className="text-[#43d9c7] hover:underline font-semibold"
+                    onClick={handleRevokeConsent}
+                    className="text-amber-400/80 hover:text-amber-300 hover:underline"
                   >
-                    Review AI terms
+                    Revoke consent
                   </button>
-                  {hasConsent && (
-                    <button
-                      type="button"
-                      onClick={handleRevokeConsent}
-                      className="text-amber-400/80 hover:text-amber-300 hover:underline"
-                    >
-                      Revoke consent
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Legal Links (opens in external browser per Apple guidelines) */}
-              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/10 flex items-center justify-between text-xs">
-                <span className="text-[#8292a8]">Policies & Help</span>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => openExternalUrl("/privacy")}
-                    className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <span>Privacy Policy</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </button>
-                  <span className="text-[#26354c]">·</span>
-                  <button
-                    type="button"
-                    onClick={() => openExternalUrl("/support")}
-                    className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <span>Support</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </button>
-                </div>
-              </div>
-
-              {/* In-App Account Deletion (Apple Guideline 5.1.1(v)) */}
-              <div className="pt-2 border-t border-white/10 space-y-3">
-                {!showDeleteConfirm ? (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-white">Delete Account</p>
-                      <p className="text-[11px] text-[#8292a8]">Permanently remove your account & access</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteConfirm(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-semibold transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      <span>Delete Account</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 space-y-3">
-                    <div className="flex items-start gap-2 text-xs text-red-200">
-                      <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-                      <p className="leading-relaxed">
-                        Are you sure you want to permanently delete your host account? This action is immediate and cannot be undone.
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowDeleteConfirm(false)}
-                        disabled={deletingAccount}
-                        className="px-3 py-1.5 rounded-lg border border-white/10 text-xs text-slate-300 hover:bg-white/5 transition-colors cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleDeleteAccount}
-                        disabled={deletingAccount}
-                        className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        {deletingAccount ? "Deleting..." : "Yes, Delete Account"}
-                      </button>
-                    </div>
-                  </div>
                 )}
               </div>
             </div>
+
+            {/* Legal Links (opens in external browser per Apple guidelines) */}
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/10 flex items-center justify-between text-xs">
+              <span className="text-[#8292a8]">Policies & Help</span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => openExternalUrl("/privacy")}
+                  className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Privacy Policy</span>
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+                <span className="text-[#26354c]">·</span>
+                <button
+                  type="button"
+                  onClick={() => openExternalUrl("/support")}
+                  className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Support</span>
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+
+            {/* In-App Account Deletion (Apple Guideline 5.1.1(v)) */}
+            <div className="pt-2 border-t border-white/10 space-y-3">
+              {!showDeleteConfirm ? (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-white">Delete Account</p>
+                    <p className="text-[11px] text-[#8292a8]">Permanently remove your account & access</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Delete Account</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 space-y-3">
+                  <div className="flex items-start gap-2 text-xs text-red-200">
+                    <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                    <p className="leading-relaxed">
+                      Are you sure you want to permanently delete your host account? This action is immediate and cannot be undone.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(false)}
+                      disabled={deletingAccount}
+                      className="px-3 py-1.5 rounded-lg border border-white/10 text-xs text-slate-300 hover:bg-white/5 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeleteAccount}
+                      disabled={deletingAccount}
+                      className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {deletingAccount ? "Deleting..." : "Yes, Delete Account"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Explicit AI Consent Modal (Apple Guideline 5.1.2(i)) */}
+      <AiConsentModal
+        isOpen={showConsentModal}
+        onAccept={handleAcceptConsent}
+        onDecline={handleDeclineConsent}
+      />
+    </div>
+  );
+
+  // 1. Mobile App (Capacitor iOS): locked fixed viewport mapped to device
+  if (isNativeApp) {
+    return (
+      <div className="fixed inset-0 w-full h-[100dvh] max-h-[100dvh] overflow-hidden overscroll-none bg-[#070b12] text-[#f0f6ff] flex flex-col items-center select-none">
+        <div className="w-full max-w-md h-full flex flex-col justify-between overflow-hidden px-3.5 pt-[max(0.6rem,env(safe-area-inset-top))] pb-[max(0.6rem,env(safe-area-inset-bottom))]">
+          {appContent}
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Web Browser: standard flexible website layout with unlocked scrolling
+  return (
+    <div className="mobile-demo-stage">
+      <div className="mobile-product-note">
+        <p className="command-label">Field product</p>
+        <h1>Native-style mobile capture</h1>
+        <p>
+          Hosts should experience this as a focused phone app: talk, review, close gaps, done.
+          Command remains the desktop leadership surface.
+        </p>
+
+        {currentUser && (
+          <div className="mt-4 p-3 rounded-xl bg-white/[0.04] border border-white/10 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-400">Authenticated user</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#43d9c7]/10 text-[#43d9c7] border border-[#43d9c7]/20">
+                {currentUser.role}
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-slate-200">{currentUser.name.trim().split(" ")[0]}</p>
+            <p className="text-xs text-slate-400">{currentUser.email}</p>
           </div>
         )}
 
-        {/* Explicit AI Consent Modal (Apple Guideline 5.1.2(i)) */}
-        <AiConsentModal
-          isOpen={showConsentModal}
-          onAccept={handleAcceptConsent}
-          onDecline={handleDeclineConsent}
-        />
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {currentUser?.role === "leader" ? (
+            <Link href="/command" className="command-action-button inline-flex">
+              Open Command
+            </Link>
+          ) : (
+            <span className="text-xs text-slate-400 italic">
+              Tour Host Mode · Capture debriefs below
+            </span>
+          )}
+          <button
+            onClick={handleLogout}
+            title="Sign out"
+            className="h-7 w-7 rounded-md flex items-center justify-center text-slate-400 hover:text-red-400 border border-white/10 hover:bg-white/5 transition-colors shrink-0"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
+
+      <section className="phone-frame" aria-label="Utah City mobile capture app">
+        <div className="phone-hardware p-3 sm:p-4 flex flex-col justify-between">
+          {appContent}
+        </div>
+      </section>
     </div>
   );
 }
@@ -589,7 +664,7 @@ function CaptureScreen({
           className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.06] transition-colors text-left cursor-pointer"
         >
           <div className="flex items-center gap-2 min-w-0">
-            <User className="h-3.5 w-3.5 text-[#36cdbd] shrink-0" />
+            <User className="h-3.5 w-3.5 text-[#36cdbd]" />
             <span className="text-xs text-slate-300 truncate">
               {prospectAssigned
                 ? [prospectFirstName, prospectLastName, prospectEmail].filter(Boolean).join(" · ")
@@ -600,7 +675,7 @@ function CaptureScreen({
         </button>
       </div>
 
-      {/* Prospect Context Modal / Bottom Sheet with FIXED Host */}
+      {/* Prospect Context Modal / Bottom Sheet with clean read-only Host */}
       {contextOpen && (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-3">
           <div className="w-full max-w-md rounded-2xl border border-[#26354c] bg-[#101827] p-4 shadow-2xl space-y-3 animate-in fade-in">
