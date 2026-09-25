@@ -55,15 +55,24 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Detect whether running inside the native mobile app (Capacitor iOS)
+  // Detect whether running in mobile viewport (native app or mobile screen <= 900px)
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+
   useEffect(() => {
-    try {
-      if (Capacitor.isNativePlatform()) {
-        setIsNativeApp(true);
+    const updateViewport = () => {
+      const isMobile = Capacitor.isNativePlatform() || window.innerWidth <= 900;
+      setIsMobileViewport(isMobile);
+      if (isMobile) {
         document.documentElement.classList.add("native-app-locked");
         document.body.classList.add("native-app-locked");
+      } else {
+        document.documentElement.classList.remove("native-app-locked");
+        document.body.classList.remove("native-app-locked");
       }
-    } catch {}
+    };
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
   }, []);
 
   // One-time AI Consent Management (Apple App Store Guideline 5.1.2(i))
@@ -520,11 +529,11 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
     </div>
   );
 
-  // 1. Mobile App (Capacitor iOS): locked fixed viewport mapped to device
-  if (isNativeApp) {
+  // 1. Mobile Screen (iPhone / Native App / screen <= 900px): edge-to-edge dark viewport filling around the notch
+  if (isMobileViewport) {
     return (
       <div className="fixed inset-0 w-full h-[100dvh] max-h-[100dvh] overflow-hidden overscroll-none bg-[#070b12] text-[#f0f6ff] flex flex-col items-center select-none">
-        <div className="w-full max-w-md h-full flex flex-col justify-between overflow-hidden px-3.5 pt-[max(0.6rem,env(safe-area-inset-top))] pb-[max(0.6rem,env(safe-area-inset-bottom))]">
+        <div className="w-full max-w-md h-full flex flex-col justify-between overflow-hidden px-3.5 pt-[max(0.6rem,env(safe-area-inset-top))] pb-[max(0.6rem,env(safe-area-inset-bottom))] bg-[#070b12]">
           {appContent}
         </div>
       </div>
