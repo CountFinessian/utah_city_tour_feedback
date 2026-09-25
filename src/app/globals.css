@@ -79,6 +79,26 @@
   ::backdrop {
     border-color: var(--color-border);
   }
+
+  /* Universally hide scrollbars while preserving touch, mouse wheel, and trackpad scrolling */
+  * {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  html,
+  body {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden !important;
+    overscroll-behavior: none !important;
+  }
 }
 
 body {
@@ -102,7 +122,10 @@ select {
 
 @layer components {
   .app-shell {
-    min-height: 100vh;
+    min-height: 100dvh;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow-y: auto;
     background: var(--command-bg);
   }
 
@@ -1420,6 +1443,14 @@ select {
     outline: none;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  .apple-notes-textarea::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
   }
 
   .apple-notes-textarea::placeholder {
@@ -1544,42 +1575,45 @@ select {
   }
 
   .mobile-toast {
-    position: absolute;
-    left: 1rem;
-    right: 1rem;
-    bottom: 5rem;
-    z-index: 8;
-    top: 1rem;
-    bottom: auto;
-    z-index: 30;
-    border: 1px solid rgba(65, 215, 199, 0.42);
-    border-radius: 18px;
-    background: rgba(13, 139, 131, 0.92);
-    background: rgba(13, 139, 131, 0.95);
-    padding: 0.72rem 0.9rem;
+    position: fixed;
+    top: max(1.2rem, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid rgba(65, 215, 199, 0.45);
+    border-radius: 9999px;
+    background: rgba(16, 24, 39, 0.96);
+    padding: 0.65rem 1.25rem;
     color: #ecfffc;
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     font-weight: 800;
-    backdrop-filter: blur(16px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(20px);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(65, 215, 199, 0.2);
     animation: mobileToastIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+    max-width: 90vw;
+    white-space: nowrap;
   }
 
   @keyframes mobileToastIn {
     from {
       opacity: 0;
-      transform: translateY(-10px);
+      transform: translate(-50%, -12px);
     }
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: translate(-50%, 0);
     }
   }
 
   .mobile-toast-error {
-    border-color: rgba(226, 93, 93, 0.5);
-    background: rgba(127, 29, 29, 0.92);
-    background: rgba(127, 29, 29, 0.95);
+    border-color: rgba(226, 93, 93, 0.6);
+    background: rgba(25, 14, 18, 0.96);
+    color: #fecdd3;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(226, 93, 93, 0.25);
   }
 
   .mobile-chip {
