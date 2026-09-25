@@ -2,17 +2,28 @@ import { Haptics, NotificationType, ImpactStyle } from "@capacitor/haptics";
 
 /**
  * Triggers native iOS / Android haptic vibration feedback for successful actions (e.g. debrief submission).
- * Falls back gracefully to standard web navigator.vibrate if running outside native Capacitor.
+ * Produces a crisp heavy impact thump followed by a satisfying 300ms vibration pulse.
  */
 export async function triggerSubmitHaptic(): Promise<void> {
+  // 1. Immediate crisp heavy physical impact
   try {
-    await Haptics.notification({ type: NotificationType.Success });
+    await Haptics.impact({ style: ImpactStyle.Heavy });
+  } catch {}
+
+  // 2. Satisfying continuous vibration pulse (0.3s CoreHaptics / Taptic Engine)
+  try {
+    await Haptics.vibrate({ duration: 300 });
   } catch {
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-      try {
-        navigator.vibrate([40, 60, 40]);
-      } catch {}
-    }
+    try {
+      await Haptics.notification({ type: NotificationType.Success });
+    } catch {}
+  }
+
+  // 3. Web fallback for devices supporting navigator.vibrate
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    try {
+      navigator.vibrate([150]);
+    } catch {}
   }
 }
 

@@ -21,7 +21,7 @@ import {
   Redo2,
 } from "lucide-react";
 import { Recorder, type RecorderRef } from "./Recorder";
-import { triggerSubmitHaptic, triggerErrorHaptic } from "@/lib/haptics";
+import { triggerSubmitHaptic, triggerErrorHaptic, triggerTapHaptic } from "@/lib/haptics";
 
 function openExternalUrl(path: string) {
   if (typeof window !== "undefined") {
@@ -228,6 +228,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   }
 
   async function submit(nextTranscript: string) {
+    void triggerTapHaptic();
     if (!nextTranscript.trim()) {
       setError("Please add debrief notes or voice to continue.");
       void triggerErrorHaptic();
