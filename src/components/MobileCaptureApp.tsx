@@ -21,6 +21,7 @@ import {
   Redo2,
 } from "lucide-react";
 import { Recorder, type RecorderRef } from "./Recorder";
+import { triggerSubmitHaptic, triggerErrorHaptic } from "@/lib/haptics";
 
 function openExternalUrl(path: string) {
   if (typeof window !== "undefined") {
@@ -220,6 +221,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   async function submit(nextTranscript: string) {
     if (!nextTranscript.trim()) {
       setError("Please add debrief notes or voice to continue.");
+      void triggerErrorHaptic();
       return;
     }
     setSubmitting(true);
@@ -241,9 +243,10 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       const json = await res.json();
       if (!res.ok) {
         setError(json.error || "Could not structure debrief.");
+        void triggerErrorHaptic();
         return;
       }
-      // Single-page flow: Clear inputs and display "Entry submitted" toast popup
+      // Single-page flow: Clear inputs, vibrate phone with tactile feedback, and display "Entry submitted"
       setTranscript("");
       setHistory([""]);
       setHistoryIndex(0);
@@ -251,8 +254,10 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       setProspectLastName("");
       setProspectEmail("");
       setNotice("Entry submitted");
+      void triggerSubmitHaptic();
     } catch {
       setError("Could not reach the server.");
+      void triggerErrorHaptic();
     } finally {
       setSubmitting(false);
       setProcessingIndex(0);
@@ -345,24 +350,11 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
               void submit(transcript.trim());
             }
           }}
+          notice={notice}
           error={error}
           onErrorClear={() => setError(null)}
         />
       </main>
-
-      {/* Top floating toast popup for "Entry submitted" and errors */}
-      {notice && (
-        <div className="mobile-toast" role="status">
-          <CheckCircle2 className="h-4 w-4 text-[#36cdbd] shrink-0" />
-          <span className="leading-snug">{notice}</span>
-        </div>
-      )}
-      {error && (
-        <div className="mobile-toast mobile-toast-error" role="alert">
-          <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
-          <span className="leading-snug">{error}</span>
-        </div>
-      )}
 
       {/* Account Settings & AI Privacy Modal */}
       {showAccountModal && (
@@ -416,7 +408,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                 )}
               </div>
               <p className="text-slate-200 text-xs sm:text-sm leading-relaxed font-normal">
-                Spoken tour audio is transcribed via automated AI speech recognition and synthesized into operational tour insights. Audio recordings are securely encrypted and are never sold or shared with external advertisers.
+                Utah City Intelligence uses automated artificial intelligence to transcribe spoken debrief audio and synthesize visitor insights. Notes and audio are encrypted and never sold or shared.
               </p>
               <div className="pt-1.5 flex items-center justify-between text-xs sm:text-sm">
                 <button
@@ -607,6 +599,7 @@ function CaptureScreen({
   processingMessages,
   canSubmit,
   serverAsr,
+  notice,
   error,
   onErrorClear,
   onText,
@@ -634,6 +627,7 @@ function CaptureScreen({
   processingMessages: string[];
   canSubmit: boolean;
   serverAsr: boolean;
+  notice?: string | null;
   error?: string | null;
   onErrorClear?: () => void;
   onText: (value: string) => void;
@@ -662,7 +656,7 @@ function CaptureScreen({
       </section>
 
       {/* 2. Apple Notes-Style Debrief Textbox (~half height with Undo / Redo toolbar) */}
-      <section className="apple-notes-card h-[160px] sm:h-[185px] shrink-0 flex flex-col shadow-inner">
+      <section className="apple-notes-card relative h-[160px] sm:h-[185px] shrink-0 flex flex-col shadow-inner">
         <div className="apple-notes-header shrink-0">
           <div className="flex items-center gap-2.5">
             <span className="mobile-section-label">Debrief notes</span>
@@ -721,10 +715,33 @@ function CaptureScreen({
           autoCorrect="on"
           spellCheck={true}
         />
+
+        {/* Big Green Popup (Success) directly over the debrief notes textbox */}
+        {notice && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-4 rounded-[19px] bg-[#071916]/95 backdrop-blur-md border-2 border-emerald-400 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="p-3 rounded-full bg-emerald-500/20 text-emerald-300 mb-2 shadow-lg shadow-emerald-500/20 animate-bounce">
+              <CheckCircle2 className="h-10 w-10 text-emerald-400" />
+            </div>
+            <p className="text-xl sm:text-2xl font-black text-white tracking-tight text-center">{notice}</p>
+          </div>
+        )}
+
+        {/* Big Red Popup (Error) directly over the debrief notes textbox */}
         {error && (
-          <div className="px-3.5 py-2 bg-rose-500/10 border-t border-rose-500/20 text-sm text-rose-200 font-semibold flex items-center gap-2 shrink-0">
-            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
-            <span>{error}</span>
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-4 rounded-[19px] bg-[#1a0a0d]/95 backdrop-blur-md border-2 border-rose-500 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="p-3 rounded-full bg-rose-500/20 text-rose-300 mb-2 shadow-lg shadow-rose-500/20">
+              <AlertCircle className="h-10 w-10 text-rose-400" />
+            </div>
+            <p className="text-base sm:text-lg font-black text-white text-center tracking-tight leading-snug">{error}</p>
+            {onErrorClear && (
+              <button
+                type="button"
+                onClick={onErrorClear}
+                className="mt-3 px-4 py-1.5 rounded-xl bg-rose-500/25 hover:bg-rose-500/40 text-rose-200 text-xs sm:text-sm font-black transition-colors cursor-pointer"
+              >
+                Dismiss
+              </button>
+            )}
           </div>
         )}
       </section>
@@ -895,7 +912,7 @@ function AiConsentModal({
         </div>
 
         <p className="text-sm sm:text-base text-slate-200 leading-relaxed font-normal">
-          Utah City uses automated artificial intelligence to help tour hosts capture and summarize visitor feedback quickly. To comply with Apple App Store privacy requirements (Guideline 5.1.2(i)), we ask for your explicit permission before transmitting debrief notes or voice audio to our AI processing services.
+          Utah City Intelligence uses automated artificial intelligence to help tour hosts capture and synthesize visitor debriefs quickly. We request your permission before processing voice debriefs or notes through our secure AI models.
         </p>
 
         <div className="space-y-3">
@@ -905,27 +922,27 @@ function AiConsentModal({
               <span>Voice Speech Recognition</span>
             </div>
             <p className="text-slate-300 text-xs sm:text-sm leading-relaxed font-normal">
-              When using microphone voice recording, spoken audio is sent to automated speech-to-text models to generate your written tour debrief transcript.
+              Spoken audio is transcribed into written debrief notes.
             </p>
           </div>
 
           <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 space-y-1">
             <div className="flex items-center gap-2 font-bold text-white text-sm sm:text-base">
               <Sparkles className="h-4 w-4 text-[#43d9c7]" />
-              <span>AI Language Model Debrief Analysis</span>
+              <span>AI Debrief Analysis</span>
             </div>
             <p className="text-slate-300 text-xs sm:text-sm leading-relaxed font-normal">
-              Both spoken transcripts and manually typed debrief notes are processed by enterprise language models to extract visitor interest signals, sentiment, and follow-up action items.
+              Notes are analyzed to identify prospect interest and follow-up items.
             </p>
           </div>
 
           <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 space-y-1">
             <div className="flex items-center gap-2 font-bold text-white text-sm sm:text-base">
               <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <span>Enterprise Privacy & Encryption</span>
+              <span>Privacy & Encryption</span>
             </div>
             <p className="text-slate-300 text-xs sm:text-sm leading-relaxed font-normal">
-              Data is encrypted in transit and at rest. Your notes and recordings are strictly confidential to Utah City and are never sold, shared with external advertisers, or used to train public AI models.
+              Encrypted and confidential. Data is never sold, shared, or used to train public models.
             </p>
           </div>
         </div>
