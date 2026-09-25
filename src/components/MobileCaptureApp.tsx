@@ -623,17 +623,16 @@ function CaptureScreen({
             </div>
             <MobileField label="Email" value={prospectEmail} onChange={onProspectEmail} placeholder="client@example.com" />
             
-            {/* Fixed Host display - read-only for accountability */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-[#8292a8]">Tour Host</label>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400 font-mono">Fixed</span>
-              </div>
-              <div className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 text-slate-300 text-xs font-medium flex items-center justify-between select-none">
-                <span>{hostName}</span>
-                <span className="text-[10px] text-emerald-400 font-semibold">Authenticated</span>
-              </div>
-            </div>
+            {/* Host field - read-only */}
+            <label className="mobile-field">
+              <span>Tour Host</span>
+              <input
+                value={hostName}
+                readOnly
+                disabled
+                className="mobile-input mt-1.5 text-[16px] sm:text-sm opacity-80 cursor-default select-none"
+              />
+            </label>
 
             <button
               type="button"
