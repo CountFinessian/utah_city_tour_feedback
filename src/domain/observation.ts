@@ -168,14 +168,16 @@ export const ExtractionSchema = z.object({
       }),
     )
     .describe("Amenities the prospect reacted to, positively or negatively."),
+  actionItems: z
+    .array(z.string())
+    .optional()
+    .describe("1-3 concrete operational suggestions or improvements for Utah City based on this feedback."),
   followUpQuestions: z
     .array(z.string())
-    .describe("1-4 questions the host should still answer to complete the picture (coverage gaps)."),
+    .optional(),
   coverageScore: z
     .number()
-    .min(0)
-    .max(1)
-    .describe("0-1 estimate of how complete this debrief is."),
+    .optional(),
 });
 
 export type Extraction = z.infer<typeof ExtractionSchema>;

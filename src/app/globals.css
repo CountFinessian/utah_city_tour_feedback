@@ -1180,9 +1180,9 @@ select {
   }
 
   .evidence-dark details {
-    border-color: var(--command-border);
-    background: rgba(255, 255, 255, 0.035) !important;
-    color: var(--command-soft);
+    border-color: rgba(255, 255, 255, 0.16) !important;
+    background: #060b13 !important;
+    color: #f8fafc !important;
   }
 
   .evidence-dark .bg-slate-50,
@@ -1191,11 +1191,13 @@ select {
   }
 
   .evidence-dark details summary {
-    color: var(--command-ink);
+    color: #ffffff !important;
+    font-weight: 700;
   }
 
   .evidence-dark details p {
-    color: #cdd8e6;
+    color: #f8fafc !important;
+    font-weight: 400;
   }
 
   .evidence-dark .pill.bg-slate-50,

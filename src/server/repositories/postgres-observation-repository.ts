@@ -49,8 +49,8 @@ function ensureSchema(): Promise<void> {
       await sql`alter table observations add column if not exists prospect_first_name text`;
       await sql`alter table observations add column if not exists prospect_last_name text`;
       await sql`alter table observations add column if not exists prospect_email text`;
-      await sql`alter table observations drop column if exists floor_plan`;
-      await sql`alter table observations drop column if exists prospect_tag`;
+      await sql`alter table observations add column if not exists prospect_tag text`;
+      await sql`alter table observations add column if not exists floor_plan text`;
       await sql`create index if not exists observations_created_at_idx on observations (created_at desc)`;
     })().catch((err) => {
       schemaReady = null;
@@ -112,13 +112,15 @@ export const postgresObservationRepository: ObservationRepository = {
     const sql = db();
     await sql`
       insert into observations
-        (id, created_at, source, host_name, prospect_first_name, prospect_last_name, prospect_email, transcript, engine, extraction)
+        (id, created_at, source, host_name, prospect_tag, floor_plan, prospect_first_name, prospect_last_name, prospect_email, transcript, engine, extraction)
       values
-        (${obs.id}, ${obs.createdAt}, ${obs.source}, ${obs.hostName ?? null}, ${obs.prospectFirstName ?? null},
-         ${obs.prospectLastName ?? null}, ${obs.prospectEmail ?? null}, ${obs.transcript}, ${obs.engine}, ${JSON.stringify(obs.extraction)}::jsonb)
+        (${obs.id}, ${obs.createdAt}, ${obs.source}, ${obs.hostName ?? null}, ${obs.prospectTag ?? null}, ${obs.floorPlan ?? null},
+         ${obs.prospectFirstName ?? null}, ${obs.prospectLastName ?? null}, ${obs.prospectEmail ?? null}, ${obs.transcript}, ${obs.engine}, ${JSON.stringify(obs.extraction)}::jsonb)
       on conflict (id) do update set
         source              = excluded.source,
         host_name           = excluded.host_name,
+        prospect_tag        = excluded.prospect_tag,
+        floor_plan          = excluded.floor_plan,
         prospect_first_name = excluded.prospect_first_name,
         prospect_last_name  = excluded.prospect_last_name,
         prospect_email      = excluded.prospect_email,
