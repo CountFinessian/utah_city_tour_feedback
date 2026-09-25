@@ -28,7 +28,7 @@ class MainViewController: CAPBridgeViewController {
         view.backgroundColor = darkBg
         if let webView = self.webView {
             webView.backgroundColor = darkBg
-            webView.isOpaque = false
+            webView.isOpaque = true
             webView.scrollView.backgroundColor = darkBg
             webView.scrollView.contentInsetAdjustmentBehavior = .never
             webView.scrollView.bounces = false

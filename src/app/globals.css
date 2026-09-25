@@ -90,13 +90,27 @@
     color-scheme: dark;
   }
 
-  /* Scoped strictly to the native mobile app */
+  /* Scoped strictly to the native mobile app — edge-to-edge dark fill */
   html.native-app-locked,
   body.native-app-locked {
-    height: 100dvh;
-    max-height: 100dvh;
+    min-height: 100%;
+    height: 100%;
     overflow: hidden !important;
     overscroll-behavior: none !important;
+    background-color: #070b12 !important;
+    background: #070b12 !important;
+  }
+
+  html.native-app-locked {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+  }
+
+  body.native-app-locked {
+    position: fixed;
+    inset: 0;
+    width: 100%;
   }
 
   body.native-app-locked * {
@@ -1721,8 +1735,10 @@ select {
     .phone-frame {
       width: 100% !important;
       max-width: 100% !important;
-      height: 100dvh !important;
-      max-height: 100dvh !important;
+      position: fixed !important;
+      inset: 0 !important;
+      height: auto !important;
+      max-height: none !important;
       overflow: hidden;
       overscroll-behavior: none;
       border-radius: 0;
@@ -1733,8 +1749,10 @@ select {
     }
 
     .phone-hardware {
-      height: 100dvh;
-      max-height: 100dvh;
+      position: absolute;
+      inset: 0;
+      height: auto;
+      max-height: none;
       display: flex;
       flex-direction: column;
       overflow: hidden;

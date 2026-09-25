@@ -85,7 +85,7 @@ jobs:
           CI_KEYCHAIN_PASSWORD: ci_password
           TARGET_LANE: ${{ inputs.lane }}
         run: |
-          LANE="${TARGET_LANE:-release}"
+          LANE="${TARGET_LANE:-beta}"
           echo "Executing Fastlane lane: $LANE"
           bundle exec fastlane $LANE
 

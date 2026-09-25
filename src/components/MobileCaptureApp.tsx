@@ -256,7 +256,8 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
         void triggerErrorHaptic();
         return;
       }
-      // Single-page flow: Clear inputs, trigger haptic feedback, and display in-box success popup
+      // Haptic first so the native call isn't dropped by immediate re-render
+      await triggerSubmitHaptic();
       setTranscript("");
       setHistory([""]);
       setHistoryIndex(0);
@@ -264,7 +265,6 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       setProspectLastName("");
       setProspectEmail("");
       setNotice("Entry submitted");
-      void triggerSubmitHaptic();
     } catch {
       setError("Could not reach the server.");
       void triggerErrorHaptic();
@@ -533,7 +533,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   // 1. Mobile Screen (iPhone / Native App / screen <= 900px): edge-to-edge dark viewport filling around the notch
   if (isMobileViewport) {
     return (
-      <div className="fixed inset-0 w-full h-[100dvh] max-h-[100dvh] overflow-hidden overscroll-none bg-[#070b12] text-[#f0f6ff] flex flex-col items-center select-none">
+      <div className="fixed inset-0 w-full overflow-hidden overscroll-none bg-[#070b12] text-[#f0f6ff] flex flex-col items-center select-none">
         <div className="w-full max-w-md h-full flex flex-col justify-between overflow-hidden px-3.5 pt-[max(0.6rem,env(safe-area-inset-top))] pb-[max(0.6rem,env(safe-area-inset-bottom))] bg-[#070b12]">
           {appContent}
         </div>
