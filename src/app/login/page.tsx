@@ -3,7 +3,14 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, AlertCircle, Shield, LifeBuoy, Copy, Check, Mail, X, CheckCircle2 } from "lucide-react";
+import { Lock, AlertCircle, Shield, LifeBuoy, Copy, Check, Mail, X, CheckCircle2, ExternalLink } from "lucide-react";
+
+function openExternalUrl(path: string) {
+  if (typeof window !== "undefined") {
+    const targetUrl = path.startsWith("http") ? path : `${window.location.origin}${path}`;
+    window.open(targetUrl, "_system");
+  }
+}
 
 function LoginForm() {
   const router = useRouter();
@@ -207,9 +214,14 @@ function LoginForm() {
           <Shield className="h-4 w-4 shrink-0 text-[#43d9c7] mt-0.5" />
           <p className="leading-relaxed">
             Access is restricted to authorized Utah City tour hosts and leaders. To request host access, contact your team administrator or visit our{" "}
-            <Link href="/support" className="text-[#43d9c7] hover:underline font-medium">
-              Support Center
-            </Link>{" "}
+            <button
+              type="button"
+              onClick={() => openExternalUrl("/support")}
+              className="text-[#43d9c7] hover:underline font-medium inline-flex items-center gap-0.5 cursor-pointer"
+            >
+              <span>Support Center</span>
+              <ExternalLink className="h-3 w-3" />
+            </button>{" "}
             to request an account setup invitation.
           </p>
         </div>
@@ -219,13 +231,23 @@ function LoginForm() {
         </p>
 
         <div className="flex items-center justify-center gap-3 text-xs text-[#65758b]">
-          <Link href="/privacy" className="hover:text-slate-300 transition-colors">
-            Privacy Policy
-          </Link>
+          <button
+            type="button"
+            onClick={() => openExternalUrl("/privacy")}
+            className="hover:text-slate-300 transition-colors inline-flex items-center gap-1 cursor-pointer"
+          >
+            <span>Privacy Policy</span>
+            <ExternalLink className="h-3 w-3" />
+          </button>
           <span>·</span>
-          <Link href="/support" className="hover:text-slate-300 transition-colors">
-            Support Center
-          </Link>
+          <button
+            type="button"
+            onClick={() => openExternalUrl("/support")}
+            className="hover:text-slate-300 transition-colors inline-flex items-center gap-1 cursor-pointer"
+          >
+            <span>Support Center</span>
+            <ExternalLink className="h-3 w-3" />
+          </button>
         </div>
       </div>
 

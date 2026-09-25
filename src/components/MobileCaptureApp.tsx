@@ -18,6 +18,7 @@ import {
   Shield,
   Sparkles,
   Mic,
+  ExternalLink,
 } from "lucide-react";
 import { Recorder, type RecorderRef } from "./Recorder";
 import { amenityLabel, objectionLabel, type Observation } from "@/domain/observation";
@@ -34,6 +35,14 @@ const PROCESSING_MESSAGES = [
 
 function sentimentLabel(s: number): string {
   return ["Very negative", "Negative", "Neutral", "Positive", "Very positive"][s + 2] ?? "Neutral";
+}
+
+function openExternalUrl(path: string) {
+  if (typeof window !== "undefined") {
+    const targetUrl = path.startsWith("http") ? path : `${window.location.origin}${path}`;
+    // In Capacitor iOS WKWebView, window.open(url, '_system') opens Mobile Safari.
+    window.open(targetUrl, "_system");
+  }
 }
 
 export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean }) {
@@ -444,17 +453,27 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                   </div>
                 </div>
 
-                {/* Legal Links */}
+                {/* Legal Links (opens in external browser per Apple guidelines) */}
                 <div className="p-3 rounded-xl bg-white/[0.02] border border-white/10 flex items-center justify-between text-xs">
                   <span className="text-[#8292a8]">Policies & Help</span>
                   <div className="flex items-center gap-3">
-                    <Link href="/privacy" className="text-[#43d9c7] hover:underline">
-                      Privacy Policy
-                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => openExternalUrl("/privacy")}
+                      className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>Privacy Policy</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </button>
                     <span className="text-[#26354c]">·</span>
-                    <Link href="/support" className="text-[#43d9c7] hover:underline">
-                      Support
-                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => openExternalUrl("/support")}
+                      className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>Support</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </button>
                   </div>
                 </div>
 
@@ -599,9 +618,9 @@ function CaptureScreen({
   const prospectAssigned = Boolean(prospectFirstName.trim() || prospectLastName.trim() || prospectEmail.trim());
 
   return (
-    <div className="space-y-4 pb-24">
-      {/* 1. Voice debrief stage */}
-      <section className="mobile-card mobile-voice-card">
+    <div className="h-full flex flex-col justify-between overflow-hidden gap-2.5 pb-1 flex-1 min-h-0">
+      {/* 1. Voice debrief stage - compact bar */}
+      <section className="shrink-0">
         <Recorder
           ref={recorderRef}
           variant="card"
@@ -611,11 +630,29 @@ function CaptureScreen({
         />
       </section>
 
-      {/* 2. Transcript preview and notes */}
-      <section className="mobile-card">
-        <div className="flex items-center justify-between gap-3">
-          <label htmlFor="mobile-transcript" className="mobile-section-label">Debrief transcript</label>
-          <span className="font-mono text-xs text-mobile-muted">{transcript.trim().length} chars</span>
+      {/* 2. Apple Notes-Style Debrief Textbox */}
+      <section className="apple-notes-card">
+        <div className="apple-notes-header">
+          <div className="flex items-center gap-2">
+            <span className="mobile-section-label">Debrief notes</span>
+            {transcript.trim().length > 0 && (
+              <span className="text-[11px] font-mono text-[#8292a8]">
+                {transcript.trim().length} chars
+              </span>
+            )}
+          </div>
+          {transcript.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                onTranscript("");
+                if (error) onErrorClear?.();
+              }}
+              className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded hover:bg-white/5 transition-colors cursor-pointer"
+            >
+              Clear
+            </button>
+          )}
         </div>
         <textarea
           id="mobile-transcript"
@@ -624,69 +661,98 @@ function CaptureScreen({
             onTranscript(event.target.value);
             if (error) onErrorClear?.();
           }}
-          placeholder="Toured a couple with a dog. They loved the pool, but parking was a concern..."
-          className={`mobile-textarea mt-3 ${error ? "border-rose-500/60 ring-1 ring-rose-500/50" : ""}`}
-          rows={5}
+          placeholder="Voice recording will transcribe directly into this note. Tap anywhere to type, edit, or adjust..."
+          className={`apple-notes-textarea ${error ? "ring-1 ring-rose-500/60" : ""}`}
+          autoComplete="off"
+          autoCorrect="on"
+          spellCheck={true}
         />
         {error && (
-          <p className="mt-2 text-xs font-semibold text-rose-400 flex items-center gap-1.5 animate-in fade-in">
+          <div className="px-3 py-1.5 bg-rose-500/10 border-t border-rose-500/20 text-xs text-rose-300 flex items-center gap-1.5 shrink-0">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            {error}
-          </p>
+            <span>{error}</span>
+          </div>
         )}
       </section>
 
-      {/* 3. Prospect CRM Context */}
-      <section className="mobile-card">
-        <button type="button" className="mobile-disclosure" onClick={onContextOpen}>
-          <span>
-            <span className="mobile-section-label block flex items-center gap-1.5">
-              <User className="h-3.5 w-3.5 text-[#36cdbd]" />
-              Prospect tracking (optional)
-            </span>
-            <span className="block text-xs text-mobile-muted">
+      {/* 3. Compact prospect trigger */}
+      <div className="shrink-0">
+        <button
+          type="button"
+          onClick={onContextOpen}
+          className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.06] transition-colors text-left cursor-pointer"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <User className="h-3.5 w-3.5 text-[#36cdbd] shrink-0" />
+            <span className="text-xs text-slate-300 truncate">
               {prospectAssigned
                 ? [prospectFirstName, prospectLastName, prospectEmail].filter(Boolean).join(" · ")
-                : "Add client name and email for CRM records"}
+                : "Add prospect details (optional)"}
             </span>
-          </span>
-          <ChevronDown className={`h-4 w-4 transition ${contextOpen ? "rotate-180" : ""}`} />
+          </div>
+          <ChevronDown className={`h-3.5 w-3.5 text-slate-400 shrink-0 transition-transform ${contextOpen ? "rotate-180" : ""}`} />
         </button>
-        {contextOpen && (
-          <div className="mt-4 space-y-3">
+      </div>
+
+      {/* Prospect Context Modal / Bottom Sheet */}
+      {contextOpen && (
+        <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-3">
+          <div className="w-full max-w-md rounded-2xl border border-[#26354c] bg-[#101827] p-4 shadow-2xl space-y-3 animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2">
+              <div className="flex items-center gap-2">
+                <User className="h-4 w-4 text-[#36cdbd]" />
+                <span className="text-sm font-bold text-white">Prospect Tracking</span>
+              </div>
+              <button
+                type="button"
+                onClick={onContextOpen}
+                className="text-slate-400 hover:text-white p-1 rounded-md hover:bg-white/5 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <MobileField label="First name" value={prospectFirstName} onChange={onProspectFirstName} placeholder="e.g. Sarah" />
               <MobileField label="Last name" value={prospectLastName} onChange={onProspectLastName} placeholder="e.g. Miller" />
             </div>
             <MobileField label="Email" value={prospectEmail} onChange={onProspectEmail} placeholder="client@example.com" />
             <MobileField label="Host" value={hostName} onChange={onHostName} placeholder="Host name" />
+            <button
+              type="button"
+              onClick={onContextOpen}
+              className="w-full mt-2 py-2.5 rounded-xl bg-[#36cdbd] text-[#070b12] font-bold text-xs hover:bg-[#43d9c7] transition-colors cursor-pointer"
+            >
+              Done
+            </button>
           </div>
-        )}
-      </section>
+        </div>
+      )}
 
       {/* 4. Processing bar */}
       {submitting && (
-        <section className="mobile-card border-mobile-accent/40 animate-in fade-in">
-          <p className="mobile-section-label text-[#36cdbd]">{PROCESSING_MESSAGES[processingIndex]}...</p>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full w-2/3 animate-pulse rounded-full bg-mobile-accent" />
+        <div className="p-2.5 rounded-xl bg-white/[0.04] border border-[#36cdbd]/30 flex items-center justify-between shrink-0">
+          <span className="text-xs font-semibold text-[#36cdbd]">
+            {PROCESSING_MESSAGES[processingIndex]}...
+          </span>
+          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full w-2/3 animate-pulse rounded-full bg-[#36cdbd]" />
           </div>
-        </section>
+        </div>
       )}
 
-      {/* 5. Sticky submit bar */}
-      <div className="mobile-bottom-bar">
-        <div>
-          <p className="text-xs font-semibold text-mobile-ink">
+      {/* 5. Anchored bottom submit bar */}
+      <div className="shrink-0 pt-2 pb-1 flex items-center justify-between gap-3 border-t border-white/10">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-white truncate">
             {canSubmit ? "Ready to structure" : "Add debrief to begin"}
           </p>
-          <p className="text-[11px] text-mobile-muted">Zero forms required after submit.</p>
+          <p className="text-[11px] text-[#8292a8] truncate">Zero forms after submit.</p>
         </div>
         <button
           type="button"
           disabled={submitting || !canSubmit}
           onClick={onSubmit}
-          className="mobile-primary-button disabled:opacity-40 disabled:cursor-not-allowed"
+          className="mobile-primary-button disabled:opacity-40 disabled:cursor-not-allowed shrink-0 cursor-pointer"
         >
           Submit debrief
           <ArrowRight className="h-4 w-4" />
@@ -711,91 +777,93 @@ function ReviewScreen({
   const prospectDisplayName = [observation.prospectFirstName, observation.prospectLastName].filter(Boolean).join(" ");
 
   return (
-    <div className="space-y-4 pb-24 animate-in fade-in duration-300">
-      {/* Confirmed Success Hero */}
-      <section className="mobile-card bg-gradient-to-b from-[#123631] to-[#0d1a1d] border-[#36cdbd]/40 text-center py-5">
-        <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-[#36cdbd]/20 border border-[#36cdbd]/40 text-[#36cdbd] mb-3">
-          <CheckCircle2 className="h-7 w-7" />
-        </div>
-        <h2 className="text-xl font-black text-white tracking-tight">Tour debrief captured!</h2>
-        <p className="text-xs text-slate-300 mt-1">
-          {prospectDisplayName ? (
-            <>
-              Logged for <strong className="text-[#36cdbd]">{prospectDisplayName}</strong>
-              {observation.prospectEmail ? ` (${observation.prospectEmail})` : ""}
-            </>
-          ) : (
-            "Observation saved to Utah City intelligence corpus"
-          )}
-        </p>
-
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          <span className="mobile-chip font-bold text-xs">{e.prospectIntent} lead</span>
-          <span className="mobile-chip text-xs">{sentimentLabel(e.overallSentiment)}</span>
-        </div>
-      </section>
-
-      {/* Summary Card */}
-      <section className="mobile-card">
-        <h3 className="mobile-section-label">Executive summary</h3>
-        <p className="mt-2 text-sm leading-relaxed text-mobile-soft">{e.summary}</p>
-      </section>
-
-      {/* Collapsible Signal Drilldown */}
-      <section className="mobile-card">
-        <button
-          type="button"
-          className="mobile-disclosure"
-          onClick={() => setDetailsOpen((prev) => !prev)}
-        >
-          <span>
-            <span className="mobile-section-label block">Captured signals</span>
-            <span className="block text-xs text-mobile-muted">
-              {e.objections.length} objections · {e.amenities.length} amenities
-            </span>
-          </span>
-          <ChevronDown className={`h-4 w-4 transition ${detailsOpen ? "rotate-180" : ""}`} />
-        </button>
-
-        {detailsOpen && (
-          <div className="mt-4 space-y-4 pt-2 border-t border-white/10">
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Objections</p>
-              {e.objections.length === 0 ? (
-                <p className="text-xs text-mobile-muted">No blockers raised.</p>
-              ) : (
-                e.objections.map((item, index) => (
-                  <div key={`${item.type}-${index}`} className="mobile-signal-row">
-                    <span>{objectionLabel(item.type)}</span>
-                    <span className="text-xs text-slate-400">{item.severity}</span>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Amenity reactions</p>
-              {e.amenities.length === 0 ? (
-                <p className="text-xs text-mobile-muted">No specific amenity reactions noted.</p>
-              ) : (
-                e.amenities.map((item, index) => (
-                  <div key={`${item.name}-${index}`} className="mobile-signal-row">
-                    <span>{amenityLabel(item.name)}</span>
-                    <span className="text-xs capitalize text-slate-400">{item.reaction}</span>
-                  </div>
-                ))
-              )}
-            </div>
+    <div className="h-full flex flex-col justify-between overflow-y-auto gap-3 py-1 flex-1 min-h-0">
+      <div className="space-y-3">
+        {/* Confirmed Success Hero */}
+        <section className="mobile-card bg-gradient-to-b from-[#123631] to-[#0d1a1d] border-[#36cdbd]/40 text-center py-4">
+          <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-[#36cdbd]/20 border border-[#36cdbd]/40 text-[#36cdbd] mb-2">
+            <CheckCircle2 className="h-6 w-6" />
           </div>
-        )}
-      </section>
+          <h2 className="text-lg font-black text-white tracking-tight">Tour debrief captured!</h2>
+          <p className="text-xs text-slate-300 mt-0.5">
+            {prospectDisplayName ? (
+              <>
+                Logged for <strong className="text-[#36cdbd]">{prospectDisplayName}</strong>
+                {observation.prospectEmail ? ` (${observation.prospectEmail})` : ""}
+              </>
+            ) : (
+              "Observation saved to Utah City intelligence corpus"
+            )}
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <span className="mobile-chip font-bold text-xs">{e.prospectIntent} lead</span>
+            <span className="mobile-chip text-xs">{sentimentLabel(e.overallSentiment)}</span>
+          </div>
+        </section>
+
+        {/* Summary Card */}
+        <section className="mobile-card py-3">
+          <h3 className="mobile-section-label">Executive summary</h3>
+          <p className="mt-1.5 text-xs leading-relaxed text-mobile-soft">{e.summary}</p>
+        </section>
+
+        {/* Collapsible Signal Drilldown */}
+        <section className="mobile-card py-3">
+          <button
+            type="button"
+            className="mobile-disclosure cursor-pointer"
+            onClick={() => setDetailsOpen((prev) => !prev)}
+          >
+            <span>
+              <span className="mobile-section-label block">Captured signals</span>
+              <span className="block text-xs text-mobile-muted">
+                {e.objections.length} objections · {e.amenities.length} amenities
+              </span>
+            </span>
+            <ChevronDown className={`h-4 w-4 transition ${detailsOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {detailsOpen && (
+            <div className="mt-3 space-y-3 pt-2 border-t border-white/10">
+              <div>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Objections</p>
+                {e.objections.length === 0 ? (
+                  <p className="text-xs text-mobile-muted">No blockers raised.</p>
+                ) : (
+                  e.objections.map((item, index) => (
+                    <div key={`${item.type}-${index}`} className="mobile-signal-row text-xs py-1.5">
+                      <span>{objectionLabel(item.type)}</span>
+                      <span className="text-[11px] text-slate-400">{item.severity}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Amenity reactions</p>
+                {e.amenities.length === 0 ? (
+                  <p className="text-xs text-mobile-muted">No specific amenity reactions noted.</p>
+                ) : (
+                  e.amenities.map((item, index) => (
+                    <div key={`${item.name}-${index}`} className="mobile-signal-row text-xs py-1.5">
+                      <span>{amenityLabel(item.name)}</span>
+                      <span className="text-[11px] capitalize text-slate-400">{item.reaction}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
 
       {/* Bottom bar — auto-reset fires after 2.2s; this is a manual shortcut */}
-      <div className="mobile-bottom-bar">
+      <div className="shrink-0 pt-2 pb-1 border-t border-white/10 flex items-center gap-2">
         <button
           type="button"
           onClick={onReset}
-          className="mobile-primary-button w-full justify-center text-sm py-3"
+          className="mobile-primary-button w-full justify-center text-xs py-2.5 cursor-pointer"
         >
           <Plus className="h-4 w-4" />
           Log another tour
@@ -833,7 +901,7 @@ function MobileField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="mobile-input mt-1.5"
+        className="mobile-input mt-1.5 text-[16px] sm:text-sm"
       />
     </label>
   );
@@ -912,13 +980,23 @@ function AiConsentModal({
         <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 flex items-center justify-between text-[11px]">
           <span className="text-[#8292a8]">Policies & Help</span>
           <div className="flex items-center gap-3">
-            <Link href="/privacy" className="text-[#43d9c7] hover:underline" target="_blank">
-              Privacy Policy
-            </Link>
+            <button
+              type="button"
+              onClick={() => openExternalUrl("/privacy")}
+              className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
+            >
+              <span>Privacy Policy</span>
+              <ExternalLink className="h-3 w-3" />
+            </button>
             <span className="text-[#26354c]">·</span>
-            <Link href="/support" className="text-[#43d9c7] hover:underline" target="_blank">
-              Support
-            </Link>
+            <button
+              type="button"
+              onClick={() => openExternalUrl("/support")}
+              className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
+            >
+              <span>Support</span>
+              <ExternalLink className="h-3 w-3" />
+            </button>
           </div>
         </div>
 

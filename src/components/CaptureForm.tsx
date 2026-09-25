@@ -355,7 +355,6 @@ function IntelligenceReview({
   onReset: () => void;
 }) {
   const e = observation.extraction;
-  const actionItems = e.actionItems ?? [];
 
   return (
     <div className="space-y-5">
@@ -447,26 +446,9 @@ function IntelligenceReview({
         </ReviewSection>
       </div>
 
-      {actionItems.length > 0 && (
-        <section className="panel border-emerald-500/30 bg-emerald-950/20 p-5">
-          <p className="section-label text-emerald-400">Action items</p>
-          <h3 className="mt-1 text-base font-bold text-white">Recommended operational follow-ups</h3>
-          <ul className="mt-3 list-inside list-disc space-y-1.5 text-sm text-slate-100 font-medium">
-            {actionItems.map((item, idx) => (
-              <li key={idx}>{item}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* Night Light High Contrast Source Transcript Dropdown */}
-      <details className="mt-4 rounded-xl border border-slate-700/80 bg-slate-950 p-4 shadow-sm">
-        <summary className="cursor-pointer select-none text-xs font-bold uppercase tracking-wider text-slate-200 hover:text-white transition-colors">
-          Source transcript
-        </summary>
-        <div className="mt-2.5 rounded-lg bg-black/60 p-3.5 border border-slate-800">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-100 font-normal">{observation.transcript}</p>
-        </div>
+      <details className="panel-flat p-4">
+        <summary className="cursor-pointer select-none text-sm font-semibold text-ink-soft">Source transcript</summary>
+        <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-muted">{observation.transcript}</p>
       </details>
 
       <div className="flex flex-wrap gap-3 pt-1">

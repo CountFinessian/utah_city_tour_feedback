@@ -23,7 +23,7 @@ const config: CapacitorConfig = {
     scheme: "Utah City",
     contentInset: "automatic",
     allowsLinkPreview: false,
-    scrollEnabled: true,
+    scrollEnabled: false,
     preferredContentMode: "mobile",
   },
 };

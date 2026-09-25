@@ -37,10 +37,8 @@ const ROWS: SeedRow[] = [
         { name: "dog_park", reaction: "positive", detail: "Loved the dog park" },
         { name: "pool", reaction: "positive", detail: "Excited about the pool" },
       ],
-      actionItems: [
-        "Review second-car parking fee structure and bundle options for multi-vehicle households.",
-        "Confirm availability dates for upcoming corner B2 units.",
-      ],
+      followUpQuestions: ["What's their target move-in date?"],
+      coverageScore: 0.83,
     },
   },
   {
@@ -65,10 +63,8 @@ const ROWS: SeedRow[] = [
       questionsAsked: ["How fast is the internet?", "Does the coworking space get crowded?"],
       objections: [{ type: "price", detail: "Studio price felt high for the size", severity: "medium" }],
       amenities: [{ name: "coworking_space", reaction: "positive", detail: "Would use it daily" }],
-      actionItems: [
-        "Publish verified fiber internet speed benchmarks in coworking space collateral.",
-        "Evaluate introductory concession package for solo studio prospects.",
-      ],
+      followUpQuestions: ["Would a different floor plan fit his budget better?"],
+      coverageScore: 0.83,
     },
   },
   {
@@ -99,10 +95,8 @@ const ROWS: SeedRow[] = [
         { name: "security", reaction: "positive", detail: "Liked the gated community" },
         { name: "playground", reaction: "negative", detail: "Disappointed there's no playground yet" },
       ],
-      actionItems: [
-        "Accelerate on-site playground timeline and communicate play area milestones.",
-        "Highlight dedicated on-site storage locker options for family floor plans.",
-      ],
+      followUpQuestions: ["Are larger layouts available in a nearby building?"],
+      coverageScore: 0.83,
     },
   },
   {
@@ -130,9 +124,8 @@ const ROWS: SeedRow[] = [
         { name: "fitness_center", reaction: "positive", detail: "Loved the gym equipment" },
         { name: "rooftop_deck", reaction: "positive", detail: "Liked the rooftop deck" },
       ],
-      actionItems: [
-        "Post clear guest parking signage and distribute guest parking pass guide.",
-      ],
+      followUpQuestions: ["What's pulling her toward the competing property?"],
+      coverageScore: 0.83,
     },
   },
   {
@@ -160,10 +153,8 @@ const ROWS: SeedRow[] = [
         { type: "availability_or_timing", detail: "No suitable unit available on their timeline", severity: "high" },
       ],
       amenities: [],
-      actionItems: [
-        "Audit window acoustic ratings on road-facing units.",
-        "Set up notification list for top-floor quiet unit availability.",
-      ],
+      followUpQuestions: ["Should we notify them when a top-floor unit opens?"],
+      coverageScore: 0.67,
     },
   },
   {
@@ -188,9 +179,8 @@ const ROWS: SeedRow[] = [
       questionsAsked: ["Do you offer leases shorter than 12 months?"],
       objections: [{ type: "lease_terms", detail: "Wants a lease term shorter than 12 months", severity: "medium" }],
       amenities: [{ name: "retail_dining", reaction: "positive", detail: "Loved on-site retail and dining" }],
-      actionItems: [
-        "Establish standardized 9-month flexible lease premium guidelines.",
-      ],
+      followUpQuestions: ["Can we offer a 9-month term?"],
+      coverageScore: 0.83,
     },
   },
   {
@@ -215,9 +205,8 @@ const ROWS: SeedRow[] = [
       questionsAsked: ["Can you make an exception on the breed restriction?"],
       objections: [{ type: "pet_policy", detail: "Weight limit and breed restriction exclude his dog", severity: "high" }],
       amenities: [{ name: "trails", reaction: "positive", detail: "Loved the walking trails" }],
-      actionItems: [
-        "Review pet policy weight tiers with property management to evaluate deposit options for large well-trained dogs.",
-      ],
+      followUpQuestions: ["Is a pet-policy exception possible with a deposit?"],
+      coverageScore: 0.83,
     },
   },
   {
@@ -245,9 +234,8 @@ const ROWS: SeedRow[] = [
         { type: "price", detail: "Rent felt like a stretch for his budget", severity: "medium" },
       ],
       amenities: [],
-      actionItems: [
-        "Create commuter one-pager highlighting FrontRunner station proximity and express schedules.",
-      ],
+      followUpQuestions: ["What monthly budget is he working with?", "How likely is he to apply?"],
+      coverageScore: 0.5,
     },
   },
   {
@@ -275,9 +263,8 @@ const ROWS: SeedRow[] = [
         { name: "pool", reaction: "positive", detail: "Loved the pool" },
         { name: "clubhouse", reaction: "positive", detail: "Pictured hosting friends in the clubhouse" },
       ],
-      actionItems: [
-        "Provide simple transparent one-page schedule of admin and monthly amenity fees.",
-      ],
+      followUpQuestions: ["Send them the application link today?"],
+      coverageScore: 0.83,
     },
   },
   {
@@ -302,9 +289,8 @@ const ROWS: SeedRow[] = [
       questionsAsked: ["Can I get a reserved parking spot near the entrance?"],
       objections: [{ type: "parking", detail: "Wants reserved close-in parking for late shifts", severity: "medium" }],
       amenities: [{ name: "fitness_center", reaction: "positive", detail: "Would use it around her shifts" }],
-      actionItems: [
-        "Audit night lighting along entry pathways and evaluate reserved parking stalls for shift workers.",
-      ],
+      followUpQuestions: ["Are reserved spots available, and at what cost?"],
+      coverageScore: 0.83,
     },
   },
 ];

@@ -186,19 +186,24 @@ export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder
             onClick={start}
             disabled={busy}
             aria-label="Record voice debrief"
-            className="w-full min-h-[84px] py-4 flex items-center justify-center transition-all bg-transparent hover:bg-white/[0.04] active:scale-[0.99] group"
+            className="w-full py-2.5 px-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/15 active:scale-[0.99] flex items-center justify-center gap-2.5 transition shadow-sm cursor-pointer"
           >
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 group-hover:bg-emerald-500/25 group-hover:scale-105 active:scale-95 transition shadow-sm">
-              <Mic className="h-6 w-6" />
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-400 text-slate-950 font-bold">
+              <Mic className="h-4 w-4" />
             </span>
+            <span className="text-sm font-bold text-emerald-300">Tap to speak debrief</span>
           </button>
         )}
 
         {phase === "recording" && (
-          <div className="w-full min-h-[84px] px-6 py-4 flex items-center justify-center gap-5 animate-in fade-in">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-mono text-sm font-semibold tabular-nums text-slate-200">{mmss}</span>
+          <div className="w-full py-2 px-4 rounded-xl border border-rose-500/40 bg-rose-500/10 flex items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
+              </span>
+              <span className="font-mono text-sm font-bold text-rose-200 tabular-nums">{mmss}</span>
+              <span className="text-xs text-rose-300/80 font-medium">Listening...</span>
             </div>
 
             <button
@@ -206,23 +211,24 @@ export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder
               onClick={stop}
               aria-label="Stop recording"
               title="Stop recording"
-              className="h-9 w-9 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 border border-white/15 flex items-center justify-center text-slate-200 transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition active:scale-95 shadow-sm cursor-pointer"
             >
-              <Square className="h-3.5 w-3.5 fill-current" />
+              <Square className="h-3 w-3 fill-current" />
+              <span>Done</span>
             </button>
           </div>
         )}
 
         {busy && (
-          <div className="w-full min-h-[84px] py-4 flex items-center justify-center gap-2 text-slate-400 text-xs font-medium animate-in fade-in">
-            <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
-            <span>Transcribing...</span>
+          <div className="w-full py-2.5 px-4 rounded-xl border border-teal-500/30 bg-teal-500/10 flex items-center justify-center gap-2 text-teal-300 text-xs font-semibold animate-in fade-in">
+            <Loader2 className="h-4 w-4 animate-spin text-teal-400" />
+            <span>Transcribing into notes...</span>
           </div>
         )}
 
         {note && (
-          <div className="px-4 pb-3">
-            <p className="w-full rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-center text-xs text-amber-200">
+          <div className="mt-1.5">
+            <p className="w-full rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-center text-xs text-amber-200">
               {note}
             </p>
           </div>

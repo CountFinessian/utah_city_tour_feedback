@@ -69,21 +69,24 @@ export async function getCommandView() {
   const narrative = templateNarrative(digest, observations);
   const liveCount = observations.filter((observation) => observation.source === "live").length;
   const demoCount = observations.length - liveCount;
+  const avgCoverage = observations.length
+    ? observations.reduce((sum, observation) => sum + observation.extraction.coverageScore, 0) / observations.length
+    : 0;
   const intelligenceScore = Math.round(
-    (commandCenter.dataConfidence.score * 0.6 + Math.min(1, digest.last7 / 12) * 0.4) * 100,
+    (commandCenter.dataConfidence.score * 0.38 + avgCoverage * 0.32 + Math.min(1, digest.last7 / 12) * 0.3) * 100,
   );
 
   // Metric-specific evidence — each metric gets its own relevant observations
   const intelligenceEvidence = evidenceFrom(
-    [...observations].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+    [...observations].sort((a, b) => b.extraction.coverageScore - a.extraction.coverageScore),
     () => true,
     [],
   ).slice(0, 4);
 
   const confidenceEvidence = evidenceFrom(
-    [...observations].sort((a, b) => (b.extraction.actionItems?.length ?? 0) - (a.extraction.actionItems?.length ?? 0)),
+    [...observations].sort((a, b) => a.extraction.coverageScore - b.extraction.coverageScore),
     () => true,
-    ["action", "recommendation"],
+    ["coverage", "follow-up"],
   ).slice(0, 3);
 
   const positiveEvidence = evidenceFrom(
@@ -111,7 +114,7 @@ export async function getCommandView() {
     narrative,
     liveCount,
     demoCount,
-    avgCoverage: 0,
+    avgCoverage,
     intelligenceScore,
     freshness: freshness(observations),
     metrics: [

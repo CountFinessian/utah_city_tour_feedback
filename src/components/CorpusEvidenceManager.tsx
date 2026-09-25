@@ -13,7 +13,7 @@ export function CorpusEvidenceManager({
   const router = useRouter();
   const [observations, setObservations] = useState<Observation[]>(initialObservations);
   const [filterSource, setFilterSource] = useState<"all" | "live" | "demo">("all");
-  const [onlyWithActions, setOnlyWithActions] = useState(false);
+  const [onlyIncomplete, setOnlyIncomplete] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [confirmDeleteRecord, setConfirmDeleteRecord] = useState<Observation | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -23,8 +23,7 @@ export function CorpusEvidenceManager({
 
   const filtered = observations.filter((obs) => {
     if (filterSource !== "all" && obs.source !== filterSource) return false;
-    const actionItems = obs.extraction?.actionItems ?? [];
-    if (onlyWithActions && actionItems.length === 0) return false;
+    if (onlyIncomplete && (obs.extraction?.followUpQuestions?.length ?? 0) === 0) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchTranscript = (obs.transcript || "").toLowerCase().includes(q);
@@ -35,8 +34,7 @@ export function CorpusEvidenceManager({
         .toLowerCase()
         .includes(q);
       const matchSummary = (obs.extraction?.summary || "").toLowerCase().includes(q);
-      const matchTag = (obs.prospectTag || "").toLowerCase().includes(q);
-      if (!matchTranscript && !matchHost && !matchProspect && !matchSummary && !matchTag) return false;
+      if (!matchTranscript && !matchHost && !matchProspect && !matchSummary) return false;
     }
     return true;
   });
@@ -141,14 +139,14 @@ export function CorpusEvidenceManager({
 
         <button
           type="button"
-          onClick={() => setOnlyWithActions(!onlyWithActions)}
+          onClick={() => setOnlyIncomplete(!onlyIncomplete)}
           className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-            onlyWithActions
-              ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300 font-semibold"
+            onlyIncomplete
+              ? "border-amber-500/40 bg-amber-500/15 text-amber-300 font-semibold"
               : "border-command-border text-command-muted hover:text-command-ink"
           }`}
         >
-          <span>⚡ Action items only</span>
+          <span>⚠ Incomplete follow-ups only</span>
         </button>
       </div>
 
@@ -174,7 +172,7 @@ export function CorpusEvidenceManager({
       ) : (
         <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
           {filtered.map((obs) => {
-            const actionItems = obs.extraction?.actionItems ?? [];
+            const hasFollowups = (obs.extraction?.followUpQuestions?.length ?? 0) > 0;
             const prospectName = [obs.prospectFirstName, obs.prospectLastName].filter(Boolean).join(" ");
 
             return (
@@ -202,19 +200,13 @@ export function CorpusEvidenceManager({
                       <span className="text-command-muted">· Prospect: {prospectName}</span>
                     )}
 
-                    {obs.prospectTag && (
-                      <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-white/5 border border-white/10 text-slate-300">
-                        {obs.prospectTag}
-                      </span>
-                    )}
-
                     {obs.floorPlan && (
-                      <span className="text-command-muted font-mono text-[11px]">· {obs.floorPlan}</span>
+                      <span className="text-command-muted">· {obs.floorPlan}</span>
                     )}
 
-                    {actionItems.length > 0 && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                        {actionItems.length} action item{actionItems.length === 1 ? "" : "s"}
+                    {hasFollowups && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        {obs.extraction.followUpQuestions.length} follow-ups incomplete
                       </span>
                     )}
 
@@ -231,27 +223,13 @@ export function CorpusEvidenceManager({
                     {obs.extraction?.summary || obs.transcript}
                   </p>
 
-                  {actionItems.length > 0 && (
-                    <div className="mt-1.5 p-2 rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-xs">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Action items:</span>
-                      <ul className="mt-0.5 list-inside list-disc space-y-0.5 text-[11px] text-slate-200">
-                        {actionItems.map((item, idx) => (
-                          <li key={idx}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Night Light High Contrast Source Transcript Dropdown */}
-                  <details className="mt-2 text-xs">
-                    <summary className="cursor-pointer select-none font-bold text-slate-200 hover:text-white transition-colors">
+                  <details className="text-[11px] text-command-muted">
+                    <summary className="cursor-pointer select-none hover:text-command-ink">
                       View transcript excerpt
                     </summary>
-                    <div className="mt-2 p-3 rounded-lg bg-slate-950 border border-slate-700/80 shadow-inner">
-                      <p className="whitespace-pre-wrap text-white font-sans text-xs leading-relaxed font-normal">
-                        {obs.transcript}
-                      </p>
-                    </div>
+                    <p className="mt-1.5 p-2 rounded bg-black/30 border border-command-border/50 whitespace-pre-wrap text-command-soft font-mono text-[11px]">
+                      {obs.transcript}
+                    </p>
                   </details>
                 </div>
 

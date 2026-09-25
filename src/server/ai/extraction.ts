@@ -5,8 +5,6 @@ import {
   ExtractionSchema,
   OBJECTION_KEYWORDS,
   OBJECTION_TYPES,
-  amenityLabel,
-  objectionLabel,
   type Extraction,
   type ObjectionType,
   type ObservationEngine,
@@ -22,7 +20,7 @@ export type ExtractContext = {
   prospectEmail?: string;
 };
 
-const SYSTEM_PROMPT = `You are the operating-state extraction engine for Utah City, a large master-planned residential community.
+const SYSTEM_PROMPT = `You are the operating-state extraction engine for Utah City, a large residential community.
 A leasing HOST has just finished a tour and is debriefing in natural speech. Your job is to convert that
 unstructured debrief into a faithful, structured Observation — reconstructing reality, not embellishing it.
 
@@ -34,7 +32,8 @@ Hard rules:
   Emergent amenities not in the catalog are allowed as short snake_case names.
 - Extract any amenities, community spaces, or features the prospect reacted to (positively, negatively, or neutrally) in lowercase snake_case (e.g. pool, fitness_center, dog_park, rooftop_deck, e_bikes, pickleball, etc.). Do not limit to a static list; capture any emergent community feature mentioned.
 - overallSentiment is the PROSPECT's sentiment, not the host's.
-- actionItems: Generate 1 to 3 concise, high-value operational recommendations or suggestions for Utah City leadership and on-site operations based on this feedback (e.g. adjust parking rules, address noise friction, update fee transparency, expedite specific amenity openings). If no clear operational action is required, return an empty array [].`;
+- followUpQuestions must always be an empty array [].
+- coverageScore must always be 0.`;
 
 function buildPrompt(transcript: string, ctx: ExtractContext): string {
   const prospectName = [ctx.prospectFirstName, ctx.prospectLastName].filter(Boolean).join(" ");
@@ -54,9 +53,7 @@ function normalize(e: Extraction): Extraction {
   return {
     ...e,
     overallSentiment: clamp(Math.round(e.overallSentiment), -2, 2),
-    actionItems: Array.isArray(e.actionItems) ? e.actionItems.map((a) => a.trim()).filter(Boolean) : [],
-    followUpQuestions: [],
-    coverageScore: 0,
+    coverageScore: clamp(e.coverageScore, 0, 1),
     amenities: e.amenities.map((a) => ({
       ...a,
       name: a.name.trim().toLowerCase().replace(/\s+/g, "_"),
@@ -171,14 +168,8 @@ export function heuristicExtract(transcript: string): Extraction {
   else if (overallSentiment <= -1) prospectIntent = "cold";
   else prospectIntent = "unknown";
 
-  const actionItems: string[] = [];
-  if (objections.length > 0) {
-    actionItems.push(`Review operational adjustments for ${objectionLabel(objections[0].type).toLowerCase()}: ${objections[0].detail}`);
-  }
-  if (amenities.some((a) => a.reaction === "negative")) {
-    const neg = amenities.find((a) => a.reaction === "negative")!;
-    actionItems.push(`Address feedback regarding ${amenityLabel(neg.name).toLowerCase()}: ${neg.detail}`);
-  }
+  const followUpQuestions: string[] = [];
+  const coverageScore = 0;
 
   const summary =
     sents[0]?.slice(0, 240) ??
@@ -196,8 +187,7 @@ export function heuristicExtract(transcript: string): Extraction {
     questionsAsked,
     objections,
     amenities,
-    actionItems,
-    followUpQuestions: [],
-    coverageScore: 0,
+    followUpQuestions,
+    coverageScore,
   };
 }

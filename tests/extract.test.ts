@@ -42,12 +42,13 @@ describe("heuristicExtract", () => {
     const e = heuristicExtract("Nice tour, loved the pool.");
     expect(e.overallSentiment).toBeGreaterThanOrEqual(-2);
     expect(e.overallSentiment).toBeLessThanOrEqual(2);
-    expect(Array.isArray(e.actionItems)).toBe(true);
+    expect(e.coverageScore).toBeGreaterThanOrEqual(0);
+    expect(e.coverageScore).toBeLessThanOrEqual(1);
+    expect(Array.isArray(e.followUpQuestions)).toBe(true);
   });
 
-  it("extracts operational action items when objections are raised", () => {
-    const e = heuristicExtract("Tour went well, but they were upset that parking costs extra.");
-    expect(e.actionItems?.length).toBeGreaterThan(0);
-    expect(e.actionItems?.[0]).toMatch(/parking/i);
+  it("does not generate follow-up questions", () => {
+    const e = heuristicExtract("Good tour.");
+    expect(e.followUpQuestions).toEqual([]);
   });
 });
