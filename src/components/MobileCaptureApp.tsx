@@ -246,7 +246,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
         void triggerErrorHaptic();
         return;
       }
-      // Single-page flow: Clear inputs, vibrate phone with tactile feedback, and display "Entry submitted"
+      // Single-page flow: Clear inputs, trigger haptic feedback, and display in-box success popup
       setTranscript("");
       setHistory([""]);
       setHistoryIndex(0);
@@ -351,6 +351,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
             }
           }}
           notice={notice}
+          onNoticeClear={() => setNotice(null)}
           error={error}
           onErrorClear={() => setError(null)}
         />
@@ -408,7 +409,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                 )}
               </div>
               <p className="text-slate-200 text-xs sm:text-sm leading-relaxed font-normal">
-                Utah City Intelligence uses automated artificial intelligence to transcribe spoken debrief audio and synthesize visitor insights. Notes and audio are encrypted and never sold or shared.
+                Utah City Intelligence uses automated artificial intelligence to synthesize tour debriefs into operational insights. Spoken audio and debrief notes are encrypted and never sold or shared.
               </p>
               <div className="pt-1.5 flex items-center justify-between text-xs sm:text-sm">
                 <button
@@ -600,6 +601,7 @@ function CaptureScreen({
   canSubmit,
   serverAsr,
   notice,
+  onNoticeClear,
   error,
   onErrorClear,
   onText,
@@ -628,6 +630,7 @@ function CaptureScreen({
   canSubmit: boolean;
   serverAsr: boolean;
   notice?: string | null;
+  onNoticeClear?: () => void;
   error?: string | null;
   onErrorClear?: () => void;
   onText: (value: string) => void;
@@ -710,34 +713,38 @@ function CaptureScreen({
             if (error) onErrorClear?.();
           }}
           placeholder="Voice recording will transcribe directly into this note. Tap anywhere to type, edit, or adjust..."
-          className={`apple-notes-textarea ${error ? "ring-1 ring-rose-500/60" : ""}`}
+          className="apple-notes-textarea"
           autoComplete="off"
           autoCorrect="on"
           spellCheck={true}
         />
 
-        {/* Big Green Popup (Success) directly over the debrief notes textbox */}
+        {/* Big Green Popup: centered directly over debrief notes textbox */}
         {notice && (
-          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-4 rounded-[19px] bg-[#071916]/95 backdrop-blur-md border-2 border-emerald-400 shadow-2xl animate-in zoom-in-95 duration-150">
-            <div className="p-3 rounded-full bg-emerald-500/20 text-emerald-300 mb-2 shadow-lg shadow-emerald-500/20 animate-bounce">
-              <CheckCircle2 className="h-10 w-10 text-emerald-400" />
+          <div className="absolute inset-0 z-30 rounded-2xl bg-[#071916]/95 backdrop-blur-md border-2 border-emerald-400 flex flex-col items-center justify-center p-4 text-center animate-in fade-in zoom-in-95 duration-150 pointer-events-none">
+            <div className="p-2.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 mb-2">
+              <CheckCircle2 className="h-7 w-7 text-emerald-400" />
             </div>
-            <p className="text-xl sm:text-2xl font-black text-white tracking-tight text-center">{notice}</p>
+            <p className="text-xl sm:text-2xl font-black text-white tracking-tight">
+              {notice}
+            </p>
           </div>
         )}
 
-        {/* Big Red Popup (Error) directly over the debrief notes textbox */}
+        {/* Big Red Popup: centered directly over debrief notes textbox */}
         {error && (
-          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-4 rounded-[19px] bg-[#1a0a0d]/95 backdrop-blur-md border-2 border-rose-500 shadow-2xl animate-in zoom-in-95 duration-150">
-            <div className="p-3 rounded-full bg-rose-500/20 text-rose-300 mb-2 shadow-lg shadow-rose-500/20">
-              <AlertCircle className="h-10 w-10 text-rose-400" />
+          <div className="absolute inset-0 z-30 rounded-2xl bg-[#1a0a0d]/95 backdrop-blur-md border-2 border-rose-500 flex flex-col items-center justify-center p-4 text-center animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-2.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 mb-2">
+              <AlertCircle className="h-7 w-7 text-rose-400" />
             </div>
-            <p className="text-base sm:text-lg font-black text-white text-center tracking-tight leading-snug">{error}</p>
+            <p className="text-base sm:text-lg font-black text-white tracking-tight">
+              {error}
+            </p>
             {onErrorClear && (
               <button
                 type="button"
                 onClick={onErrorClear}
-                className="mt-3 px-4 py-1.5 rounded-xl bg-rose-500/25 hover:bg-rose-500/40 text-rose-200 text-xs sm:text-sm font-black transition-colors cursor-pointer"
+                className="mt-2.5 px-4 py-1.5 rounded-lg bg-rose-600/90 hover:bg-rose-600 text-white text-xs font-bold transition cursor-pointer"
               >
                 Dismiss
               </button>
@@ -929,7 +936,7 @@ function AiConsentModal({
           <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 space-y-1">
             <div className="flex items-center gap-2 font-bold text-white text-sm sm:text-base">
               <Sparkles className="h-4 w-4 text-[#43d9c7]" />
-              <span>AI Debrief Analysis</span>
+              <span>AI Language Model Debrief Analysis</span>
             </div>
             <p className="text-slate-300 text-xs sm:text-sm leading-relaxed font-normal">
               Notes are analyzed to identify prospect interest and follow-up items.
@@ -939,7 +946,7 @@ function AiConsentModal({
           <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 space-y-1">
             <div className="flex items-center gap-2 font-bold text-white text-sm sm:text-base">
               <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <span>Privacy & Encryption</span>
+              <span>Enterprise Privacy & Encryption</span>
             </div>
             <p className="text-slate-300 text-xs sm:text-sm leading-relaxed font-normal">
               Encrypted and confidential. Data is never sold, shared, or used to train public models.

@@ -80,31 +80,39 @@
     border-color: var(--color-border);
   }
 
-  /* Universally hide scrollbars while preserving touch, mouse wheel, and trackpad scrolling */
-  * {
-    scrollbar-width: none !important;
-    -ms-overflow-style: none !important;
+  html {
+    background-color: #070b12;
+    color-scheme: dark;
   }
 
-  *::-webkit-scrollbar {
-    display: none !important;
-    width: 0 !important;
-    height: 0 !important;
-  }
-
-  html,
   body {
+    background-color: #070b12;
+    color-scheme: dark;
+  }
+
+  /* Scoped strictly to the native mobile app */
+  html.native-app-locked,
+  body.native-app-locked {
     height: 100dvh;
     max-height: 100dvh;
     overflow: hidden !important;
     overscroll-behavior: none !important;
-    background-color: #070b12 !important;
-    color-scheme: dark;
+  }
+
+  body.native-app-locked * {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  body.native-app-locked *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
   }
 }
 
 body {
-  background: #070b12;
+  background: var(--command-bg);
   color: var(--command-ink);
   font-family: var(--font-sans);
   letter-spacing: 0;
@@ -124,10 +132,7 @@ select {
 
 @layer components {
   .app-shell {
-    min-height: 100dvh;
-    height: 100dvh;
-    max-height: 100dvh;
-    overflow-y: auto;
+    min-height: 100vh;
     background: var(--command-bg);
   }
 
@@ -1309,17 +1314,31 @@ select {
 
   .phone-hardware {
     position: relative;
-    height: min(840px, calc(100vh - 4rem));
-    min-height: 600px;
+    height: 844px;
+    max-height: calc(100vh - 4rem);
+    min-height: 640px;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    overscroll-behavior: none;
+    overflow: hidden !important;
+    overscroll-behavior: none !important;
     border-radius: 38px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background:
       linear-gradient(180deg, rgba(65, 215, 199, 0.08), transparent 210px),
       var(--mobile-bg);
+  }
+
+  /* Desktop mobile emulator: hide scrollbars and prevent movement inside simulator */
+  .phone-hardware,
+  .phone-hardware * {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  .phone-hardware *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
   }
 
   .phone-statusbar {

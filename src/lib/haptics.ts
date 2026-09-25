@@ -1,45 +1,46 @@
 import { Haptics, NotificationType, ImpactStyle } from "@capacitor/haptics";
 
 /**
- * Trigger a tactile success haptic vibration (native iOS UINotificationFeedbackGenerator).
+ * Triggers native iOS / Android haptic vibration feedback for successful actions (e.g. debrief submission).
+ * Falls back gracefully to standard web navigator.vibrate if running outside native Capacitor.
  */
-export async function triggerSubmitHaptic() {
+export async function triggerSubmitHaptic(): Promise<void> {
   try {
     await Haptics.notification({ type: NotificationType.Success });
   } catch {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
-        navigator.vibrate([25, 50, 25]);
+        navigator.vibrate([40, 60, 40]);
       } catch {}
     }
   }
 }
 
 /**
- * Trigger a tactile error haptic vibration.
+ * Triggers native iOS / Android haptic vibration feedback for errors.
  */
-export async function triggerErrorHaptic() {
+export async function triggerErrorHaptic(): Promise<void> {
   try {
     await Haptics.notification({ type: NotificationType.Error });
   } catch {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
-        navigator.vibrate([60, 100, 60]);
+        navigator.vibrate([100, 50, 100]);
       } catch {}
     }
   }
 }
 
 /**
- * Trigger a subtle light tap haptic.
+ * Triggers light tactile tap haptic feedback.
  */
-export async function triggerTapHaptic() {
+export async function triggerTapHaptic(): Promise<void> {
   try {
     await Haptics.impact({ style: ImpactStyle.Light });
   } catch {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
       try {
-        navigator.vibrate(15);
+        navigator.vibrate(25);
       } catch {}
     }
   }
