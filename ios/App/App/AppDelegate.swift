@@ -7,7 +7,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        let darkBg = UIColor(red: 7/255.0, green: 11/255.0, blue: 18/255.0, alpha: 1.0)
+        self.window?.backgroundColor = darkBg
+        self.window?.overrideUserInterfaceStyle = .dark
         return true
     }
 
