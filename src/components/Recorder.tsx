@@ -186,24 +186,24 @@ export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder
             onClick={start}
             disabled={busy}
             aria-label="Record voice debrief"
-            className="w-full py-3.5 px-4 rounded-2xl border border-emerald-500/35 bg-gradient-to-r from-emerald-500/15 to-teal-500/15 hover:from-emerald-500/20 hover:to-teal-500/20 active:scale-[0.99] flex items-center justify-center gap-3 transition-all shadow-md cursor-pointer"
+            className="w-full py-4 px-4 rounded-2xl border border-emerald-500/35 bg-gradient-to-r from-emerald-500/15 to-teal-500/15 hover:from-emerald-500/20 hover:to-teal-500/20 active:scale-[0.99] flex items-center justify-center gap-3 transition-all shadow-md cursor-pointer"
           >
-            <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-400 text-slate-950 font-bold shadow-sm">
-              <Mic className="h-4.5 w-4.5" />
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-400 text-slate-950 font-bold shadow-sm">
+              <Mic className="h-5 w-5" />
             </span>
-            <span className="text-sm sm:text-base font-bold text-emerald-200 tracking-wide">Tap to speak debrief</span>
+            <span className="text-base sm:text-lg font-black text-emerald-100 tracking-wide">Tap to speak debrief</span>
           </button>
         )}
 
         {phase === "recording" && (
-          <div className="w-full py-3 px-4 rounded-2xl border border-rose-500/40 bg-rose-500/10 flex items-center justify-between gap-3 animate-in fade-in shadow-md">
+          <div className="w-full py-3.5 px-4 rounded-2xl border border-rose-500/40 bg-rose-500/10 flex items-center justify-between gap-3 animate-in fade-in shadow-md">
             <div className="flex items-center gap-2.5">
-              <span className="relative flex h-2.5 w-2.5">
+              <span className="relative flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500" />
               </span>
-              <span className="font-mono text-sm font-bold text-rose-200 tabular-nums">{mmss}</span>
-              <span className="text-xs text-rose-300/80 font-medium">Listening...</span>
+              <span className="font-mono text-base sm:text-lg font-black text-rose-100 tabular-nums">{mmss}</span>
+              <span className="text-sm text-rose-200 font-bold">Listening...</span>
             </div>
 
             <button
@@ -211,24 +211,24 @@ export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder
               onClick={stop}
               aria-label="Stop recording"
               title="Stop recording"
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition active:scale-95 shadow-sm cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-sm transition active:scale-95 shadow-sm cursor-pointer"
             >
-              <Square className="h-3 w-3 fill-current" />
+              <Square className="h-3.5 w-3.5 fill-current" />
               <span>Done</span>
             </button>
           </div>
         )}
 
         {busy && (
-          <div className="w-full py-3 px-4 rounded-2xl border border-teal-500/30 bg-teal-500/10 flex items-center justify-center gap-2 text-teal-300 text-xs font-semibold animate-in fade-in">
-            <Loader2 className="h-4 w-4 animate-spin text-teal-400" />
+          <div className="w-full py-3.5 px-4 rounded-2xl border border-teal-500/30 bg-teal-500/10 flex items-center justify-center gap-2.5 text-teal-200 text-sm sm:text-base font-bold animate-in fade-in">
+            <Loader2 className="h-5 w-5 animate-spin text-teal-400" />
             <span>Transcribing into notes...</span>
           </div>
         )}
 
         {note && (
           <div className="mt-1.5">
-            <p className="w-full rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-center text-xs text-amber-200">
+            <p className="w-full rounded-xl border border-amber-400/30 bg-amber-500/10 px-3.5 py-2 text-center text-sm font-semibold text-amber-200">
               {note}
             </p>
           </div>

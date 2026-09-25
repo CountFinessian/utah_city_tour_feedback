@@ -1439,8 +1439,8 @@ select {
     border: 0;
     background: transparent;
     padding: 0.75rem 0.9rem 0.9rem;
-    font-size: 16px;
-    line-height: 1.6;
+    font-size: 18px;
+    line-height: 1.65;
     color: #f8fafc;
     outline: none;
     overflow-y: auto;
@@ -1456,8 +1456,8 @@ select {
   }
 
   .apple-notes-textarea::placeholder {
-    color: rgba(148, 163, 184, 0.55);
-    font-size: 15px;
+    color: rgba(183, 197, 216, 0.75);
+    font-size: 17px;
   }
 
   .mobile-card {
@@ -1486,10 +1486,19 @@ select {
 
   .mobile-section-label {
     color: var(--mobile-muted);
-    font-size: 0.7rem;
+    font-size: 0.85rem;
     font-weight: 900;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
+  }
+
+  .mobile-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.875rem;
+    font-weight: 800;
+    color: var(--mobile-soft);
   }
 
   .mobile-textarea,
@@ -1506,14 +1515,15 @@ select {
     min-height: 154px;
     resize: vertical;
     padding: 0.85rem;
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     line-height: 1.65;
   }
 
   .mobile-input {
-    min-height: 3rem;
-    padding: 0.7rem 0.8rem;
-    font-size: 0.95rem;
+    min-height: 3.25rem;
+    padding: 0.75rem 0.95rem;
+    font-size: 1.05rem;
+    font-weight: 600;
   }
 
   .mobile-textarea:focus,
@@ -1556,10 +1566,10 @@ select {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.45rem;
+    gap: 0.5rem;
     border-radius: 16px;
-    padding: 0.72rem 0.9rem;
-    font-size: 0.82rem;
+    padding: 0.8rem 1.1rem;
+    font-size: 0.95rem;
     font-weight: 900;
     white-space: nowrap;
   }
@@ -1589,10 +1599,10 @@ select {
     border: 1px solid rgba(65, 215, 199, 0.45);
     border-radius: 9999px;
     background: rgba(16, 24, 39, 0.96);
-    padding: 0.65rem 1.25rem;
+    padding: 0.7rem 1.35rem;
     color: #ecfffc;
-    font-size: 0.825rem;
-    font-weight: 700;
+    font-size: 0.925rem;
+    font-weight: 800;
     line-height: 1.35;
     text-align: center;
     backdrop-filter: blur(20px);
@@ -1630,9 +1640,9 @@ select {
     border: 1px solid rgba(65, 215, 199, 0.44);
     border-radius: 999px;
     background: rgba(65, 215, 199, 0.1);
-    padding: 0.32rem 0.56rem;
+    padding: 0.38rem 0.65rem;
     color: var(--mobile-ink);
-    font-size: 0.72rem;
+    font-size: 0.85rem;
     font-weight: 850;
     text-transform: capitalize;
   }
