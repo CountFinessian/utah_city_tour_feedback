@@ -5,12 +5,24 @@ This version has breaking changes — APIs, conventions, and file structure may 
 <!-- END:nextjs-agent-rules -->
 
 <!-- BEGIN:user-custom-rules -->
-# Deployment & Environment Rules
-- **Do not deploy or push to remote/production (`git push`) unless the user explicitly asks for it.**
-- Always keep changes strictly local so the user can test in their local dev environment first.
-- This app is lgihtweight,
-barebones and is capable of data aggreagation and geenrating meaningful insgihts. It is not everything, it is for solving one unique business problem.
-- This app is lightweight, barebones and is capable of data aggregation and generating meaningful insights. It is not everything, it is for solving one unique business problem.
+# CRITICAL SAFETY RULE: STRICT PROHIBITION ON UNAPPROVED CODE PUSHES
+
+## NEVER RUN `git push` WITHOUT EXPLICIT USER AUTHORIZATION
+1. **ABSOLUTE PROHIBITION ON UNAPPROVED REMOTE PUSHES:**
+   - Under NO circumstances may the AI agent run `git push`, `git push origin`, or any command that pushes commits to a remote repository/branch unless the user has EXPLICITLY and UNAMBIGUOUSLY requested or authorized it in the current conversation turn.
+   - All changes, code edits, and git commits (`git commit`) MUST remain strictly local until explicit user sign-off.
+   - Never assume permission to push based on "finishing a task", "cleaning up", or "submitting".
+
+2. **WHY THIS RULE EXISTS:**
+   - Safety: Prevents premature, untested, or unvetted code from triggering remote CI/CD pipelines, workflows, or deployments.
+   - Workflow Efficiency: Saves API/runner workflows and eliminates waiting for remote builds to complete.
+   - User Control: The user must inspect and approve all changes before anything is published to remote or production.
+
+3. **WORKFLOW PROCEDURE:**
+   - Complete work locally.
+   - Run local linting, tests (`npm test`), and local builds (`npm run build`) to verify correctness.
+   - Commit locally if appropriate.
+   - Present the summary to the user and await their explicit authorization before proposing or executing `git push`.
 <!-- END:user-custom-rules -->
 
 <!-- BEGIN:project-context -->

@@ -94,10 +94,7 @@ async function loadFromFile(): Promise<void> {
         }
       } catch {}
 
-      // Ensure baseline accounts exist with verified credentials (UtahCity2026!)
-      const defaultHash = "ab8fdad15ef513f8405e42f7c1815587dcabc7523cceac96aae1a48e856e2804";
-      const defaultSalt = "a1b2c3d4e5f67890123456789abcdef0";
-
+      // Ensure Nate and Aiden baseline accounts exist with verified credentials
       if (!memoryUsers.has("usr_leader_nate")) {
         memoryUsers.set("usr_leader_nate", {
           id: "usr_leader_nate",
@@ -105,8 +102,8 @@ async function loadFromFile(): Promise<void> {
           name: "Nate",
           role: "leader",
           title: "Utah City Leadership",
-          passwordHash: defaultHash,
-          passwordSalt: defaultSalt,
+          passwordHash: "70c1d10a5c64b9ae05d57ff081a49c332983cafd12585939a4bcebf26806b1e9",
+          passwordSalt: "52242e4e050111189eb8655be976df58",
           createdAt: "2026-09-01T00:00:00.000Z",
         });
       }
@@ -117,32 +114,8 @@ async function loadFromFile(): Promise<void> {
           name: "Aiden",
           role: "host",
           title: "Tour Host",
-          passwordHash: defaultHash,
-          passwordSalt: defaultSalt,
-          createdAt: "2026-09-01T00:00:00.000Z",
-        });
-      }
-      if (!memoryUsers.has("usr_host_appreview")) {
-        memoryUsers.set("usr_host_appreview", {
-          id: "usr_host_appreview",
-          email: "appreview@utahcity.com",
-          name: "Apple Reviewer",
-          role: "host",
-          title: "App Store Review",
-          passwordHash: defaultHash,
-          passwordSalt: defaultSalt,
-          createdAt: "2026-09-01T00:00:00.000Z",
-        });
-      }
-      if (!memoryUsers.has("usr_host_deletetest")) {
-        memoryUsers.set("usr_host_deletetest", {
-          id: "usr_host_deletetest",
-          email: "delete.test@utahcity.com",
-          name: "Deletion Test Account",
-          role: "host",
-          title: "Account Deletion Verification",
-          passwordHash: defaultHash,
-          passwordSalt: defaultSalt,
+          passwordHash: "39d38a7c9b8e0cd65e5b5292e0d82d15ad0fd3a3d5f85ba433ef1a5591537938",
+          passwordSalt: "242da9e6ec8734a620544625677836f8",
           createdAt: "2026-09-01T00:00:00.000Z",
         });
       }
@@ -229,19 +202,13 @@ export async function ensureUserSchema(): Promise<void> {
       )
     `;
 
-    // Seed baseline real users as active accounts with verified credentials (UtahCity2026!)
-    const defaultHash = "ab8fdad15ef513f8405e42f7c1815587dcabc7523cceac96aae1a48e856e2804";
-    const defaultSalt = "a1b2c3d4e5f67890123456789abcdef0";
-
+    // Seed baseline real users (Nate & Aiden) as active accounts with verified credentials
     await sql`
       INSERT INTO users (id, email, name, role, title, password_hash, password_salt, created_at, updated_at)
       VALUES 
-        ('usr_leader_nate', 'nate@utahcity.com', 'Nate', 'leader', 'Utah City Leadership', ${defaultHash}, ${defaultSalt}, NOW(), NOW()),
-        ('usr_host_aiden', 'aiden@utahcity.com', 'Aiden', 'host', 'Tour Host', ${defaultHash}, ${defaultSalt}, NOW(), NOW()),
-        ('usr_host_appreview', 'appreview@utahcity.com', 'Apple Reviewer', 'host', 'App Store Review', ${defaultHash}, ${defaultSalt}, NOW(), NOW()),
-        ('usr_host_deletetest', 'delete.test@utahcity.com', 'Deletion Test Account', 'host', 'Account Deletion Verification', ${defaultHash}, ${defaultSalt}, NOW(), NOW())
+        ('usr_leader_nate', 'nate@utahcity.com', 'Nate', 'leader', 'Utah City Leadership', '70c1d10a5c64b9ae05d57ff081a49c332983cafd12585939a4bcebf26806b1e9', '52242e4e050111189eb8655be976df58', NOW(), NOW()),
+        ('usr_host_aiden', 'aiden@utahcity.com', 'Aiden', 'host', 'Tour Host', '39d38a7c9b8e0cd65e5b5292e0d82d15ad0fd3a3d5f85ba433ef1a5591537938', '242da9e6ec8734a620544625677836f8', NOW(), NOW())
       ON CONFLICT (id) DO UPDATE SET
-        email = EXCLUDED.email,
         name = EXCLUDED.name,
         role = EXCLUDED.role,
         title = EXCLUDED.title,
@@ -644,9 +611,6 @@ export async function deleteUserAndInvitation(
 export async function seedBaselineUsers(): Promise<void> {
   await loadFromFile();
 
-  const defaultHash = "ab8fdad15ef513f8405e42f7c1815587dcabc7523cceac96aae1a48e856e2804";
-  const defaultSalt = "a1b2c3d4e5f67890123456789abcdef0";
-
   if (!memoryUsers.has("usr_leader_nate")) {
     memoryUsers.set("usr_leader_nate", {
       id: "usr_leader_nate",
@@ -654,8 +618,8 @@ export async function seedBaselineUsers(): Promise<void> {
       name: "Nate",
       role: "leader",
       title: "Utah City Leadership",
-      passwordHash: defaultHash,
-      passwordSalt: defaultSalt,
+      passwordHash: "70c1d10a5c64b9ae05d57ff081a49c332983cafd12585939a4bcebf26806b1e9",
+      passwordSalt: "52242e4e050111189eb8655be976df58",
       createdAt: "2026-09-01T00:00:00.000Z",
     });
   }
@@ -667,34 +631,8 @@ export async function seedBaselineUsers(): Promise<void> {
       name: "Aiden",
       role: "host",
       title: "Tour Host",
-      passwordHash: defaultHash,
-      passwordSalt: defaultSalt,
-      createdAt: "2026-09-01T00:00:00.000Z",
-    });
-  }
-
-  if (!memoryUsers.has("usr_host_appreview")) {
-    memoryUsers.set("usr_host_appreview", {
-      id: "usr_host_appreview",
-      email: "appreview@utahcity.com",
-      name: "Apple Reviewer",
-      role: "host",
-      title: "App Store Review",
-      passwordHash: defaultHash,
-      passwordSalt: defaultSalt,
-      createdAt: "2026-09-01T00:00:00.000Z",
-    });
-  }
-
-  if (!memoryUsers.has("usr_host_deletetest")) {
-    memoryUsers.set("usr_host_deletetest", {
-      id: "usr_host_deletetest",
-      email: "delete.test@utahcity.com",
-      name: "Deletion Test Account",
-      role: "host",
-      title: "Account Deletion Verification",
-      passwordHash: defaultHash,
-      passwordSalt: defaultSalt,
+      passwordHash: "39d38a7c9b8e0cd65e5b5292e0d82d15ad0fd3a3d5f85ba433ef1a5591537938",
+      passwordSalt: "242da9e6ec8734a620544625677836f8",
       createdAt: "2026-09-01T00:00:00.000Z",
     });
   }
