@@ -107,7 +107,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   function handleDeclineConsent() {
     setShowConsentModal(false);
     setPendingAction(null);
-    setNotice("AI consent is required before recording or analyzing debriefs with AI.");
+    setNotice("AI consent is required for AI debriefs.");
   }
 
   function handleRevokeConsent() {
@@ -115,7 +115,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       localStorage.removeItem(AI_CONSENT_KEY);
     } catch {}
     setHasConsent(false);
-    setNotice("AI consent has been revoked. You will be prompted before future AI debrief actions.");
+    setNotice("AI consent revoked");
   }
 
   async function handleDeleteAccount() {
@@ -352,15 +352,15 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
 
       {/* Top floating toast popup for "Entry submitted" and errors */}
       {notice && (
-        <div className="mobile-toast">
-          <CheckCircle2 className="h-4 w-4 text-[#36cdbd]" />
-          <span>{notice}</span>
+        <div className="mobile-toast" role="status">
+          <CheckCircle2 className="h-4 w-4 text-[#36cdbd] shrink-0" />
+          <span className="leading-snug">{notice}</span>
         </div>
       )}
       {error && (
-        <div className="mobile-toast mobile-toast-error">
-          <AlertCircle className="h-4 w-4 text-rose-400" />
-          <span>{error}</span>
+        <div className="mobile-toast mobile-toast-error" role="alert">
+          <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+          <span className="leading-snug">{error}</span>
         </div>
       )}
 
