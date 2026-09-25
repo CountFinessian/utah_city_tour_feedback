@@ -468,17 +468,19 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
             {/* In-App Account Deletion (Apple Guideline 5.1.1(v)) */}
             <div className="pt-2 border-t border-white/10 space-y-3">
               {!showDeleteConfirm ? (
-                <div className="flex items-center justify-between">
+                <div className="p-3.5 rounded-xl bg-red-500/[0.04] border border-red-500/20 space-y-3">
                   <div>
-                    <p className="text-xs font-semibold text-white">Delete Account</p>
-                    <p className="text-[11px] text-[#8292a8]">Permanently remove your account & access</p>
+                    <p className="text-xs font-bold text-red-200">Delete Account</p>
+                    <p className="text-[11px] text-[#8292a8] mt-0.5 leading-relaxed">
+                      Permanently remove your account & access
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setShowDeleteConfirm(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-semibold transition-colors cursor-pointer"
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 active:scale-[0.99] text-red-300 text-xs font-bold transition-colors cursor-pointer shadow-sm"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-3.5 w-3.5 text-red-400" />
                     <span>Delete Account</span>
                   </button>
                 </div>
@@ -490,12 +492,12 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                       Are you sure you want to permanently delete your host account? This action is immediate and cannot be undone.
                     </p>
                   </div>
-                  <div className="flex items-center justify-end gap-2">
+                  <div className="flex items-center justify-end gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => setShowDeleteConfirm(false)}
                       disabled={deletingAccount}
-                      className="px-3 py-1.5 rounded-lg border border-white/10 text-xs text-slate-300 hover:bg-white/5 transition-colors cursor-pointer"
+                      className="px-3.5 py-2 rounded-xl border border-white/10 text-xs text-slate-300 hover:bg-white/5 transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -503,9 +505,10 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                       type="button"
                       onClick={handleDeleteAccount}
                       disabled={deletingAccount}
-                      className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-md"
                     >
-                      {deletingAccount ? "Deleting..." : "Yes, Delete Account"}
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>{deletingAccount ? "Deleting..." : "Yes, Delete Account"}</span>
                     </button>
                   </div>
                 </div>
