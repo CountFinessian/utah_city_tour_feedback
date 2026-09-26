@@ -2,7 +2,7 @@
 
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { Loader2, Mic, Square } from "lucide-react";
-import { transcribeBlob, type WhisperProgress } from "@/lib/whisper-client";
+import type { WhisperProgress } from "@/lib/whisper-client";
 
 type Phase = "idle" | "recording" | "loading" | "transcribing";
 
@@ -150,6 +150,7 @@ export const Recorder = forwardRef<RecorderRef, RecorderProps>(function Recorder
     setPhase("loading");
     setDlPct(null);
     try {
+      const { transcribeBlob } = await import("@/lib/whisper-client");
       const text = await transcribeBlob(blob, (p: WhisperProgress) => {
         if (p.phase === "downloading") {
           setPhase("loading");

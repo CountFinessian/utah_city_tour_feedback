@@ -11,7 +11,7 @@ import {
 } from "@/components/domain/CommandComponents";
 import { CommandActionTarget } from "@/components/domain/CommandActionTarget";
 import { EvidencePopover } from "@/components/domain/EvidencePopover";
-import { IntentFunnelChart, SentimentTimeline } from "@/components/domain/CommandCharts";
+import { IntentFunnelChart, SentimentTimeline } from "@/components/domain/CommandChartsLazy";
 import { actionAnchorId } from "@/lib/command-action";
 
 import { getCommandView } from "@/server/command/command-view";

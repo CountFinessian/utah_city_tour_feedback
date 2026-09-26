@@ -69,7 +69,7 @@
   --color-mobile-accent: var(--mobile-accent);
   --color-mobile-warn: var(--mobile-warn);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 @layer base {
@@ -1323,8 +1323,8 @@ select {
     grid-template-columns: minmax(200px, 360px) auto;
     align-items: center;
     justify-content: center;
-    gap: clamp(1.25rem, 2.5vw, 3rem);
-    padding: 1.25rem 1.5rem;
+    gap: clamp(3rem, 7vw, 6rem);
+    padding: 1.25rem 2rem;
     background: #070b12;
     box-sizing: border-box;
   }

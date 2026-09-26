@@ -21,7 +21,14 @@ import {
   Redo2,
 } from "lucide-react";
 import { Recorder, type RecorderRef } from "./Recorder";
-import { triggerSubmitHaptic, triggerErrorHaptic, triggerTapHaptic } from "@/lib/haptics";
+
+function fireHaptic(kind: "submit" | "error" | "tap") {
+  return import("@/lib/haptics").then((h) => {
+    if (kind === "submit") return h.triggerSubmitHaptic();
+    if (kind === "error") return h.triggerErrorHaptic();
+    return h.triggerTapHaptic();
+  });
+}
 
 function openExternalUrl(path: string) {
   if (typeof window !== "undefined") {
@@ -250,10 +257,10 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
   }
 
   async function submit(nextTranscript: string) {
-    void triggerTapHaptic();
+    void fireHaptic("tap");
     if (!nextTranscript.trim()) {
       setError("Please add debrief notes or voice to continue.");
-      void triggerErrorHaptic();
+      void fireHaptic("error");
       return;
     }
     setSubmitting(true);
@@ -275,11 +282,11 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       const json = await res.json();
       if (!res.ok) {
         setError(json.error || "Could not structure debrief.");
-        void triggerErrorHaptic();
+        void fireHaptic("error");
         return;
       }
       // Haptic first so the native call isn't dropped by immediate re-render
-      await triggerSubmitHaptic();
+      await fireHaptic("submit");
       setTranscript("");
       setHistory([""]);
       setHistoryIndex(0);
@@ -289,7 +296,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       setNotice(json.notice || "Sent — structuring in background");
     } catch {
       setError("Could not reach the server.");
-      void triggerErrorHaptic();
+      void fireHaptic("error");
     } finally {
       setSubmitting(false);
       setProcessingIndex(0);

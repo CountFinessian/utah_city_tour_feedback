@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { MobileCaptureApp } from "@/components/MobileCaptureApp";
-import { hasASR } from "@/server/ai/model-config";
+import { hasASR } from "@/server/ai/env-flags";
 
 export const dynamic = "force-dynamic";
 
