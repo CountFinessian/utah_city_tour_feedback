@@ -1,0 +1,20 @@
+---
+description: Follow-ups are leadership action items from aggregated surveys, not host capture friction
+alwaysApply: true
+---
+
+# Action items over host follow-up questions
+
+Core product loop:
+1. Hosts submit unstructured tour feedback (voice/text) with **minimal friction** — no blocking follow-up questionnaires.
+2. System structures that input into signals (objections, amenities, intent, sentiment, etc.).
+3. Leadership visualizes the big picture on Command / Evidence / Ops.
+4. **Action items** are LLM-generated for leadership from submitted/aggregated survey data — what to improve so people want to live there.
+
+Do **not**:
+- Ask hosts follow-up questions that delay or block debrief submit.
+- Surface “completeness”, “coverage gaps”, or “follow-up questions owed by hosts” as primary metrics.
+
+Do:
+- Generate/show action items on **Command** (leadership), grounded in corpus evidence.
+- Prefer “what leadership should do next” over “what the host still needs to answer.”

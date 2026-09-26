@@ -1,0 +1,12 @@
+---
+description: TestFlight — always install the latest build before validating
+alwaysApply: true
+---
+
+# TestFlight latest build
+
+Before treating an iOS TestFlight install as a failed or broken build:
+
+1. Open TestFlight and confirm the installed build number matches the newest available release.
+2. Manually Install/Update if an older build is still installed (TestFlight does not always auto-switch).
+3. Do not debug "missing" web/app changes until the latest build is confirmed on-device.

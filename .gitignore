@@ -1,8 +1,6 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
-/node_modules
-/.pnp
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -11,14 +9,20 @@
 !.yarn/versions
 
 # testing
-/coverage
+coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
 # next.js
-/.next/
-/out/
+apps/web/.next/
+apps/web/out/
+.next/
+out/
 
 # production
-/build
+build/
 
 # misc
 .DS_Store
@@ -30,36 +34,33 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
 !.env.example
+apps/web/.env*
+!apps/web/.env.example
 
 # vercel
 .vercel
+apps/web/.vercel
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+apps/web/next-env.d.ts
 
-# local file-store (MVP)
+# local file-store
 .data/
-.env*.local
+apps/web/.data/
 
-# tests
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
-
-# local admin & seed scripts
-scripts/
+# local admin & seed scripts (keep tracked scripts under apps/web/scripts if committed intentionally)
+# apps/web/scripts/ was previously ignored at root — leave unignored in monorepo so harvest scripts can be versioned if desired
 
 # iOS / Capacitor
-ios/App/Pods/
-ios/App/build/
-ios/App/DerivedData/
-ios/App/App/public/
-ios/App/*.xcworkspace/xcuserdata/
-ios/App/*.xcodeproj/xcuserdata/
+apps/mobile/ios/App/Pods/
+apps/mobile/ios/App/build/
+apps/mobile/ios/App/DerivedData/
+apps/mobile/ios/App/App/public/
+apps/mobile/ios/App/*.xcworkspace/xcuserdata/
+apps/mobile/ios/App/*.xcodeproj/xcuserdata/
 *.ipa
 

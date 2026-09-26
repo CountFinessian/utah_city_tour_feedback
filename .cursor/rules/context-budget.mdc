@@ -1,0 +1,15 @@
+---
+description: Keep context/token usage small every chat
+alwaysApply: true
+---
+
+# Context Budget
+
+Smaller context = lower cost and better answers.
+
+- **New chat per task.** Do not continue this thread onto unrelated work.
+- Past ~8 exchanges or a topic shift → start fresh with only the files you need.
+- Never `@Codebase` by default; attach only files you will edit.
+- Prefer short agent replies; skip restating the task or dumping large diffs.
+- Prefer glob/agent-request rules over always-on; keep always-on rules tiny.
+- When a task is done, stop — do not keep the chat open for memory (write a short rule/note instead).

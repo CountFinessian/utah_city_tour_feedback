@@ -1,0 +1,10 @@
+---
+description: Never git push until Jacob explicitly asks
+alwaysApply: true
+---
+
+# No push until asked
+
+- **Never** run `git push` (or any remote push) unless Jacob explicitly asks in the current turn.
+- Local edits, commits (only when asked), tests, and builds are fine.
+- Finishing a task is not permission to push. Wait for clear go-ahead (e.g. "push it", "push when ready").

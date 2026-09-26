@@ -1,0 +1,13 @@
+---
+description: Desktop PC preview of mobile capture must show the full phone frame
+globs: utah-city/apps/web/src/app/globals.css,utah-city/apps/web/src/components/MobileCaptureApp.tsx
+alwaysApply: false
+---
+
+# Mobile capture desktop preview fit
+
+On the **PC/desktop** view of `/` (`.mobile-demo-stage` + `.phone-frame`):
+
+- The full phone bezel and in-phone UI must fit in the viewport without feeling zoomed-in or cropped.
+- Prefer shrinking width/height together (aspect-ratio + max-height) over clipping with overflow.
+- Real phones / native app / narrow viewports stay edge-to-edge; this rule is only for the desktop simulator chrome.

@@ -1,0 +1,15 @@
+---
+description: Product must generate actionable results for users, not just dashboards
+alwaysApply: true
+---
+
+# Actionable results (noteworthy)
+
+Utah City should help users **do something next**, not only inspect data.
+
+When designing or changing features:
+
+1. Prefer outputs that name a concrete action, owner, and why (evidence/signal).
+2. Prefer "what to do this week" over greyscale status labels alone.
+3. Evidence, Command, and Analyst surfaces should surface recommendations, follow-ups, or ranked next steps when data supports them.
+4. Avoid dead-end UI (e.g. an `unknown` pill with no path to resolve or act).

@@ -4,11 +4,10 @@ on:
   push:
     branches: [main]
     paths:
-      - "src/**"
-      - "www/**"
-      - "ios/**"
-      - "capacitor.config.ts"
+      - "apps/mobile/**"
+      - "apps/web/package.json"
       - "package.json"
+      - "package-lock.json"
       - ".github/workflows/deploy-ios.yml"
   workflow_dispatch:
     inputs:
@@ -36,7 +35,6 @@ jobs:
           xcodebuild -version
           xcrun --show-sdk-version
 
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -47,6 +45,7 @@ jobs:
         run: npm ci
 
       - name: Sync Capacitor iOS
+        working-directory: apps/mobile
         run: npx cap sync ios
 
       - name: Setup Ruby for Fastlane
@@ -54,7 +53,7 @@ jobs:
         with:
           ruby-version: "3.3"
           bundler-cache: true
-          working-directory: ios/App
+          working-directory: apps/mobile/ios/App
 
       - name: Setup CI Keychain & Code Signing Identity
         run: |
@@ -66,16 +65,16 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
           # Import permanent Distribution Certificate & Private Key (macOS 14 compatible)
-          security import ios/App/certs/distribution.p12 -k "$KEYCHAIN_PATH" -P "UtahCityDistribution2026!" -T /usr/bin/codesign -T /usr/bin/security -A
+          security import apps/mobile/ios/App/certs/distribution.p12 -k "$KEYCHAIN_PATH" -P "UtahCityDistribution2026!" -T /usr/bin/codesign -T /usr/bin/security -A
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "ci_password" "$KEYCHAIN_PATH" || true
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
           # Install Provisioning Profile directly for Xcode
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp ios/App/certs/AppStore_com.utahcity.host.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/3d4d804d-af86-4056-923b-a49fc3103e2d.mobileprovision"
+          cp apps/mobile/ios/App/certs/AppStore_com.utahcity.host.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/3d4d804d-af86-4056-923b-a49fc3103e2d.mobileprovision"
 
       - name: Build and Deploy to App Store
-        working-directory: ios/App
+        working-directory: apps/mobile/ios/App
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -94,6 +93,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: UtahCity-ipa
-          path: ios/App/build/*.ipa
+          path: apps/mobile/ios/App/build/*.ipa
           if-no-files-found: ignore
 

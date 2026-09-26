@@ -1,0 +1,13 @@
+---
+description: When Jacob marks something as noteworthy, persist it as a Cursor rule
+alwaysApply: true
+---
+
+# Noteworthy → Rules
+
+When Jacob says something is **noteworthy** (or equivalent: "add this as a rule", "remember this", "that's a rule"):
+
+1. Create or update a focused `.mdc` rule under `.cursor/rules/` (and mirror into the app project's `.cursor/rules/` when the note is app-specific).
+2. Prefer `alwaysApply: true` for workflow/process notes; use `globs` only when the note is file-specific.
+3. Keep each rule concise, actionable, and one concern per file.
+4. Confirm briefly which rule file was added/updated.
