@@ -94,32 +94,6 @@ async function loadFromFile(): Promise<void> {
         }
       } catch {}
 
-      // Ensure Nate and Aiden baseline accounts exist with verified credentials
-      if (!memoryUsers.has("usr_leader_nate")) {
-        memoryUsers.set("usr_leader_nate", {
-          id: "usr_leader_nate",
-          email: "nate@utahcity.com",
-          name: "Nate",
-          role: "leader",
-          title: "Utah City Leadership",
-          passwordHash: "70c1d10a5c64b9ae05d57ff081a49c332983cafd12585939a4bcebf26806b1e9",
-          passwordSalt: "52242e4e050111189eb8655be976df58",
-          createdAt: "2026-09-01T00:00:00.000Z",
-        });
-      }
-      if (!memoryUsers.has("usr_host_aiden")) {
-        memoryUsers.set("usr_host_aiden", {
-          id: "usr_host_aiden",
-          email: "aiden@utahcity.com",
-          name: "Aiden",
-          role: "host",
-          title: "Tour Host",
-          passwordHash: "39d38a7c9b8e0cd65e5b5292e0d82d15ad0fd3a3d5f85ba433ef1a5591537938",
-          passwordSalt: "242da9e6ec8734a620544625677836f8",
-          createdAt: "2026-09-01T00:00:00.000Z",
-        });
-      }
-
       try {
         const iRaw = await fs.readFile(INVITES_FILE, "utf8");
         const iList = JSON.parse(iRaw) as StoredInvitation[];
@@ -202,21 +176,7 @@ export async function ensureUserSchema(): Promise<void> {
       )
     `;
 
-    // Seed baseline real users (Nate & Aiden) as active accounts with verified credentials
-    await sql`
-      INSERT INTO users (id, email, name, role, title, password_hash, password_salt, created_at, updated_at)
-      VALUES 
-        ('usr_leader_nate', 'nate@utahcity.com', 'Nate', 'leader', 'Utah City Leadership', '70c1d10a5c64b9ae05d57ff081a49c332983cafd12585939a4bcebf26806b1e9', '52242e4e050111189eb8655be976df58', NOW(), NOW()),
-        ('usr_host_aiden', 'aiden@utahcity.com', 'Aiden', 'host', 'Tour Host', '39d38a7c9b8e0cd65e5b5292e0d82d15ad0fd3a3d5f85ba433ef1a5591537938', '242da9e6ec8734a620544625677836f8', NOW(), NOW())
-      ON CONFLICT (id) DO UPDATE SET
-        name = EXCLUDED.name,
-        role = EXCLUDED.role,
-        title = EXCLUDED.title,
-        password_hash = EXCLUDED.password_hash,
-        password_salt = EXCLUDED.password_salt
-    `;
-
-    // Clean up any lingering dummy/pilot invitations
+    // Clean up any lingering dummy/pilot invitations (legacy tokens from early pilots)
     await sql`
       DELETE FROM invitations
       WHERE token IN ('aiden_host_pilot_token_2026', 'nate_leader_pilot_token_2026')
@@ -225,6 +185,14 @@ export async function ensureUserSchema(): Promise<void> {
     return true;
   });
   schemaInitialized = true;
+
+  // Optional: create/rotate users from SEED_USERS_JSON (env only — never commit passwords)
+  try {
+    const { ensureEnvSeedUsers } = await import("@/server/auth/seed-users");
+    await ensureEnvSeedUsers();
+  } catch (err) {
+    console.warn("[user-repository] env seed skipped:", err);
+  }
 }
 
 export async function findUserByEmail(email: string): Promise<StoredUser | null> {
@@ -605,48 +573,20 @@ export async function deleteUserAndInvitation(
 }
 
 /**
- * Ensures baseline real users exist in memory and local file store:
- * Nate (Leadership) and Aiden (Tour Host) with verified credentials
+ * Offline/local priming only — no hardcoded credentials.
+ * Production users come from invites or SEED_USERS_JSON.
  */
 export async function seedBaselineUsers(): Promise<void> {
   await loadFromFile();
-
-  if (!memoryUsers.has("usr_leader_nate")) {
-    memoryUsers.set("usr_leader_nate", {
-      id: "usr_leader_nate",
-      email: "nate@utahcity.com",
-      name: "Nate",
-      role: "leader",
-      title: "Utah City Leadership",
-      passwordHash: "70c1d10a5c64b9ae05d57ff081a49c332983cafd12585939a4bcebf26806b1e9",
-      passwordSalt: "52242e4e050111189eb8655be976df58",
-      createdAt: "2026-09-01T00:00:00.000Z",
-    });
-  }
-
-  if (!memoryUsers.has("usr_host_aiden")) {
-    memoryUsers.set("usr_host_aiden", {
-      id: "usr_host_aiden",
-      email: "aiden@utahcity.com",
-      name: "Aiden",
-      role: "host",
-      title: "Tour Host",
-      passwordHash: "39d38a7c9b8e0cd65e5b5292e0d82d15ad0fd3a3d5f85ba433ef1a5591537938",
-      passwordSalt: "242da9e6ec8734a620544625677836f8",
-      createdAt: "2026-09-01T00:00:00.000Z",
-    });
-  }
-
-  // Remove any fake pending invitations from memory
   memoryInvitations.delete("inv_aiden_utahcity_com");
   memoryInvitations.delete("inv_nate_utahcity_com");
-
-  persistUsersToFile().catch(() => {});
-  persistInvitesToFile().catch(() => {});
+  try {
+    const { ensureEnvSeedUsers } = await import("@/server/auth/seed-users");
+    await ensureEnvSeedUsers();
+  } catch (err) {
+    console.warn("[user-repository] env seed skipped:", err);
+  }
 }
-
-// Prime baseline users immediately on import
-seedBaselineUsers().catch(() => {});
 
 export async function listAllInvitationsWithStatus(): Promise<InvitationWithStatus[]> {
   // 1. If database is configured, fetch directly from database (throws if connection fails)

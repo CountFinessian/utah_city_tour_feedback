@@ -177,7 +177,7 @@ Current production tables.
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | |
 | `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | |
 
-Seed Accounts: Nate (`usr_leader_nate`) and Aiden (`usr_host_aiden`).
+Accounts are created via invite claim or optional `SEED_USERS_JSON` (env). Password hash + salt are generated at runtime and never committed.
 
 ### `invitations`
 | Column | Type | Index |

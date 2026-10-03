@@ -62,13 +62,27 @@ describe("Real Database & Invitation Authentication", () => {
   });
 
   it("lists all invitations with accurate claimed status across users and invites", async () => {
-    const { listAllInvitationsWithStatus } = await import("../src/server/repositories/user-repository");
+    const { listAllInvitationsWithStatus, createOrUpdateInvitation } = await import(
+      "../src/server/repositories/user-repository"
+    );
+    const { generateSecureToken } = await import("../src/server/auth/crypto");
+    await createOrUpdateInvitation({
+      email: "pending.invite@utahcity.com",
+      name: "Pending",
+      role: "host",
+      token: generateSecureToken(16),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
     const list = await listAllInvitationsWithStatus();
-    expect(list.length).toBeGreaterThanOrEqual(2);
+    expect(list.length).toBeGreaterThanOrEqual(1);
 
     const testHost = list.find((i) => i.email === "test.host@utahcity.com");
     expect(testHost).toBeDefined();
     expect(testHost?.claimed).toBe(true);
+
+    const pending = list.find((i) => i.email === "pending.invite@utahcity.com");
+    expect(pending).toBeDefined();
+    expect(pending?.claimed).toBe(false);
   });
 
   it("verifies self-contained signed invitation tokens across isolated instances", async () => {
@@ -156,9 +170,21 @@ describe("Real Database & Invitation Authentication", () => {
     const { signPasswordResetToken, verifyPasswordResetToken } = await import("../src/server/auth/session");
     const { POST: forgotPOST } = await import("../src/app/api/auth/forgot-password/route");
     const { GET: resetGET, POST: resetPOST } = await import("../src/app/api/auth/reset-password/route");
+    const { createUser } = await import("../src/server/repositories/user-repository");
+    const { hashPassword, generateSalt } = await import("../src/server/auth/crypto");
 
-    // Ensure user exists (we know nate@utahcity.com exists from baseline)
-    const resetEmail = "nate@utahcity.com";
+    const resetEmail = "reset.pilot@utahcity.com";
+    const salt = generateSalt();
+    const hash = await hashPassword("TempResetPass2026!", salt);
+    await createUser({
+      id: "usr_reset_pilot",
+      email: resetEmail,
+      name: "Reset Pilot",
+      role: "leader",
+      title: "Pilot",
+      passwordHash: hash,
+      passwordSalt: salt,
+    });
 
     // 1. POST /api/auth/forgot-password
     const forgotReq = new Request("https://demo.utahcity.com/api/auth/forgot-password", {

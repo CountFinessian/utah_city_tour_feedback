@@ -77,15 +77,27 @@ describe("API routes", () => {
   });
 
   it("GET /api/auth/invite lists invitations with status", async () => {
-    const { GET: inviteGET } = await import("@/app/api/auth/invite/route");
+    const { GET: inviteGET, POST: invitePOST } = await import("@/app/api/auth/invite/route");
+    await invitePOST(
+      jsonReq("https://demo.utahcity.com/api/auth/invite", {
+        email: "listcheck.host@utahcity.com",
+        role: "host",
+      })
+    );
+    await invitePOST(
+      jsonReq("https://demo.utahcity.com/api/auth/invite", {
+        email: "listcheck.leader@utahcity.com",
+        role: "leader",
+      })
+    );
     const req = new Request("https://demo.utahcity.com/api/auth/invite");
     const res = await inviteGET(req);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(Array.isArray(json.invitations)).toBe(true);
     expect(json.invitations.length).toBeGreaterThanOrEqual(2);
-    expect(json.invitations.some((i: any) => i.email === "aiden@utahcity.com")).toBe(true);
-    expect(json.invitations.some((i: any) => i.email === "nate@utahcity.com")).toBe(true);
+    expect(json.invitations.some((i: any) => i.email === "listcheck.host@utahcity.com")).toBe(true);
+    expect(json.invitations.some((i: any) => i.email === "listcheck.leader@utahcity.com")).toBe(true);
   });
 
   it("POST /api/auth/invite creates invite quickly and returns setupUrl", async () => {

@@ -30,8 +30,15 @@ async function main() {
   await page.goto("http://localhost:3000/login", { waitUntil: "networkidle2", timeout: 30000 });
 
   console.log("Entering test credentials...");
-  await page.type('input[name="email"]', "aiden@utahcity.com");
-  await page.type('input[name="password"]', "Host#UtahCity2026");
+  const email = process.env.HARVEST_LOGIN_EMAIL || process.env.DEMO_EMAIL;
+  const password = process.env.HARVEST_LOGIN_PASSWORD || process.env.DEMO_PASSWORD;
+  if (!email || !password) {
+    throw new Error(
+      "Set HARVEST_LOGIN_EMAIL and HARVEST_LOGIN_PASSWORD (or DEMO_EMAIL / DEMO_PASSWORD) before running harvest-screenshots."
+    );
+  }
+  await page.type('input[name="email"]', email);
+  await page.type('input[name="password"]', password);
 
   console.log("Submitting login form...");
   await Promise.all([

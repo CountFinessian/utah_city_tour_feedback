@@ -52,6 +52,10 @@ apps/web/next-env.d.ts
 .data/
 apps/web/.data/
 
+# private App Review credentials (never commit)
+docs/APP_REVIEW_RESPONSE.local.md
+**/APP_REVIEW_RESPONSE.local.md
+
 # local admin & seed scripts (keep tracked scripts under apps/web/scripts if committed intentionally)
 # apps/web/scripts/ was previously ignored at root — leave unignored in monorepo so harvest scripts can be versioned if desired
 
