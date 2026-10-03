@@ -520,19 +520,19 @@ export function KnowledgeExplorer({
                           <p className="mt-1 text-sm leading-relaxed text-command-ink">{e.summary}</p>
                         </div>
                       )}
-                      <div className="evidence-copy-box">
+                      <div>
                         <div className="flex items-center justify-between gap-2">
                           <div className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
                             Source transcript
                           </div>
                           <CopyTextButton text={observation.transcript} label="Copy transcript" />
                         </div>
-                        <details className="group mt-2">
+                        <details className="group mt-1">
                           <summary className="flex cursor-pointer list-none items-start gap-2 [&::-webkit-details-marker]:hidden">
                             <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-command-muted transition-transform group-open:rotate-90" />
                             <div className="min-w-0 flex-1">
-                              <p className="whitespace-pre-wrap text-sm leading-relaxed text-command-ink line-clamp-4 group-open:line-clamp-none">
-                                {observation.transcript}
+                              <p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-command-ink line-clamp-3 group-open:line-clamp-none">
+                                &ldquo;{observation.transcript}&rdquo;
                               </p>
                               <span className="mt-1 inline-block text-[11px] font-medium text-command-muted group-open:hidden">
                                 Show full transcript
