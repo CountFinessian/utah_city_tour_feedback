@@ -511,31 +511,36 @@ export function KnowledgeExplorer({
                   </div>
 
                   <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-                    <div className="min-w-0">
-                      <details className="group">
-                        <summary className="flex cursor-pointer list-none items-start gap-2 [&::-webkit-details-marker]:hidden">
-                          <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-command-muted transition-transform group-open:rotate-90" />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
-                                Source transcript
-                              </div>
-                              <CopyTextButton text={observation.transcript} label="Copy excerpt" />
-                            </div>
-                            <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-relaxed text-command-ink line-clamp-3 group-open:line-clamp-none">
-                              &ldquo;{observation.transcript}&rdquo;
-                            </p>
-                            <span className="mt-1 inline-block text-[11px] font-medium text-command-muted group-open:hidden">
-                              Show full transcript
-                            </span>
-                          </div>
-                        </summary>
-                      </details>
+                    <div className="min-w-0 space-y-3">
                       {e.summary && (
-                        <p className="mt-3 text-xs leading-relaxed text-command-muted">
-                          <span className="font-semibold text-command-soft">AI summary:</span> {e.summary}
-                        </p>
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
+                            AI summary
+                          </div>
+                          <p className="mt-1 text-sm leading-relaxed text-command-ink">{e.summary}</p>
+                        </div>
                       )}
+                      <div className="evidence-copy-box">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
+                            Source transcript
+                          </div>
+                          <CopyTextButton text={observation.transcript} label="Copy excerpt" />
+                        </div>
+                        <details className="group mt-2">
+                          <summary className="flex cursor-pointer list-none items-start gap-2 [&::-webkit-details-marker]:hidden">
+                            <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-command-muted transition-transform group-open:rotate-90" />
+                            <div className="min-w-0 flex-1">
+                              <p className="whitespace-pre-wrap text-sm leading-relaxed text-command-ink line-clamp-4 group-open:line-clamp-none">
+                                {observation.transcript}
+                              </p>
+                              <span className="mt-1 inline-block text-[11px] font-medium text-command-muted group-open:hidden">
+                                Show full transcript
+                              </span>
+                            </div>
+                          </summary>
+                        </details>
+                      </div>
                     </div>
                     <div className="text-xs space-y-2.5">
                       <div>

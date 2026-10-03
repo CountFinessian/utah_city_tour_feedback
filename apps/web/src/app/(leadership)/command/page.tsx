@@ -65,7 +65,6 @@ export default async function CommandPage() {
               </p>
             </div>
           </div>
-          <EvidencePopover count={view.observations.length} items={view.metrics[0].evidence} />
         </section>
       )}
 
@@ -78,7 +77,6 @@ export default async function CommandPage() {
             delta={metric.delta}
             confidence={metric.confidence}
             sampleSize={metric.sampleSize}
-            evidence={metric.evidence}
           />
         ))}
       </section>

@@ -5,10 +5,8 @@ import { buildDigest, buildNarrativeGuardrail, templateNarrative } from "@/serve
 import {
   evidenceForAction,
   evidenceForAmenity,
-  evidenceForIntent,
   evidenceForObjection,
   evidenceForRecent,
-  evidenceForSentiment,
 } from "@/domain/command-evidence";
 import { actionAnchorId } from "@/lib/command-action";
 
@@ -67,16 +65,6 @@ export async function getCommandView() {
     (commandCenter.dataConfidence.score * 0.55 + Math.min(1, digest.last7 / 12) * 0.45) * 100,
   );
 
-  const intelligenceEvidence = evidenceForRecent(observations, 4);
-  const confidenceEvidence = evidenceForRecent(
-    observations.filter((o) => o.source === "live"),
-    3,
-  );
-  const sentimentEvidence = [
-    ...evidenceForSentiment(observations, "positive").slice(0, 3),
-    ...evidenceForSentiment(observations, "negative").slice(0, 3),
-  ];
-
   const topObjection = digest.topObjections[0];
   const topAmenity = digest.amenityRanking[0];
 
@@ -97,7 +85,6 @@ export async function getCommandView() {
         delta: digest.last7 - digest.prev7,
         confidence: commandCenter.dataConfidence.label,
         sampleSize: observations.length,
-        evidence: intelligenceEvidence,
       },
       {
         label: "Data Reliability",
@@ -105,7 +92,6 @@ export async function getCommandView() {
         delta: liveCount - demoCount,
         confidence: commandCenter.dataConfidence.label,
         sampleSize: liveCount,
-        evidence: confidenceEvidence,
       },
       {
         label: "Net Sentiment",
@@ -113,7 +99,6 @@ export async function getCommandView() {
         delta: digest.intentFunnel.hot - digest.intentFunnel.cold,
         confidence: guardrail.lowSample ? "low" : commandCenter.dataConfidence.label,
         sampleSize: observations.length,
-        evidence: sentimentEvidence,
       },
       {
         label: "Hot-lead Signal",
@@ -121,7 +106,6 @@ export async function getCommandView() {
         delta: digest.intentFunnel.hot - digest.intentFunnel.cold,
         confidence: guardrail.lowSample ? "low" : commandCenter.dataConfidence.label,
         sampleSize: observations.length,
-        evidence: evidenceForIntent(observations, "hot"),
       },
     ] as const,
     deltas: [

@@ -51,7 +51,7 @@ export function MetricTile({
   delta?: number | null;
   confidence: ConfidenceLevel;
   sampleSize: number;
-  evidence: EvidenceItem[];
+  evidence?: EvidenceItem[];
   href?: string;
   /** One-line unit / window meaning under the value. */
   helper?: string;
@@ -67,9 +67,11 @@ export function MetricTile({
         {typeof delta === "number" && <DeltaChip value={delta} />}
       </div>
       {helper ? <p className="command-metric-helper mt-2">{helper}</p> : null}
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <EvidencePopover count={evidence.length} items={evidence} />
-      </div>
+      {evidence && evidence.length > 0 ? (
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <EvidencePopover count={evidence.length} items={evidence} />
+        </div>
+      ) : null}
     </article>
   );
   return href ? <Link href={href}>{content}</Link> : content;

@@ -60,23 +60,26 @@ export function EvidencePopover({
                       {item.excerpt ? `: ${item.excerpt}` : ""}
                     </p>
                   ) : (
-                    <blockquote className="border-l-2 border-command-accent/40 pl-3 text-sm italic leading-relaxed text-command-ink">
-                      {item.excerpt}
-                    </blockquote>
+                    <div className="evidence-copy-box">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
+                          Excerpt
+                        </span>
+                        <CopyTextButton text={item.excerpt} label="Copy excerpt" />
+                      </div>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-command-ink">{item.excerpt}</p>
+                    </div>
                   )}
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    {item.kind !== "driver" && (
-                      <CopyTextButton text={item.excerpt} label="Copy excerpt" />
-                    )}
-                    {item.kind !== "driver" && (
+                  {item.kind !== "driver" && (
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
                       <Link
                         href={item.href || `/evidence?highlight=${item.id}`}
                         className="inline-flex items-center gap-1 text-xs font-semibold text-command-accent hover:underline"
                       >
                         View full transcript <ExternalLink className="h-3 w-3" />
                       </Link>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </article>
               ))
             )}
