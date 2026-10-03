@@ -5,12 +5,15 @@ import { Check, Copy } from "lucide-react";
 
 export function CopyTextButton({
   text,
-  label = "Copy excerpt",
+  label = "Copy to clipboard",
   className = "",
+  variant = "icon",
 }: {
   text: string;
   label?: string;
   className?: string;
+  /** `icon` = small box-in-box control; `label` = icon + text. */
+  variant?: "icon" | "label";
 }) {
   const [copied, setCopied] = useState(false);
   const value = text.trim();
@@ -36,6 +39,8 @@ export function CopyTextButton({
     }
   }
 
+  const iconOnly = variant === "icon";
+
   return (
     <button
       type="button"
@@ -46,12 +51,15 @@ export function CopyTextButton({
       }}
       className={
         className ||
-        "inline-flex items-center gap-1 rounded-md border border-command-border bg-white/[0.04] px-2 py-1 text-[11px] font-semibold text-command-soft hover:border-command-accent/50 hover:text-command-accent transition-colors"
+        (iconOnly
+          ? "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-command-border bg-white/[0.04] text-command-soft hover:border-command-accent/50 hover:text-command-accent transition-colors"
+          : "inline-flex items-center gap-1 rounded-md border border-command-border bg-white/[0.04] px-2 py-1 text-[11px] font-semibold text-command-soft hover:border-command-accent/50 hover:text-command-accent transition-colors")
       }
       title={copied ? "Copied" : label}
+      aria-label={copied ? "Copied" : label}
     >
-      {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-      <span>{copied ? "Copied" : label}</span>
+      {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+      {!iconOnly && <span>{copied ? "Copied" : label}</span>}
     </button>
   );
 }

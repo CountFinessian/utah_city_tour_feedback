@@ -525,7 +525,7 @@ export function KnowledgeExplorer({
                           <div className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
                             Source transcript
                           </div>
-                          <CopyTextButton text={observation.transcript} label="Copy excerpt" />
+                          <CopyTextButton text={observation.transcript} label="Copy transcript" />
                         </div>
                         <details className="group mt-2">
                           <summary className="flex cursor-pointer list-none items-start gap-2 [&::-webkit-details-marker]:hidden">

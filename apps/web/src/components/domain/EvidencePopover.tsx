@@ -65,7 +65,7 @@ export function EvidencePopover({
                         <span className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
                           Excerpt
                         </span>
-                        <CopyTextButton text={item.excerpt} label="Copy excerpt" />
+                          <CopyTextButton text={item.excerpt} label="Copy transcript" />
                       </div>
                       <p className="whitespace-pre-wrap text-sm leading-relaxed text-command-ink">{item.excerpt}</p>
                     </div>
