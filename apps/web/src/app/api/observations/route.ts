@@ -23,16 +23,25 @@ export async function POST(req: NextRequest) {
   try {
     const observation = await acceptObservation(body ?? {});
 
-    after(async () => {
-      try {
-        await processObservationInBackground(observation.id);
-      } catch (err) {
+    try {
+      after(async () => {
+        try {
+          await processObservationInBackground(observation.id);
+        } catch (err) {
+          console.error(
+            "[api/observations] background structuring failed:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      });
+    } catch {
+      await processObservationInBackground(observation.id).catch((err) => {
         console.error(
           "[api/observations] background structuring failed:",
           err instanceof Error ? err.message : err,
         );
-      }
-    });
+      });
+    }
 
     return NextResponse.json({
       observation,

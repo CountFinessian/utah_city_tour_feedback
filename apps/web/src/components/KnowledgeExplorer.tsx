@@ -101,8 +101,6 @@ export function KnowledgeExplorer({
   useEffect(() => {
     if (highlightId && highlightRef.current) {
       highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-      const details = highlightRef.current.querySelector("details") as HTMLDetailsElement | null;
-      if (details) details.open = true;
     }
   }, [highlightId, objection, amenity, questionFilter]);
 
@@ -521,25 +519,19 @@ export function KnowledgeExplorer({
                         </div>
                       )}
                       <div>
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
                           <div className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
                             Source transcript
                           </div>
                           <CopyTextButton text={observation.transcript} label="Copy transcript" />
                         </div>
-                        <details className="group mt-1">
-                          <summary className="flex cursor-pointer list-none items-start gap-2 [&::-webkit-details-marker]:hidden">
-                            <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-command-muted transition-transform group-open:rotate-90" />
-                            <div className="min-w-0 flex-1">
-                              <p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-command-ink line-clamp-3 group-open:line-clamp-none">
-                                &ldquo;{observation.transcript}&rdquo;
-                              </p>
-                              <span className="mt-1 inline-block text-[11px] font-medium text-command-muted group-open:hidden">
-                                Show full transcript
-                              </span>
-                            </div>
-                          </summary>
-                        </details>
+                        <textarea
+                          readOnly
+                          value={observation.transcript}
+                          rows={4}
+                          className="evidence-transcript-field"
+                          aria-label="Source transcript"
+                        />
                       </div>
                     </div>
                     <div className="text-xs space-y-2.5">

@@ -1,9 +1,8 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, AlertCircle, Shield, LifeBuoy, Copy, Check, Mail, X, CheckCircle2, ExternalLink } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { AlertCircle, Check, CheckCircle2, Copy, ExternalLink, Lock, Mail, X } from "lucide-react";
 
 function openExternalUrl(path: string) {
   if (typeof window !== "undefined") {
@@ -13,7 +12,6 @@ function openExternalUrl(path: string) {
 }
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const from = searchParams.get("from");
   const accountDeleted = searchParams.get("deleted") === "true";
@@ -24,7 +22,6 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Forgot password modal state
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
@@ -68,7 +65,7 @@ function LoginForm() {
 
       setForgotNotice(
         data.message ||
-          `If an account exists for ${forgotEmail.trim()}, a password reset link has been dispatched to your email.`
+          `If an account exists for ${forgotEmail.trim()}, a password reset link has been dispatched to your email.`,
       );
     } catch {
       setForgotError("Network error. Please try again.");
@@ -95,7 +92,6 @@ function LoginForm() {
         return;
       }
 
-      // If user had a specific deep-link destination and their role allows it, respect it
       const destination = from && !(data.user.role === "host" && from !== "/") ? from : data.redirectTo;
       window.location.href = destination;
     } catch {
@@ -104,250 +100,226 @@ function LoginForm() {
     }
   }
 
+  const fieldClass =
+    "w-full rounded-lg border border-[#26354c] bg-[#0c1320] px-3.5 py-3 text-base text-[#f0f6ff] placeholder:text-[#65758b] focus:border-[#43d9c7] focus:outline-none focus:ring-2 focus:ring-[#43d9c7]/25";
+
   return (
-    <div className="min-h-full w-full bg-[#070b12] text-[#e8eef7] flex flex-col justify-center items-center px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] selection:bg-[#43d9c7] selection:text-[#070b12]">
-      <div className="w-full max-w-sm sm:max-w-md space-y-3 sm:space-y-4 py-2">
-        {/* Header */}
-        <div className="text-center space-y-1">
-          <div className="inline-flex items-center justify-center h-9 w-9 rounded-xl bg-[#131e30] border border-[#26354c] text-[#43d9c7] shadow-inner">
-            <Lock className="h-4 w-4" />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight text-[#f0f6ff]">Sign in to Utah City</h1>
-          <p className="text-[11px] text-[#8292a8]">Enter your credentials to access the intelligence platform</p>
+    <div className="flex min-h-full w-full flex-col items-center justify-center px-5 py-10 sm:px-6">
+      <div className="w-full max-w-[400px]">
+        <div className="mb-8 text-center">
+          <p className="text-sm font-semibold tracking-[0.14em] text-[#43d9c7] uppercase">Utah City</p>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-[#f0f6ff] sm:text-[1.75rem]">
+            Sign in
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-[#8292a8]">
+            Use your work email to open Host Intelligence.
+          </p>
         </div>
 
-        {/* Form Card */}
         <form
           onSubmit={handleLogin}
           suppressHydrationWarning
-          className="p-4 sm:p-5 rounded-2xl bg-[#101827] border border-[#26354c] shadow-2xl space-y-3"
+          className="rounded-xl border border-[#26354c] bg-[#101827] p-6 shadow-xl sm:p-7"
         >
           {accountDeleted && !error && (
-            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2.5 text-xs text-amber-200">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>Your session ended because this account is no longer available. Sign in with an active account.</span>
+            <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>Your session ended because this account is no longer available.</span>
             </div>
           )}
 
           {error && (
-            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center gap-2.5 text-xs text-red-400">
-              <AlertCircle className="h-4 w-4 shrink-0" />
+            <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-300">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[#b8c5d6]">Email address</label>
-            <input
-              type="email"
-              name="email"
-              id="email"
-              autoComplete="email"
-              suppressHydrationWarning
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@utahcity.com"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-[#131e30] border border-[#26354c] text-sm text-[#f0f6ff] placeholder-[#65758b] focus:outline-none focus:border-[#43d9c7] focus:ring-1 focus:ring-[#43d9c7] transition-colors"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-[#b8c5d6]">Password</label>
-              <button
-                type="button"
-                onClick={openForgotPassword}
-                className="text-[11px] text-[#43d9c7] hover:underline cursor-pointer"
-              >
-                Forgot password?
-              </button>
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <label htmlFor="email" className="block text-sm font-medium text-[#b8c5d6]">
+                Email
+              </label>
+              <input
+                type="email"
+                name="email"
+                id="email"
+                autoComplete="email"
+                inputMode="email"
+                suppressHydrationWarning
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@utahcity.com"
+                className={fieldClass}
+              />
             </div>
-            <input
-              type="password"
-              name="password"
-              id="password"
-              autoComplete="current-password"
-              suppressHydrationWarning
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-[#131e30] border border-[#26354c] text-sm text-[#f0f6ff] placeholder-[#65758b] focus:outline-none focus:border-[#43d9c7] focus:ring-1 focus:ring-[#43d9c7] transition-colors"
-            />
-          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#43d9c7] text-[#070b12] font-bold text-sm hover:bg-[#38c4b3] transition-colors shadow-lg shadow-[#43d9c7]/20 disabled:opacity-50 mt-2 cursor-pointer"
-          >
-            <Lock className="h-4 w-4" />
-            <span>{loading ? "Authenticating..." : "Sign in to workspace"}</span>
-          </button>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <label htmlFor="password" className="block text-sm font-medium text-[#b8c5d6]">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={openForgotPassword}
+                  className="text-sm font-medium text-[#43d9c7] hover:underline"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <input
+                type="password"
+                name="password"
+                id="password"
+                autoComplete="current-password"
+                suppressHydrationWarning
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                className={fieldClass}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#43d9c7] px-4 py-3 text-base font-semibold text-[#070b12] transition-colors hover:bg-[#38c4b3] disabled:opacity-50"
+            >
+              <Lock className="h-4 w-4" />
+              <span>{loading ? "Signing in…" : "Sign in"}</span>
+            </button>
+          </div>
         </form>
 
-        {/* Support Card */}
-        <div className="p-3 rounded-xl bg-[#101827] border border-[#26354c] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
-          <div className="flex items-start gap-2.5 text-[#8292a8]">
-            <LifeBuoy className="h-4 w-4 shrink-0 text-[#43d9c7] mt-0.5" />
-            <div>
-              <p className="font-semibold text-[#f0f6ff]">Need help with your account?</p>
-              <p className="text-[#8292a8] mt-0.5">
-                Can&apos;t remember your email or need assistance? Contact support below.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={copySupportEmail}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-[#26354c] text-[#43d9c7] font-semibold transition-colors shrink-0 cursor-pointer"
-          >
-            {copied ? (
-              <>
-                <Check className="h-3.5 w-3.5 text-[#43d9c7]" />
-                <span className="text-[#43d9c7]">Copied!</span>
-              </>
-            ) : (
-              <>
-                <Copy className="h-3.5 w-3.5" />
-                <span>support@utahcity.app</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Access Notice */}
-        <div className="login-secondary [@media(max-height:720px)]:!hidden p-3 rounded-xl bg-[#101827]/60 border border-[#26354c]/60 flex items-start gap-2.5 text-[11px] leading-snug text-[#8292a8]">
-          <Shield className="h-4 w-4 shrink-0 text-[#43d9c7] mt-0.5" />
-          <p className="leading-relaxed">
-            Access is restricted to authorized Utah City tour hosts and leaders. To request host access, contact your team administrator or visit our{" "}
+        <div className="mt-6 space-y-4 text-center text-sm text-[#8292a8]">
+          <p>
+            Need help?{" "}
+            <button
+              type="button"
+              onClick={copySupportEmail}
+              className="inline-flex items-center gap-1 font-medium text-[#43d9c7] hover:underline"
+            >
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? "Copied" : "support@utahcity.app"}
+            </button>
+          </p>
+          <p className="text-xs leading-5 text-[#65758b]">
+            Authorized hosts and leaders only. Request access via your admin or{" "}
             <button
               type="button"
               onClick={() => openExternalUrl("/support")}
-              className="text-[#43d9c7] hover:underline font-medium inline-flex items-center gap-0.5 cursor-pointer"
+              className="inline-flex items-center gap-0.5 text-[#43d9c7] hover:underline"
             >
-              <span>Support Center</span>
+              Support
               <ExternalLink className="h-3 w-3" />
-            </button>{" "}
-            to request an account setup invitation.
+            </button>
+            .
           </p>
-        </div>
-
-        <p className="login-secondary [@media(max-height:720px)]:!hidden text-center text-xs text-[#65758b]">
-          Utah City Host Intelligence Platform
-        </p>
-
-        <div className="flex items-center justify-center gap-3 text-[11px] text-[#65758b] pb-1">
-          <button
-            type="button"
-            onClick={() => openExternalUrl("/privacy")}
-            className="hover:text-slate-300 transition-colors inline-flex items-center gap-1 cursor-pointer"
-          >
-            <span>Privacy Policy</span>
-            <ExternalLink className="h-3 w-3" />
-          </button>
-          <span>·</span>
-          <button
-            type="button"
-            onClick={() => openExternalUrl("/support")}
-            className="hover:text-slate-300 transition-colors inline-flex items-center gap-1 cursor-pointer"
-          >
-            <span>Support Center</span>
-            <ExternalLink className="h-3 w-3" />
-          </button>
+          <div className="flex items-center justify-center gap-3 pt-1 text-xs text-[#65758b]">
+            <button
+              type="button"
+              onClick={() => openExternalUrl("/privacy")}
+              className="hover:text-[#b8c5d6]"
+            >
+              Privacy
+            </button>
+            <span aria-hidden>·</span>
+            <button
+              type="button"
+              onClick={() => openExternalUrl("/support")}
+              className="hover:text-[#b8c5d6]"
+            >
+              Support
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Forgot Password Modal */}
       {showForgotModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl border border-[#26354c] bg-[#101827] p-6 shadow-2xl space-y-4">
-            <div className="flex items-start justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md space-y-4 rounded-xl border border-[#26354c] bg-[#101827] p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-[#131e30] border border-[#26354c] text-[#43d9c7]">
+                <div className="rounded-lg border border-[#26354c] bg-[#131e30] p-2.5 text-[#43d9c7]">
                   <Mail className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-[#f0f6ff]">Reset Your Password</h3>
-                  <p className="text-xs text-[#8292a8]">We&apos;ll send instructions to your inbox</p>
+                  <h3 className="text-base font-semibold text-[#f0f6ff]">Reset password</h3>
+                  <p className="text-sm text-[#8292a8]">We&apos;ll email a secure reset link</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowForgotModal(false)}
-                className="text-[#8292a8] hover:text-[#f0f6ff] p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer"
+                className="rounded-md p-1 text-[#8292a8] hover:bg-white/5 hover:text-[#f0f6ff]"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {forgotError && (
-              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center gap-2.5 text-xs text-red-400">
-                <AlertCircle className="h-4 w-4 shrink-0" />
+              <div className="flex items-start gap-2.5 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-300">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{forgotError}</span>
               </div>
             )}
 
             {forgotNotice ? (
-              <div className="space-y-4 py-2">
-                <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/50 flex items-start gap-3 text-xs text-emerald-200">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="font-semibold text-emerald-300">Reset Email Dispatched</p>
-                    <p className="leading-relaxed text-emerald-200/90">{forgotNotice}</p>
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 rounded-lg border border-emerald-800/50 bg-emerald-950/40 px-3 py-3 text-sm text-emerald-200">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
+                  <div>
+                    <p className="font-semibold text-emerald-300">Reset email sent</p>
+                    <p className="mt-1 leading-relaxed text-emerald-200/90">{forgotNotice}</p>
                   </div>
                 </div>
                 <div className="flex justify-end">
                   <button
                     type="button"
                     onClick={() => setShowForgotModal(false)}
-                    className="px-4 py-2 text-xs font-semibold rounded-xl bg-[#43d9c7] text-[#070b12] hover:bg-[#38c4b3] transition-colors cursor-pointer"
+                    className="rounded-lg bg-[#43d9c7] px-4 py-2.5 text-sm font-semibold text-[#070b12] hover:bg-[#38c4b3]"
                   >
-                    Done & Return to Sign In
+                    Back to sign in
                   </button>
                 </div>
               </div>
             ) : (
               <form onSubmit={handleSendReset} className="space-y-4">
-                <p className="text-xs text-[#8292a8] leading-relaxed">
-                  Enter your registered account email address. If an account is found, we will email you a secure link to choose a new password.
+                <p className="text-sm leading-6 text-[#8292a8]">
+                  Enter the email on your account. If we find a match, we&apos;ll send a link to choose a new password.
                 </p>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-[#b8c5d6]">Email address</label>
+                <div className="space-y-2">
+                  <label htmlFor="forgot-email" className="block text-sm font-medium text-[#b8c5d6]">
+                    Email
+                  </label>
                   <input
+                    id="forgot-email"
                     type="email"
                     required
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
                     placeholder="name@utahcity.com"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#131e30] border border-[#26354c] text-sm text-[#f0f6ff] placeholder-[#65758b] focus:outline-none focus:border-[#43d9c7] focus:ring-1 focus:ring-[#43d9c7] transition-colors"
+                    className={fieldClass}
                   />
                 </div>
-
-                <div className="flex items-center justify-end gap-3 pt-2">
+                <div className="flex items-center justify-end gap-3 pt-1">
                   <button
                     type="button"
                     onClick={() => setShowForgotModal(false)}
                     disabled={forgotLoading}
-                    className="px-4 py-2 text-xs font-semibold rounded-xl border border-[#26354c] text-[#8292a8] hover:text-[#f0f6ff] hover:border-[#384c6b] transition-colors cursor-pointer"
+                    className="rounded-lg border border-[#26354c] px-4 py-2.5 text-sm font-medium text-[#8292a8] hover:text-[#f0f6ff]"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={forgotLoading || !forgotEmail.trim()}
-                    className="px-4 py-2 text-xs font-semibold rounded-xl bg-[#43d9c7] text-[#070b12] hover:bg-[#38c4b3] transition-colors flex items-center gap-2 disabled:opacity-50 cursor-pointer shadow-md shadow-[#43d9c7]/20"
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#43d9c7] px-4 py-2.5 text-sm font-semibold text-[#070b12] hover:bg-[#38c4b3] disabled:opacity-50"
                   >
-                    {forgotLoading ? (
-                      <span>Sending Link...</span>
-                    ) : (
-                      <>
-                        <Mail className="h-3.5 w-3.5" />
-                        <span>Send Password Reset Link</span>
-                      </>
-                    )}
+                    <Mail className="h-3.5 w-3.5" />
+                    {forgotLoading ? "Sending…" : "Send reset link"}
                   </button>
                 </div>
               </form>

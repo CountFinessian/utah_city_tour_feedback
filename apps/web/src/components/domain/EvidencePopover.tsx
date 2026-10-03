@@ -67,7 +67,13 @@ export function EvidencePopover({
                         </span>
                         <CopyTextButton text={item.excerpt} label="Copy transcript" />
                       </div>
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-command-ink">{item.excerpt}</p>
+                      <textarea
+                        readOnly
+                        value={item.excerpt}
+                        rows={3}
+                        className="evidence-transcript-field"
+                        aria-label="Evidence excerpt"
+                      />
                     </div>
                   )}
                   {item.kind !== "driver" && (
