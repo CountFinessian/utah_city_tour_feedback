@@ -1,5 +1,5 @@
 import type { Observation } from "@/domain/observation";
-import { computeCommandKpis } from "@/domain/kpi";
+import { buildAdoption } from "@/server/analytics/adoption";
 import { buildDigest, buildNarrativeGuardrail, type Digest } from "@/server/reporting/digest";
 import { loadLeadershipActionItems } from "@/server/intelligence/action-items";
 import type { CommandCenterAction } from "@/lib/command-action";
@@ -25,6 +25,20 @@ export type CommandCenter = {
   journeyHealth: JourneyHealthItem[];
 };
 
+function dataConfidenceFor(observations: Observation[]) {
+  const adoption = buildAdoption(observations);
+  const liveCount = observations.filter((o) => o.source === "live").length;
+  const volumeSignal = Math.min(1, liveCount / 25);
+  const recencySignal = Math.min(1, adoption.last7 / 12);
+  const score = Math.round(((volumeSignal * 0.55 + recencySignal * 0.45) || 0) * 100) / 100;
+  const label = score >= 0.75 ? "high" : score >= 0.4 ? "medium" : "low";
+  const rationale =
+    liveCount === 0
+      ? "Only demo or no capture data is available; leadership should treat trends as illustrative."
+      : `${liveCount} live capture${liveCount === 1 ? "" : "s"}; ${adoption.last7} in the last 7 days across ${adoption.activeHosts} active host${adoption.activeHosts === 1 ? "" : "s"}.`;
+  return { label, score, rationale } as const;
+}
+
 function trendLine(d: Digest): string {
   if (d.totalTours === 0) return "No operating trend is available until capture begins.";
   if (d.prev7 === 0) return `${d.last7} debriefs captured in the last 7 days; prior-week baseline is not established yet.`;
@@ -35,12 +49,7 @@ function trendLine(d: Digest): string {
 
 export async function buildCommandCenter(observations: Observation[]): Promise<CommandCenter> {
   const digest = buildDigest(observations);
-  const kpis = computeCommandKpis(observations);
-  const dataConfidence = {
-    label: kpis.dataReliability.label,
-    score: kpis.dataReliability.score,
-    rationale: kpis.dataReliability.rationale,
-  } as const;
+  const dataConfidence = dataConfidenceFor(observations);
   const guardrail = buildNarrativeGuardrail(digest, observations);
   const whatMatters = [
     digest.topObjections[0]
@@ -49,9 +58,9 @@ export async function buildCommandCenter(observations: Observation[]): Promise<C
     digest.amenityRanking[0]
       ? `${digest.amenityRanking[0].label} is the most-discussed amenity.`
       : "Amenity interest is not yet well-covered.",
-    kpis.hotLead.count > 0
-      ? `${kpis.hotLead.count} hot lead${kpis.hotLead.count === 1 ? "" : "s"} in the last 7 days (${Math.round(kpis.hotLead.rate * 100)}% of countable tours).`
-      : "No hot leads in the last 7 days.",
+    digest.intentFunnel.hot > 0
+      ? `${digest.intentFunnel.hot} hot lead${digest.intentFunnel.hot === 1 ? "" : "s"} appeared in current capture.`
+      : "Hot-lead capture is not yet visible.",
   ];
 
   const recommendedActions = await loadLeadershipActionItems(observations);

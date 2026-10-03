@@ -78,7 +78,6 @@ export default async function CommandPage() {
             delta={metric.delta}
             confidence={metric.confidence}
             sampleSize={metric.sampleSize}
-            helper={metric.helper}
             evidence={metric.evidence}
           />
         ))}

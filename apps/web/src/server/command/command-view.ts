@@ -1,15 +1,14 @@
 import { amenityLabel, objectionLabel, type Observation } from "@/domain/observation";
-import { computeCommandKpis } from "@/domain/kpi";
 import { buildCommandCenter } from "@/server/intelligence/command-center";
 import { listObservations } from "@/server/repositories/observations";
 import { buildDigest, buildNarrativeGuardrail, templateNarrative } from "@/server/reporting/digest";
 import {
   evidenceForAction,
   evidenceForAmenity,
+  evidenceForIntent,
   evidenceForObjection,
   evidenceForRecent,
-  evidenceFromDrivers,
-  evidenceForKpiQuotes,
+  evidenceForSentiment,
 } from "@/domain/command-evidence";
 import { actionAnchorId } from "@/lib/command-action";
 
@@ -64,50 +63,19 @@ export async function getCommandView() {
   const narrative = templateNarrative(digest, observations);
   const liveCount = observations.filter((observation) => observation.source === "live").length;
   const demoCount = observations.length - liveCount;
-  const kpis = computeCommandKpis(observations);
-  const intelligenceScore = kpis.intelligenceScore.value;
-
-  const intelligenceEvidence = [
-    ...evidenceFromDrivers(kpis.intelligenceScore.drivers),
-    ...evidenceForKpiQuotes(
-      kpis.windows.countableLast7,
-      () => "Counts in weekly capture / signal density",
-      2,
-    ),
-  ];
-
-  const confidenceEvidence = [
-    ...evidenceFromDrivers(kpis.dataReliability.drivers),
-    ...evidenceForKpiQuotes(
-      kpis.windows.countableLast7,
-      () => "Live countable capture in last 7 days",
-      4,
-    ),
-  ];
-
-  const sentimentEvidence = evidenceForKpiQuotes(
-    kpis.netSentiment.observations,
-    (obs) =>
-      `Sentiment ${obs.extraction.overallSentiment >= 0 ? "+" : ""}${obs.extraction.overallSentiment} · in 28d average (n=${kpis.netSentiment.sampleSize})`,
-    8,
+  const intelligenceScore = Math.round(
+    (commandCenter.dataConfidence.score * 0.55 + Math.min(1, digest.last7 / 12) * 0.45) * 100,
   );
 
-  const hotEvidence =
-    kpis.hotLead.observations.length > 0
-      ? evidenceForKpiQuotes(
-          kpis.hotLead.observations,
-          () => "Hot countable live in last 7 days",
-          8,
-        )
-      : [
-          {
-            id: "driver-hot-empty",
-            label: "Hot leads (7d)",
-            excerpt: "0 — No hot leads in the last 7 days",
-            why: "Window filter",
-            kind: "driver" as const,
-          },
-        ];
+  const intelligenceEvidence = evidenceForRecent(observations, 4);
+  const confidenceEvidence = evidenceForRecent(
+    observations.filter((o) => o.source === "live"),
+    3,
+  );
+  const sentimentEvidence = [
+    ...evidenceForSentiment(observations, "positive").slice(0, 3),
+    ...evidenceForSentiment(observations, "negative").slice(0, 3),
+  ];
 
   const topObjection = digest.topObjections[0];
   const topAmenity = digest.amenityRanking[0];
@@ -126,41 +94,34 @@ export async function getCommandView() {
       {
         label: "Intelligence Score",
         value: String(intelligenceScore),
-        delta: kpis.intelligenceScore.delta,
-        confidence: kpis.dataReliability.label,
-        sampleSize: kpis.windows.countableLast28.length,
-        helper: "Reliability + weekly capture + signal density",
+        delta: digest.last7 - digest.prev7,
+        confidence: commandCenter.dataConfidence.label,
+        sampleSize: observations.length,
         evidence: intelligenceEvidence,
       },
       {
         label: "Data Reliability",
-        value: `${Math.round(kpis.dataReliability.score * 100)}%`,
-        delta: null,
-        confidence: kpis.dataReliability.label,
-        sampleSize: kpis.windows.countableLast7.length,
-        helper: "7d volume · 28d sustain · countable share",
+        value: `${Math.round(commandCenter.dataConfidence.score * 100)}%`,
+        delta: liveCount - demoCount,
+        confidence: commandCenter.dataConfidence.label,
+        sampleSize: liveCount,
         evidence: confidenceEvidence,
       },
       {
         label: "Net Sentiment",
-        value:
-          kpis.netSentiment.value === null
-            ? "—"
-            : kpis.netSentiment.value.toFixed(1),
-        delta: kpis.netSentiment.delta,
-        confidence: kpis.netSentiment.confidence,
-        sampleSize: kpis.netSentiment.sampleSize,
-        helper: "Countable live · last 28 days",
+        value: digest.avgSentiment?.toFixed(1) ?? "-",
+        delta: digest.intentFunnel.hot - digest.intentFunnel.cold,
+        confidence: guardrail.lowSample ? "low" : commandCenter.dataConfidence.label,
+        sampleSize: observations.length,
         evidence: sentimentEvidence,
       },
       {
         label: "Hot-lead Signal",
-        value: String(kpis.hotLead.count),
-        delta: kpis.hotLead.delta,
-        confidence: kpis.hotLead.confidence,
-        sampleSize: kpis.hotLead.sampleSize,
-        helper: `${Math.round(kpis.hotLead.rate * 100)}% of ${kpis.hotLead.sampleSize} countable tours · last 7d`,
-        evidence: hotEvidence,
+        value: String(digest.intentFunnel.hot),
+        delta: digest.intentFunnel.hot - digest.intentFunnel.cold,
+        confidence: guardrail.lowSample ? "low" : commandCenter.dataConfidence.label,
+        sampleSize: observations.length,
+        evidence: evidenceForIntent(observations, "hot"),
       },
     ] as const,
     deltas: [

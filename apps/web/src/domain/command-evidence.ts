@@ -14,7 +14,6 @@ import {
 import type { EvidenceItem } from "@/components/domain/EvidencePopover";
 import { matchActionsToObservation } from "@/lib/match-actions";
 import type { CommandCenterAction } from "@/lib/command-action";
-import type { KpiDriver } from "@/domain/kpi";
 
 const EVIDENCE_CAP = 24;
 
@@ -42,34 +41,6 @@ function evidenceItem(
     why,
     kind: "quote",
   };
-}
-
-export function evidenceFromDrivers(drivers: KpiDriver[]): EvidenceItem[] {
-  return drivers.map((driver) => ({
-    id: driver.id,
-    label: driver.label,
-    excerpt: `${driver.value} — ${driver.why}`,
-    why: "Formula input",
-    kind: "driver" as const,
-  }));
-}
-
-export function evidenceForKpiQuotes(
-  observations: Observation[],
-  whyFor: (observation: Observation) => string,
-  limit = 6,
-): EvidenceItem[] {
-  return newestFirst(observations)
-    .slice(0, limit)
-    .map((obs) =>
-      evidenceItem(
-        obs,
-        [],
-        obs.extraction.summary,
-        `/evidence?highlight=${obs.id}`,
-        whyFor(obs),
-      ),
-    );
 }
 
 export function evidenceForObjection(observations: Observation[], type: string): EvidenceItem[] {
