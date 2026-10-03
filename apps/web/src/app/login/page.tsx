@@ -16,6 +16,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const from = searchParams.get("from");
+  const accountDeleted = searchParams.get("deleted") === "true";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -121,6 +122,13 @@ function LoginForm() {
           suppressHydrationWarning
           className="p-4 sm:p-5 rounded-2xl bg-[#101827] border border-[#26354c] shadow-2xl space-y-3"
         >
+          {accountDeleted && !error && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2.5 text-xs text-amber-200">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Your session ended because this account is no longer available. Sign in with an active account.</span>
+            </div>
+          )}
+
           {error && (
             <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center gap-2.5 text-xs text-red-400">
               <AlertCircle className="h-4 w-4 shrink-0" />

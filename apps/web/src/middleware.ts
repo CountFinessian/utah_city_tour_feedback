@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/server/auth/session";
+import { userAccountExists } from "@/server/auth/session-alive";
 
 const LEADERSHIP_ROUTES = [
   "/command",
@@ -20,6 +21,20 @@ const LEADERSHIP_APIS = [
   "/api/digest",
   "/api/seed",
 ];
+
+function clearSessionAndRedirectToLogin(req: NextRequest, reason?: string) {
+  const loginUrl = new URL("/login", req.url);
+  if (reason) loginUrl.searchParams.set(reason, "true");
+  const res = NextResponse.redirect(loginUrl);
+  res.cookies.set({
+    name: SESSION_COOKIE_NAME,
+    value: "",
+    httpOnly: true,
+    maxAge: 0,
+    path: "/",
+  });
+  return res;
+}
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -45,6 +60,10 @@ export async function middleware(req: NextRequest) {
       const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
       const session = await verifySessionToken(token);
       if (session) {
+        const stillExists = await userAccountExists(session.email);
+        if (stillExists === false) {
+          return clearSessionAndRedirectToLogin(req, "deleted");
+        }
         const dest = (session.role === "host" || isMobile) ? "/" : "/command";
         return NextResponse.redirect(new URL(dest, req.url));
       }
@@ -65,6 +84,23 @@ export async function middleware(req: NextRequest) {
       loginUrl.searchParams.set("from", pathname);
     }
     return NextResponse.redirect(loginUrl);
+  }
+
+  // 2b. Revoke sessions for deleted accounts (JWT alone is not enough)
+  const stillExists = await userAccountExists(session.email);
+  if (stillExists === false) {
+    if (pathname.startsWith("/api/")) {
+      const res = NextResponse.json({ error: "Account revoked" }, { status: 401 });
+      res.cookies.set({
+        name: SESSION_COOKIE_NAME,
+        value: "",
+        httpOnly: true,
+        maxAge: 0,
+        path: "/",
+      });
+      return res;
+    }
+    return clearSessionAndRedirectToLogin(req, "deleted");
   }
 
   // 3. Enforce Role-Based Access Control and Mobile Surface Constraints

@@ -27,13 +27,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<{ name: string; role: string; email: string } | null>(null);
 
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.user) setUser(data.user);
-      })
-      .catch(() => {});
-  }, []);
+    let cancelled = false;
+
+    async function syncSession() {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        if (cancelled) return;
+        if (!res.ok) {
+          await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+          router.replace("/login?deleted=true");
+          router.refresh();
+          return;
+        }
+        const data = await res.json();
+        if (data?.user) {
+          setUser(data.user);
+        } else {
+          await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+          router.replace("/login");
+          router.refresh();
+        }
+      } catch {
+        // ignore transient network errors
+      }
+    }
+
+    void syncSession();
+    const onFocus = () => void syncSession();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [router]);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
