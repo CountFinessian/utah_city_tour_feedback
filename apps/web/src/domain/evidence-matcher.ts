@@ -63,14 +63,14 @@ const STOPWORDS = new Set([
  * the text, assigns semantic relevance weights based on the category's conceptual
  * vocabulary, and isolates the peak-density proposition bounded by natural discourse markers.
  */
-export function extractCleanExcerpt(transcript: string, terms: string[]): string {
+export function extractCleanExcerpt(transcript: string, terms: string[], fallback?: string): string {
+  const quotedFallback = fallback?.trim() ? `"${fallback.trim().replace(/^["']|["']$/g, "")}"` : null;
   const cleanText = transcript.trim();
-  if (!cleanText) return "Transcript evidence unavailable.";
+  if (!cleanText) return quotedFallback || "Transcript evidence unavailable.";
 
   const normalizedTerms = terms.map((t) => t.toLowerCase().trim()).filter(Boolean);
   if (normalizedTerms.length === 0) {
-    const firstSent = cleanText.match(/[^.!?]+[.!?]+/)?.[0]?.trim() || cleanText.slice(0, 140);
-    return `"${firstSent}"`;
+    return quotedFallback || `"${cleanText.match(/[^.!?]+[.!?]+/)?.[0]?.trim() || cleanText.slice(0, 140)}"`;
   }
 
   // Tokenize text into words with precise character offsets
@@ -140,10 +140,9 @@ export function extractCleanExcerpt(transcript: string, terms: string[]): string
     if (score > 0) hitIndices.push(i);
   });
 
-  // Fallback if no concept hits found
+  // Fallback if no concept hits found — never invent an unrelated first sentence
   if (hitIndices.length === 0) {
-    const firstSent = cleanText.match(/[^.!?]+[.!?]+/)?.[0]?.trim() || cleanText.slice(0, 140);
-    return `"${firstSent}"`;
+    return quotedFallback || `"${cleanText.match(/[^.!?]+[.!?]+/)?.[0]?.trim() || cleanText.slice(0, 140)}"`;
   }
 
   // Determine candidate proposition boundaries using natural discourse markers

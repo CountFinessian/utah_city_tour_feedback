@@ -44,14 +44,17 @@ export function MetricTile({
   sampleSize,
   evidence,
   href,
+  helper,
 }: {
   label: string;
   value: string;
-  delta?: number;
+  delta?: number | null;
   confidence: ConfidenceLevel;
   sampleSize: number;
   evidence: EvidenceItem[];
   href?: string;
+  /** One-line unit / window meaning under the value. */
+  helper?: string;
 }) {
   const content = (
     <article className="command-metric">
@@ -63,6 +66,7 @@ export function MetricTile({
         <span className="command-value">{value}</span>
         {typeof delta === "number" && <DeltaChip value={delta} />}
       </div>
+      {helper ? <p className="command-metric-helper mt-2">{helper}</p> : null}
       <div className="mt-4 flex items-center justify-between gap-3">
         <EvidencePopover count={evidence.length} items={evidence} />
       </div>
@@ -225,7 +229,7 @@ export function RecommendationCard({
       </div>
       <p className="mt-3 text-sm leading-relaxed text-command-soft">{rationale}</p>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <EvidencePopover count={evidenceCount} items={evidence} />
+        <EvidencePopover count={evidence.length} items={evidence} />
         <div className="flex gap-2">
           <button type="button" className="command-action-button">Accept</button>
           <button type="button" className="command-action-button">Dismiss</button>

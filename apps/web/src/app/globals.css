@@ -795,6 +795,13 @@ select {
     line-height: 0.92;
   }
 
+  .command-metric-helper {
+    color: var(--command-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
   .command-statusbar {
     display: grid;
     grid-template-columns: minmax(170px, 0.85fr) 1px repeat(4, minmax(130px, 1fr));

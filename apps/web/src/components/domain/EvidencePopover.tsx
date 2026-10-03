@@ -10,6 +10,10 @@ export type EvidenceItem = {
   label: string;
   excerpt: string;
   meta?: string;
+  href?: string;
+  /** Short line tying this item to the KPI formula or filter. */
+  why?: string;
+  kind?: "quote" | "driver";
 };
 
 export function EvidencePopover({
@@ -17,16 +21,17 @@ export function EvidencePopover({
   items,
   label = "evidence",
 }: {
-  count: number;
+  count?: number;
   items: EvidenceItem[];
   label?: string;
 }) {
+  const shown = count ?? items.length;
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
         <button type="button" className="evidence-trigger">
           <Quote className="h-3.5 w-3.5" />
-          {count} {label}
+          {shown} {label}
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -41,20 +46,36 @@ export function EvidencePopover({
             ) : (
               items.map((item) => (
                 <article key={item.id} className="evidence-popover-item">
+                  {item.why && (
+                    <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-command-muted">
+                      {item.why}
+                    </span>
+                  )}
                   {item.meta && (
                     <span className="mb-2 block font-mono text-[11px] font-semibold text-command-accent">{item.meta}</span>
                   )}
-                  <blockquote className="border-l-2 border-command-accent/40 pl-3 text-sm italic leading-relaxed text-command-ink">
-                    {item.excerpt}
-                  </blockquote>
+                  {item.kind === "driver" ? (
+                    <p className="text-sm leading-relaxed text-command-ink">
+                      <span className="font-semibold">{item.label}</span>
+                      {item.excerpt ? `: ${item.excerpt}` : ""}
+                    </p>
+                  ) : (
+                    <blockquote className="border-l-2 border-command-accent/40 pl-3 text-sm italic leading-relaxed text-command-ink">
+                      {item.excerpt}
+                    </blockquote>
+                  )}
                   <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <CopyTextButton text={item.excerpt} label="Copy excerpt" />
-                    <Link
-                      href={`/evidence?highlight=${item.id}`}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-command-accent hover:underline"
-                    >
-                      View full transcript <ExternalLink className="h-3 w-3" />
-                    </Link>
+                    {item.kind !== "driver" && (
+                      <CopyTextButton text={item.excerpt} label="Copy excerpt" />
+                    )}
+                    {item.kind !== "driver" && (
+                      <Link
+                        href={item.href || `/evidence?highlight=${item.id}`}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-command-accent hover:underline"
+                      >
+                        View full transcript <ExternalLink className="h-3 w-3" />
+                      </Link>
+                    )}
                   </div>
                 </article>
               ))

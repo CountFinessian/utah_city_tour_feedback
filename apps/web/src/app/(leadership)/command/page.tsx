@@ -78,6 +78,7 @@ export default async function CommandPage() {
             delta={metric.delta}
             confidence={metric.confidence}
             sampleSize={metric.sampleSize}
+            helper={metric.helper}
             evidence={metric.evidence}
           />
         ))}
@@ -211,7 +212,7 @@ export default async function CommandPage() {
                   rationale={action.rationale}
                   status={action.status}
                   confidence={action.confidence}
-                  evidenceCount={action.evidenceCount}
+                  evidenceCount={action.evidenceItems.length}
                   evidence={action.evidenceItems}
                 />
               </CommandActionTarget>
