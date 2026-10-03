@@ -3,6 +3,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import Link from "next/link";
 import { ExternalLink, Quote } from "lucide-react";
+import { CopyTextButton } from "@/components/CopyTextButton";
 
 export type EvidenceItem = {
   id: string;
@@ -46,12 +47,15 @@ export function EvidencePopover({
                   <blockquote className="border-l-2 border-command-accent/40 pl-3 text-sm italic leading-relaxed text-command-ink">
                     {item.excerpt}
                   </blockquote>
-                  <Link
-                    href={`/evidence?highlight=${item.id}`}
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-command-accent hover:underline"
-                  >
-                    View full transcript <ExternalLink className="h-3 w-3" />
-                  </Link>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <CopyTextButton text={item.excerpt} label="Copy excerpt" />
+                    <Link
+                      href={`/evidence?highlight=${item.id}`}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-command-accent hover:underline"
+                    >
+                      View full transcript <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </div>
                 </article>
               ))
             )}

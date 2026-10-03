@@ -17,6 +17,7 @@ import {
   sentimentPillStyle,
 } from "@/lib/signal-pills";
 import { Trash2, AlertTriangle, X, ChevronRight, ListFilter, Sparkles } from "lucide-react";
+import { CopyTextButton } from "@/components/CopyTextButton";
 
 type BrowseKind = "objections" | "amenities" | "questions" | null;
 
@@ -515,8 +516,11 @@ export function KnowledgeExplorer({
                         <summary className="flex cursor-pointer list-none items-start gap-2 [&::-webkit-details-marker]:hidden">
                           <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-command-muted transition-transform group-open:rotate-90" />
                           <div className="min-w-0 flex-1">
-                            <div className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
-                              Source transcript
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-[10px] font-bold uppercase tracking-wide text-command-muted">
+                                Source transcript
+                              </div>
+                              <CopyTextButton text={observation.transcript} label="Copy excerpt" />
                             </div>
                             <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-relaxed text-command-ink line-clamp-3 group-open:line-clamp-none">
                               &ldquo;{observation.transcript}&rdquo;

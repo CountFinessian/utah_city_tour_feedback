@@ -320,7 +320,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
       setProspectFirstName("");
       setProspectLastName("");
       setProspectEmail("");
-      setNotice(json.notice || "Sent — structuring in background");
+      setNotice(json.notice || "Debrief sent");
     } catch {
       setError("Could not reach the server.");
       void fireHaptic("error");

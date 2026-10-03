@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       observation,
       processing: "background",
-      notice: "Sent — structuring in background",
+      notice: "Debrief sent",
     });
   } catch (err) {
     if (err instanceof InputValidationError) {
