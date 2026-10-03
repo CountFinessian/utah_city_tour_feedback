@@ -101,17 +101,19 @@ function LoginForm() {
   }
 
   const fieldClass =
-    "w-full rounded-lg border border-[#26354c] bg-[#0c1320] px-3.5 py-3 text-base text-[#f0f6ff] placeholder:text-[#65758b] focus:border-[#43d9c7] focus:outline-none focus:ring-2 focus:ring-[#43d9c7]/25";
+    "w-full rounded-lg border border-[#26354c] bg-[#0c1320] px-3.5 py-3 text-base text-[#f0f6ff] placeholder:text-[#65758b] focus:border-[#43d9c7] focus:outline-none focus:ring-2 focus:ring-[#43d9c7]/25 md:px-3 md:py-2.5 md:text-sm md:placeholder:text-[#4a5568] transition-colors";
 
   return (
-    <div className="flex min-h-full w-full flex-col items-center justify-center px-5 py-10 sm:px-6">
-      <div className="w-full max-w-[400px]">
-        <div className="mb-8 text-center">
-          <p className="text-sm font-semibold tracking-[0.14em] text-[#43d9c7] uppercase">Utah City</p>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-[#f0f6ff] sm:text-[1.75rem]">
+    <div className="flex min-h-full w-full flex-col items-center justify-center px-5 py-10 sm:px-6 md:py-16">
+      <div className="w-full max-w-[400px] md:max-w-[340px] md:scale-[0.94] lg:scale-[0.92] origin-center transition-transform">
+        <div className="mb-8 text-center md:mb-5">
+          <p className="text-sm font-semibold tracking-[0.14em] text-[#43d9c7] uppercase md:text-xs md:tracking-[0.16em]">
+            Utah City
+          </p>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-[#f0f6ff] sm:text-[1.75rem] md:mt-2 md:text-xl md:font-bold">
             Sign in
           </h1>
-          <p className="mt-2 text-sm leading-6 text-[#8292a8]">
+          <p className="mt-2 text-sm leading-6 text-[#8292a8] md:mt-1 md:text-xs md:leading-normal">
             Use your work email to open Host Intelligence.
           </p>
         </div>
@@ -119,25 +121,31 @@ function LoginForm() {
         <form
           onSubmit={handleLogin}
           suppressHydrationWarning
-          className="rounded-xl border border-[#26354c] bg-[#101827] p-6 shadow-xl sm:p-7"
+          className="relative overflow-hidden rounded-xl border border-[#26354c] bg-[#101827] p-6 shadow-xl sm:p-7 md:p-5 md:shadow-2xl"
         >
+          {/* Subtle top accent highlight on desktop */}
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#43d9c7]/30 to-transparent"
+            aria-hidden="true"
+          />
+
           {accountDeleted && !error && (
-            <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100 md:mb-4 md:py-2 md:text-xs">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 md:h-3.5 md:w-3.5" />
               <span>Your session ended because this account is no longer available.</span>
             </div>
           )}
 
           {error && (
-            <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-300">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-300 md:mb-4 md:py-2 md:text-xs">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 md:h-3.5 md:w-3.5" />
               <span>{error}</span>
             </div>
           )}
 
-          <div className="space-y-5">
-            <div className="space-y-2">
-              <label htmlFor="email" className="block text-sm font-medium text-[#b8c5d6]">
+          <div className="space-y-5 md:space-y-3.5">
+            <div className="space-y-2 md:space-y-1.5">
+              <label htmlFor="email" className="block text-sm font-medium text-[#b8c5d6] md:text-xs">
                 Email
               </label>
               <input
@@ -155,15 +163,15 @@ function LoginForm() {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 md:space-y-1.5">
               <div className="flex items-center justify-between gap-3">
-                <label htmlFor="password" className="block text-sm font-medium text-[#b8c5d6]">
+                <label htmlFor="password" className="block text-sm font-medium text-[#b8c5d6] md:text-xs">
                   Password
                 </label>
                 <button
                   type="button"
                   onClick={openForgotPassword}
-                  className="text-sm font-medium text-[#43d9c7] hover:underline"
+                  className="text-sm font-medium text-[#43d9c7] hover:underline md:text-xs cursor-pointer"
                 >
                   Forgot password?
                 </button>
@@ -185,43 +193,43 @@ function LoginForm() {
             <button
               type="submit"
               disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#43d9c7] px-4 py-3 text-base font-semibold text-[#070b12] transition-colors hover:bg-[#38c4b3] disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#43d9c7] px-4 py-3 text-base font-semibold text-[#070b12] transition-colors hover:bg-[#38c4b3] disabled:opacity-50 md:py-2.5 md:text-sm cursor-pointer shadow-md shadow-[#43d9c7]/15"
             >
-              <Lock className="h-4 w-4" />
+              <Lock className="h-4 w-4 md:h-3.5 md:w-3.5" />
               <span>{loading ? "Signing in…" : "Sign in"}</span>
             </button>
           </div>
         </form>
 
-        <div className="mt-6 space-y-4 text-center text-sm text-[#8292a8]">
+        <div className="mt-6 space-y-4 text-center text-sm text-[#8292a8] md:mt-4 md:space-y-2.5 md:text-xs">
           <p>
             Need help?{" "}
             <button
               type="button"
               onClick={copySupportEmail}
-              className="inline-flex items-center gap-1 font-medium text-[#43d9c7] hover:underline"
+              className="inline-flex items-center gap-1 font-medium text-[#43d9c7] hover:underline cursor-pointer"
             >
-              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? <Check className="h-3.5 w-3.5 md:h-3 md:w-3" /> : <Copy className="h-3.5 w-3.5 md:h-3 md:w-3" />}
               {copied ? "Copied" : "support@utahcity.app"}
             </button>
           </p>
-          <p className="text-xs leading-5 text-[#65758b]">
+          <p className="text-xs leading-5 text-[#65758b] md:text-[11px] md:leading-normal">
             Authorized hosts and leaders only. Request access via your admin or{" "}
             <button
               type="button"
               onClick={() => openExternalUrl("/support")}
-              className="inline-flex items-center gap-0.5 text-[#43d9c7] hover:underline"
+              className="inline-flex items-center gap-0.5 text-[#43d9c7] hover:underline cursor-pointer"
             >
               Support
               <ExternalLink className="h-3 w-3" />
             </button>
             .
           </p>
-          <div className="flex items-center justify-center gap-3 pt-1 text-xs text-[#65758b]">
+          <div className="flex items-center justify-center gap-3 pt-1 text-xs text-[#65758b] md:text-[11px] md:pt-0.5">
             <button
               type="button"
               onClick={() => openExternalUrl("/privacy")}
-              className="hover:text-[#b8c5d6]"
+              className="hover:text-[#b8c5d6] transition-colors cursor-pointer"
             >
               Privacy
             </button>
@@ -229,7 +237,7 @@ function LoginForm() {
             <button
               type="button"
               onClick={() => openExternalUrl("/support")}
-              className="hover:text-[#b8c5d6]"
+              className="hover:text-[#b8c5d6] transition-colors cursor-pointer"
             >
               Support
             </button>
