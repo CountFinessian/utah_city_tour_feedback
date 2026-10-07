@@ -68,3 +68,5 @@ apps/mobile/ios/App/*.xcworkspace/xcuserdata/
 apps/mobile/ios/App/*.xcodeproj/xcuserdata/
 *.ipa
 
+
+.vercel

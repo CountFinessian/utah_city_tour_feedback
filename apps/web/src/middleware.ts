@@ -50,9 +50,6 @@ export async function middleware(req: NextRequest) {
     pathname === "/reset-password" ||
     pathname === "/privacy" ||
     pathname === "/support" ||
-    pathname === "/social-pulse" ||
-    pathname.startsWith("/social-pulse/") ||
-    pathname.startsWith("/api/social-pulse") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/webhooks") ||
     pathname === "/api/status" ||
