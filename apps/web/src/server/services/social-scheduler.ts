@@ -61,7 +61,7 @@ export class SocialSchedulerService {
 
     await this.ensureSeedVocabulary();
 
-    const discoveryRes = await discoveryPipelineService.runDiscovery({ maxQueries: 6 });
+    const discoveryRes = await discoveryPipelineService.runDiscovery({ maxQueries: 4 });
 
     const activePosts = await this.repo.listPosts({ isRelevant: true, limit: 30 });
     let newCommentsTotal = 0;
@@ -71,6 +71,7 @@ export class SocialSchedulerService {
     let currentCommentsTotal = 0;
     let resynced = 0;
 
+    const maxCommentSyncPosts = Number(process.env.SOCIAL_LISTENING_MAX_COMMENT_POSTS || "5");
     for (const post of activePosts) {
       initialViewsTotal += post.lastViewCount || post.viewCount;
       currentViewsTotal += post.viewCount;
@@ -78,12 +79,19 @@ export class SocialSchedulerService {
       currentCommentsTotal += post.commentCount;
 
       if (!shouldSyncComments(post)) continue;
+      if (resynced >= maxCommentSyncPosts) {
+        console.warn(`[Scheduler] Comment sync post cap (${maxCommentSyncPosts}) reached`);
+        break;
+      }
       if (tregClient.getCycleCostUsd() >= Number(process.env.SOCIAL_LISTENING_CYCLE_BUDGET_USD || "0.5")) {
         console.warn("[Scheduler] Skipping further comment sync — cycle budget reached");
         break;
       }
 
-      const addedComments = await discoveryPipelineService.syncCommentsForPost(post);
+      const addedComments = await discoveryPipelineService.syncCommentsForPost(post, {
+        maxCommentPages: 2,
+        maxReplyParents: 5,
+      });
       newCommentsTotal += addedComments;
       resynced++;
     }

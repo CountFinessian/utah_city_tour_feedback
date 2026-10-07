@@ -174,9 +174,7 @@ export class DiscoveryPipelineService {
               shareCount: newPost.shareCount,
             });
 
-            if (newPost.isRelevant && shouldSyncComments(newPost)) {
-              await this.syncCommentsForPost(newPost);
-            }
+            // Comment sync is deferred to the scheduler pass so discovery stays within serverless time limits.
 
             runNew++;
           } else {
@@ -201,9 +199,7 @@ export class DiscoveryPipelineService {
               shareCount: existing.shareCount,
             });
 
-            if (shouldSyncComments(existing, prevComments)) {
-              await this.syncCommentsForPost(existing);
-            }
+            // Defer comment sync to scheduler pass.
           }
         }
 
@@ -254,12 +250,15 @@ export class DiscoveryPipelineService {
   /**
    * Incremental comment ingestion with pagination + dedupe.
    */
-  async syncCommentsForPost(post: Post): Promise<number> {
+  async syncCommentsForPost(
+    post: Post,
+    options?: { maxCommentPages?: number; maxReplyParents?: number }
+  ): Promise<number> {
     try {
       const rawComments = await tregClient.getPostComments(post.platform, post.platformContentId, post.url, {
-        maxCommentPages: 10,
+        maxCommentPages: options?.maxCommentPages ?? 3,
         includeReplies: post.platform === "instagram",
-        maxReplyParents: 20,
+        maxReplyParents: options?.maxReplyParents ?? 8,
       });
       if (!rawComments || rawComments.length === 0) {
         const stamped = withCommentsFetchedAt(post, new Date().toISOString());

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { socialSchedulerService } from "@/server/services/social-scheduler";
 
 /** Vercel Fluid / Pro: allow a full discovery + comment sync cycle. */
-export const maxDuration = 300;
+export const maxDuration = 300; // Pro/Fluid; Hobby may cap lower
 export const dynamic = "force-dynamic";
 
 function authorizeCron(request: Request): boolean {
