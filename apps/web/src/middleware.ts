@@ -53,6 +53,8 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/webhooks") ||
     pathname === "/api/status" ||
+    // Background Social Pulse listener (auth handled inside the route via CRON_SECRET)
+    pathname === "/api/social-pulse/cron" ||
     pathname.startsWith("/_next") ||
     pathname.includes(".") // static files: favicon.ico, images, etc.
   ) {
