@@ -10,7 +10,7 @@ const items = [
   { href: "/command", label: "Open Command", helper: "Executive operating console", icon: BarChart3 },
   { href: "/analyst", label: "Ask AI Analyst", helper: "Interrogate the corpus", icon: Bot },
   { href: "/journey", label: "Open Journey", helper: "Resident lifecycle spine", icon: GitBranch },
-  { href: "/signals", label: "Open Signals", helper: "Objections, amenities, themes", icon: Map },
+  { href: "/social-pulse", label: "Open Social listener", helper: "Track internet and social media feedback", icon: Map },
   { href: "/evidence", label: "Search Evidence", helper: "Transcript-grounded corpus", icon: Search },
   { href: "/operations", label: "Open Operations", helper: "Capture quality and adoption", icon: ListChecks },
   { href: "/settings", label: "Open Settings", helper: "Admin and demo controls", icon: Settings },

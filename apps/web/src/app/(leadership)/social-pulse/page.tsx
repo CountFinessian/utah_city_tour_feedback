@@ -114,7 +114,7 @@ export default function SocialPulsePage() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
               <Radio className="w-6 h-6 text-[#20d0c3]" />
-              Social Pulse
+              Social Listener
             </h1>
             <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-[#20d0c3]/10 text-[#20d0c3] border border-[#20d0c3]/20">
               3-HOUR LIVE SYNC
