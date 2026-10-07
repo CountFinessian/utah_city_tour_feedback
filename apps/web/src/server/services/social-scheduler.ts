@@ -54,21 +54,26 @@ export class SocialSchedulerService {
     return inserted;
   }
 
-  async runCycle(): Promise<SyncCycleResult> {
+  async runCycle(options?: { syncComments?: boolean; discovery?: boolean }): Promise<SyncCycleResult> {
     const cycleStartedAt = new Date().toISOString();
     console.log(`[Scheduler] Starting social sync cycle at ${cycleStartedAt}...`);
     tregClient.resetCycleCost();
 
     await this.ensureSeedVocabulary();
 
-    const discoveryRes = await discoveryPipelineService.runDiscovery({ maxQueries: 3 });
+    const doDiscovery = options?.discovery !== false;
+    const discoveryRes = doDiscovery
+      ? await discoveryPipelineService.runDiscovery({ maxQueries: 3 })
+      : { runs: [], newPostsCount: 0, relevantPostsCount: 0, costUsd: 0 };
 
-    const syncComments = process.env.SOCIAL_LISTENING_SYNC_COMMENTS === "true";
+    const syncComments =
+      options?.syncComments === true ||
+      (options?.syncComments !== false && process.env.SOCIAL_LISTENING_SYNC_COMMENTS === "true");
     const activePosts = syncComments
       ? await this.repo.listPosts({ isRelevant: true, limit: 15 })
       : [];
     if (!syncComments) {
-      console.log("[Scheduler] Comment sync skipped this cycle (set SOCIAL_LISTENING_SYNC_COMMENTS=true to enable)");
+      console.log("[Scheduler] Comment sync skipped this cycle");
     }
     let newCommentsTotal = 0;
     let initialViewsTotal = 0;

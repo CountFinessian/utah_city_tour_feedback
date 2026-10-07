@@ -28,13 +28,18 @@ export async function GET(request: Request) {
       );
     }
 
+    const { searchParams } = new URL(request.url);
+    const mode = (searchParams.get("mode") || "discover").toLowerCase();
+    const syncComments = mode === "comments" || mode === "full";
+    const discovery = mode !== "comments";
+
     // Return immediately so schedulers (GitHub Actions / Vercel Cron) don't time out waiting.
     // Work continues in the same invocation via after().
     after(async () => {
       try {
-        const result = await socialSchedulerService.runCycle();
+        const result = await socialSchedulerService.runCycle({ syncComments, discovery });
         console.log(
-          `[CRON] cycle done posts=${result.newPostsDiscovered} comments=${result.newCommentsCollected} cost=${result.tregCostUsd}`
+          `[CRON] mode=${mode} posts=${result.newPostsDiscovered} comments=${result.newCommentsCollected} cost=${result.tregCostUsd}`
         );
       } catch (err) {
         console.error("[CRON /api/social-pulse/cron] background cycle error:", err);
@@ -44,6 +49,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       accepted: true,
+      mode,
       message: "Social listening cycle accepted",
     });
   } catch (err: any) {
