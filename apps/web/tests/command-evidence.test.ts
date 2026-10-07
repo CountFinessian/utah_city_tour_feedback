@@ -27,6 +27,8 @@ function obs(partial: {
       amenities: partial.amenities ?? [],
       followUpQuestions: [],
       coverageScore: 0,
+      familyComposition: null,
+      lifestyleSignals: [],
     },
   };
 }

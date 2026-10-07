@@ -9,6 +9,7 @@ import { CommandPalette } from "@/components/domain/CommandPalette";
 const nav = [
   { href: "/command", label: "Command", shortLabel: "Command", mark: "C", helper: "Executive OS" },
   { href: "/analyst", label: "AI Analyst", shortLabel: "Analyst", mark: "A", helper: "Ask the corpus" },
+  { href: "/social-pulse", label: "Social Pulse", shortLabel: "Social", mark: "P", helper: "Internet listening" },
   { href: "/journey", label: "Journey", shortLabel: "Journey", mark: "J", helper: "Lifecycle spine" },
   { href: "/signals", label: "Signals", shortLabel: "Signals", mark: "S", helper: "Themes & deltas" },
   { href: "/evidence", label: "Evidence", shortLabel: "Evidence", mark: "E", helper: "Source corpus" },

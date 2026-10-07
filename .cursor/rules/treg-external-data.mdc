@@ -1,0 +1,13 @@
+---
+description: Prefer treg MCP for external/live data lookups
+alwaysApply: true
+---
+
+# treg for external data
+
+When a task needs **external or live data** (App Store / ASO, SEO/SERP, enrichment, social, scraping, ads intel):
+
+1. Use the **treg** MCP (`catalog_search` → `catalog_get` → `call`) or the `treg` CLI.
+2. Do **not** invent provider API keys or ask Jacob to buy Semrush/Apollo/etc. for a one-off lookup.
+3. Prefer stating the job (what you need) over picking a vendor; check price before spending.
+4. Team: `utah-city-intelligence`. Token lives in user env `TREG_TOKEN` / Cursor MCP — never commit it.
