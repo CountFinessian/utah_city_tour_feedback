@@ -2,6 +2,7 @@ import { getSocialRepository } from "../repositories/postgres-social-repository"
 import { discoveryPipelineService, shouldSyncComments } from "./discovery-pipeline";
 import { calculateDeterministicSocialMetrics } from "../analytics/social-metrics";
 import { generateNarrativeSummary } from "../intelligence/narrative-generator";
+import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 import { tregClient } from "./treg-client";
 
 export interface SyncCycleResult {
@@ -36,10 +37,29 @@ export class SocialSchedulerService {
    * 2. Comment sync only for posts that grew or went stale
    * 3. Metrics + narrative
    */
+  /** Insert any missing seed vocabulary rows (e.g. new Reddit/Facebook targets). */
+  private async ensureSeedVocabulary(): Promise<number> {
+    const existing = await this.repo.listQueries();
+    const ids = new Set(existing.map((q) => q.id));
+    const seed = generateSeedQueries();
+    let inserted = 0;
+    for (const q of seed) {
+      if (ids.has(q.id)) continue;
+      await this.repo.upsertQuery(q);
+      inserted++;
+    }
+    if (inserted > 0) {
+      console.log(`[Scheduler] Seeded ${inserted} missing vocabulary queries`);
+    }
+    return inserted;
+  }
+
   async runCycle(): Promise<SyncCycleResult> {
     const cycleStartedAt = new Date().toISOString();
     console.log(`[Scheduler] Starting social sync cycle at ${cycleStartedAt}...`);
     tregClient.resetCycleCost();
+
+    await this.ensureSeedVocabulary();
 
     const discoveryRes = await discoveryPipelineService.runDiscovery({ maxQueries: 6 });
 

@@ -4,17 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
-  Flame,
   RefreshCw,
-  Search,
   SlidersHorizontal,
   CheckCircle2,
   XCircle,
   Clock,
-  Sparkles,
-  ToggleLeft,
-  ToggleRight,
-  ExternalLink,
+  Radio,
 } from "lucide-react";
 
 interface SearchQueryItem {
@@ -48,18 +43,27 @@ interface SuggestedTermItem {
   createdAt: string;
 }
 
+interface ListenerStatus {
+  tregConfigured: boolean;
+  enabledQueries: number;
+  totalQueries: number;
+  lastRunAt: string | null;
+  cronSchedule: string;
+  cycleBudgetUsd: number;
+}
+
 export default function SocialPulseAdminPage() {
   const [queries, setQueries] = useState<SearchQueryItem[]>([]);
   const [runs, setRuns] = useState<SearchRunItem[]>([]);
   const [suggestedTerms, setSuggestedTerms] = useState<SuggestedTermItem[]>([]);
+  const [listener, setListener] = useState<ListenerStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"smoke" | "matrix" | "terms">("smoke");
+  const [activeTab, setActiveTab] = useState<"listener" | "matrix" | "terms">("listener");
 
-  // Smoke test state
-  const [smokeRunning, setSmokeRunning] = useState(false);
-  const [smokeResult, setSmokeResult] = useState<any>(null);
+  const [cycleRunning, setCycleRunning] = useState(false);
+  const [cycleResult, setCycleResult] = useState<any>(null);
+  const [cycleError, setCycleError] = useState<string | null>(null);
 
-  // Reseed state
   const [reseeding, setReseeding] = useState(false);
   const [reseedNotice, setReseedNotice] = useState<string | null>(null);
 
@@ -72,6 +76,7 @@ export default function SocialPulseAdminPage() {
       setQueries(data.queries || []);
       setRuns(data.runs || []);
       setSuggestedTerms(data.suggestedTerms || []);
+      setListener(data.listener || null);
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -83,21 +88,24 @@ export default function SocialPulseAdminPage() {
     void fetchAdminData();
   }, []);
 
-  const handleSmokeTest = async () => {
-    setSmokeRunning(true);
-    setSmokeResult(null);
+  const handleRunCycle = async () => {
+    setCycleRunning(true);
+    setCycleResult(null);
+    setCycleError(null);
     try {
       const res = await fetch("/api/social-pulse/admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "smoke_treg" }),
+        body: JSON.stringify({ action: "run_cycle" }),
       });
       const data = await res.json();
-      setSmokeResult(data);
+      if (!res.ok) throw new Error(data.error || "Cycle failed");
+      setCycleResult(data.result);
+      await fetchAdminData();
     } catch (err: any) {
-      setSmokeResult({ ok: false, error: err.message });
+      setCycleError(err.message);
     } finally {
-      setSmokeRunning(false);
+      setCycleRunning(false);
     }
   };
 
@@ -130,7 +138,7 @@ export default function SocialPulseAdminPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setReseedNotice(`Successfully reseeded ${data.seeded} default queries.`);
+        setReseedNotice(`Seeded ${data.seeded} vocabulary queries.`);
         await fetchAdminData();
       }
     } catch (err: any) {
@@ -159,7 +167,6 @@ export default function SocialPulseAdminPage() {
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
-      {/* Top Header */}
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-white/10">
         <div>
           <Link
@@ -171,24 +178,23 @@ export default function SocialPulseAdminPage() {
           </Link>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
             <SlidersHorizontal className="w-6 h-6 text-[#20d0c3]" />
-            Social Pulse Admin & Discovery Matrix
+            Social Pulse Admin
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Configure search vocabulary, view search runs, inspect suggested terms, and run live smoke checks
+            Background listener runs every 3 hours in production. Manage vocabulary and inspect recent discovery runs.
           </p>
         </div>
 
-        {/* Tab selection */}
         <div className="flex bg-white/[0.04] border border-white/10 rounded-xl p-1 self-start sm:self-center">
           <button
-            onClick={() => setActiveTab("smoke")}
+            onClick={() => setActiveTab("listener")}
             className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              activeTab === "smoke"
+              activeTab === "listener"
                 ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            Live Smoke Test
+            Listener
           </button>
           <button
             onClick={() => setActiveTab("matrix")}
@@ -198,7 +204,7 @@ export default function SocialPulseAdminPage() {
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            Queries Matrix ({queries.length})
+            Queries ({queries.length})
           </button>
           <button
             onClick={() => setActiveTab("terms")}
@@ -208,102 +214,146 @@ export default function SocialPulseAdminPage() {
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            Discovered Terms ({suggestedTerms.length})
+            Terms ({suggestedTerms.length})
           </button>
         </div>
       </header>
 
-      {/* TAB 1: SMOKE TEST */}
-      {activeTab === "smoke" && (
+      {activeTab === "listener" && (
         <section className="space-y-6">
           <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  <Flame className="w-4 h-4 text-amber-400" />
-                  Live Treg API Smoke Test
+                  <Radio className="w-4 h-4 text-[#20d0c3]" />
+                  Background listener
                 </h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Tests live routing for TikTok search, Instagram hashtag feed, and comment pagination with real token billing
+                  Vercel Cron hits discovery + comment sync automatically. Manual run is only for ops kickstart.
                 </p>
               </div>
-
               <button
-                onClick={handleSmokeTest}
-                disabled={smokeRunning}
+                onClick={handleRunCycle}
+                disabled={cycleRunning || loading}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-black bg-[#20d0c3] hover:bg-[#20d0c3]/90 disabled:opacity-50 transition"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${smokeRunning ? "animate-spin" : ""}`} />
-                {smokeRunning ? "Executing Live Calls..." : "Run Live Treg Smoke Test"}
+                <RefreshCw className={`w-3.5 h-3.5 ${cycleRunning ? "animate-spin" : ""}`} />
+                {cycleRunning ? "Running cycle…" : "Run listening cycle now"}
               </button>
             </div>
 
-            {smokeResult && (
-              <div className="pt-4 border-t border-white/10 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-300">Overall Status:</span>
-                    <span
-                      className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
-                        smokeResult.ok
-                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                          : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                      }`}
-                    >
-                      {smokeResult.ok ? "PASS" : "FAIL"}
-                    </span>
-                  </div>
-                  {smokeResult.totalCostUsd !== undefined && (
-                    <span className="text-xs text-slate-400 font-mono">
-                      Cycle Cost: ${(smokeResult.totalCostUsd).toFixed(5)} USD
-                    </span>
-                  )}
-                </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+              <StatusCard
+                label="Treg"
+                value={listener?.tregConfigured ? "Configured" : "Missing token"}
+                ok={Boolean(listener?.tregConfigured)}
+              />
+              <StatusCard
+                label="Schedule"
+                value={listener?.cronSchedule || "every 3 hours"}
+                ok
+              />
+              <StatusCard
+                label="Active queries"
+                value={`${listener?.enabledQueries ?? "—"} / ${listener?.totalQueries ?? "—"}`}
+                ok={(listener?.enabledQueries || 0) > 0}
+              />
+              <StatusCard
+                label="Last run"
+                value={
+                  listener?.lastRunAt
+                    ? new Date(listener.lastRunAt).toLocaleString()
+                    : "None yet"
+                }
+                ok={Boolean(listener?.lastRunAt)}
+              />
+            </div>
 
-                {smokeResult.steps && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {smokeResult.steps.map((step: any, idx: number) => (
-                      <div
-                        key={idx}
-                        className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5 space-y-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-slate-200 capitalize">
-                            {step.name.replace(/_/g, " ")}
-                          </span>
-                          {step.ok ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                          ) : (
-                            <XCircle className="w-4 h-4 text-rose-400" />
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-400 font-mono truncate">
-                          {step.detail}
-                        </p>
-                        <div className="text-[10px] text-slate-500">
-                          Cost: ${(step.costUsd || 0).toFixed(5)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            {cycleError && (
+              <p className="text-xs text-rose-300 border border-rose-500/30 bg-rose-500/10 rounded-xl px-3 py-2">
+                {cycleError}
+              </p>
+            )}
+
+            {cycleResult && (
+              <div className="pt-3 border-t border-white/10 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <Metric label="Queries" value={cycleResult.queriesExecuted} />
+                <Metric label="New posts" value={cycleResult.newPostsDiscovered} />
+                <Metric label="New comments" value={cycleResult.newCommentsCollected} />
+                <Metric
+                  label="Treg cost"
+                  value={`$${(cycleResult.tregCostUsd || 0).toFixed(4)}`}
+                />
               </div>
             )}
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Clock className="w-4 h-4 text-slate-400" />
+              Recent discovery runs
+            </h3>
+            <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.02]">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-white/10 bg-white/[0.03] text-slate-400 uppercase tracking-wider font-semibold">
+                  <tr>
+                    <th className="px-4 py-3">When</th>
+                    <th className="px-4 py-3">Query</th>
+                    <th className="px-4 py-3">Platform</th>
+                    <th className="px-4 py-3">Found</th>
+                    <th className="px-4 py-3">New</th>
+                    <th className="px-4 py-3">Relevant</th>
+                    <th className="px-4 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-slate-300">
+                  {runs.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-500 italic">
+                        No discovery runs yet. Cron will populate this after the next cycle.
+                      </td>
+                    </tr>
+                  ) : (
+                    runs.slice(0, 20).map((r) => (
+                      <tr key={r.id} className="hover:bg-white/[0.02] transition">
+                        <td className="px-4 py-3 text-slate-500 text-[11px]">
+                          {new Date(r.startedAt).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-white">{r.queryText}</td>
+                        <td className="px-4 py-3 uppercase text-[11px] text-slate-400">{r.platform}</td>
+                        <td className="px-4 py-3">{r.resultsFound}</td>
+                        <td className="px-4 py-3">{r.newPosts}</td>
+                        <td className="px-4 py-3">{r.relevantPosts}</td>
+                        <td className="px-4 py-3">
+                          {r.error ? (
+                            <span className="inline-flex items-center gap-1 text-rose-300">
+                              <XCircle className="w-3.5 h-3.5" /> Error
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-emerald-300">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> OK
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
       )}
 
-      {/* TAB 2: QUERIES MATRIX */}
       {activeTab === "matrix" && (
         <section className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-base font-bold text-white">Configured Search Vocabulary</h2>
+              <h2 className="text-base font-bold text-white">Configured search vocabulary</h2>
               <p className="text-xs text-slate-400">
-                Active keyword, hashtag, and account targets polled during discovery cycles
+                Targets polled automatically during each listening cycle
               </p>
             </div>
-
             <div className="flex items-center gap-3">
               {reseedNotice && <span className="text-xs text-emerald-300">{reseedNotice}</span>}
               <button
@@ -311,7 +361,7 @@ export default function SocialPulseAdminPage() {
                 disabled={reseeding}
                 className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-white/[0.04] text-slate-200 border border-white/10 hover:bg-white/[0.08] transition"
               >
-                {reseeding ? "Reseeding..." : "Reseed Default Vocabulary"}
+                {reseeding ? "Reseeding..." : "Reseed default vocabulary"}
               </button>
             </div>
           </div>
@@ -325,7 +375,7 @@ export default function SocialPulseAdminPage() {
                   <th className="px-4 py-3">Strategy</th>
                   <th className="px-4 py-3">Group</th>
                   <th className="px-4 py-3">Priority</th>
-                  <th className="px-4 py-3">Last Polled</th>
+                  <th className="px-4 py-3">Last polled</th>
                   <th className="px-4 py-3 text-right">Status</th>
                 </tr>
               </thead>
@@ -364,13 +414,12 @@ export default function SocialPulseAdminPage() {
         </section>
       )}
 
-      {/* TAB 3: DISCOVERED TERMS */}
       {activeTab === "terms" && (
         <section className="space-y-6">
           <div>
-            <h2 className="text-base font-bold text-white">Discovered Terms & Community Language</h2>
+            <h2 className="text-base font-bold text-white">Discovered terms</h2>
             <p className="text-xs text-slate-400">
-              New vocabulary terms extracted from viral posts and community discussions for human review
+              Community language extracted from discovered posts for human review
             </p>
           </div>
 
@@ -380,7 +429,7 @@ export default function SocialPulseAdminPage() {
                 <tr>
                   <th className="px-4 py-3">Term</th>
                   <th className="px-4 py-3">Reason</th>
-                  <th className="px-4 py-3">Suggested Group</th>
+                  <th className="px-4 py-3">Suggested group</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -389,7 +438,7 @@ export default function SocialPulseAdminPage() {
                 {suggestedTerms.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-slate-500 italic">
-                      No suggested terms pending review. New terms will populate as organic posts are discovered.
+                      No suggested terms yet. They appear as organic posts are discovered.
                     </td>
                   </tr>
                 ) : (
@@ -404,8 +453,8 @@ export default function SocialPulseAdminPage() {
                             t.status === "approved"
                               ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
                               : t.status === "rejected"
-                              ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
-                              : "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                                ? "bg-rose-500/10 text-rose-300 border-rose-500/20"
+                                : "bg-amber-500/10 text-amber-300 border-amber-500/20"
                           }`}
                         >
                           {t.status}
@@ -437,6 +486,26 @@ export default function SocialPulseAdminPage() {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+function StatusCard({ label, value, ok }: { label: string; value: string; ok: boolean }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5">
+      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">{label}</div>
+      <div className={`text-xs font-semibold mt-1 ${ok ? "text-emerald-300" : "text-amber-300"}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
+      <div className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</div>
+      <div className="text-sm font-bold text-white mt-0.5">{value}</div>
     </div>
   );
 }

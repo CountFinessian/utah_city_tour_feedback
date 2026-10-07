@@ -16,21 +16,24 @@ export async function GET(request: Request) {
       if (match) periodDays = parseInt(match[1], 10);
     }
 
-    // Auto seed fixture data if database is currently empty
-    await seedFixturePostsAndComments();
+    // Fixtures are for local/demo only — production listens via the background cron.
+    const allowFixtures =
+      process.env.SOCIAL_LISTENING_USE_FIXTURES === "true" ||
+      (process.env.NODE_ENV !== "production" && process.env.SOCIAL_LISTENING_USE_FIXTURES !== "false");
+    if (allowFixtures) {
+      await seedFixturePostsAndComments();
+    }
 
     const repo = getSocialRepository();
     const posts = await repo.listPosts();
     const comments = await repo.listComments();
 
-    // Deterministic metrics calculation (zero hallucination)
     const metrics = calculateDeterministicSocialMetrics({
       posts,
       comments,
       periodDays,
     });
 
-    // Generate narrative summary grounded in metrics
     const narrative = await generateNarrativeSummary(metrics);
     metrics.narrative = narrative;
 
@@ -40,4 +43,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: err.message || "Failed to retrieve social pulse data" }, { status: 500 });
   }
 }
-

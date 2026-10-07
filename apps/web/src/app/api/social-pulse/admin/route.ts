@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
 import { discoveryPipelineService } from "@/server/services/discovery-pipeline";
+import { socialSchedulerService } from "@/server/services/social-scheduler";
 import { tregClient } from "@/server/services/treg-client";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
+
+export const maxDuration = 300;
 
 export async function GET() {
   try {
@@ -10,8 +13,22 @@ export async function GET() {
     const queries = await repo.listQueries();
     const runs = await repo.listSearchRuns(30);
     const suggestedTerms = await repo.listSuggestedTerms();
+    const enabled = queries.filter((q) => q.enabled).length;
+    const lastRunAt = runs[0]?.startedAt || null;
 
-    return NextResponse.json({ queries, runs, suggestedTerms });
+    return NextResponse.json({
+      queries,
+      runs,
+      suggestedTerms,
+      listener: {
+        tregConfigured: Boolean(process.env.TREG_TOKEN),
+        enabledQueries: enabled,
+        totalQueries: queries.length,
+        lastRunAt,
+        cronSchedule: "every 3 hours",
+        cycleBudgetUsd: Number(process.env.SOCIAL_LISTENING_CYCLE_BUDGET_USD || "0.5"),
+      },
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -23,6 +40,17 @@ export async function POST(request: Request) {
     const { action, queryId, termId, status } = body;
 
     const repo = getSocialRepository();
+
+    if (action === "run_cycle") {
+      if (!process.env.TREG_TOKEN) {
+        return NextResponse.json(
+          { error: "TREG_TOKEN is not configured — cannot run listening cycle" },
+          { status: 503 }
+        );
+      }
+      const result = await socialSchedulerService.runCycle();
+      return NextResponse.json({ success: true, result });
+    }
 
     if (action === "run_discovery") {
       const result = await discoveryPipelineService.runDiscovery({ queryId, maxQueries: 3 });
@@ -62,4 +90,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-
