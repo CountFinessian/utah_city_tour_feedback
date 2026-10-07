@@ -181,7 +181,7 @@ export default function SocialPulseAdminPage() {
             Social Pulse Admin
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Background listener runs every 3 hours in production. Manage vocabulary and inspect recent discovery runs.
+            Background listener runs every 3 hours in production via scheduled job. Manage vocabulary and inspect recent discovery runs.
           </p>
         </div>
 
@@ -229,7 +229,7 @@ export default function SocialPulseAdminPage() {
                   Background listener
                 </h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Vercel Cron hits discovery + comment sync automatically. Manual run is only for ops kickstart.
+                  A scheduled job hits discovery + comment sync automatically. Manual run is only for ops kickstart.
                 </p>
               </div>
               <button

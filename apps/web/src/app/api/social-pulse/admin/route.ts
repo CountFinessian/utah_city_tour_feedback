@@ -25,7 +25,7 @@ export async function GET() {
         enabledQueries: enabled,
         totalQueries: queries.length,
         lastRunAt,
-        cronSchedule: "every 3 hours",
+        cronSchedule: "every 3 hours (GitHub Actions) + daily Vercel backup",
         cycleBudgetUsd: Number(process.env.SOCIAL_LISTENING_CYCLE_BUDGET_USD || "0.5"),
       },
     });

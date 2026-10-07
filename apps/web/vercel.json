@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/social-pulse/cron",
-      "schedule": "0 */3 * * *"
+      "schedule": "0 14 * * *"
     }
   ]
 }
