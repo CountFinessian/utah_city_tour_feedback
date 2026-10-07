@@ -61,9 +61,15 @@ export class SocialSchedulerService {
 
     await this.ensureSeedVocabulary();
 
-    const discoveryRes = await discoveryPipelineService.runDiscovery({ maxQueries: 4 });
+    const discoveryRes = await discoveryPipelineService.runDiscovery({ maxQueries: 3 });
 
-    const activePosts = await this.repo.listPosts({ isRelevant: true, limit: 30 });
+    const syncComments = process.env.SOCIAL_LISTENING_SYNC_COMMENTS === "true";
+    const activePosts = syncComments
+      ? await this.repo.listPosts({ isRelevant: true, limit: 15 })
+      : [];
+    if (!syncComments) {
+      console.log("[Scheduler] Comment sync skipped this cycle (set SOCIAL_LISTENING_SYNC_COMMENTS=true to enable)");
+    }
     let newCommentsTotal = 0;
     let initialViewsTotal = 0;
     let currentViewsTotal = 0;

@@ -94,15 +94,19 @@ export class DiscoveryPipelineService {
       const strategy = inferDiscoveryStrategy(q.query, q.discoveryStrategy);
 
       try {
-        const rawResults = await tregClient.searchPlatform(q.platform, q.query, 15, strategy);
+        const rawResults = await tregClient.searchPlatform(q.platform, q.query, 8, strategy);
         let runNew = 0;
         let runRel = 0;
 
+        let processed = 0;
+        const maxProcessPerQuery = 6;
         for (const item of rawResults) {
           if (tregClient.getCycleCostUsd() >= budget) break;
+          if (processed >= maxProcessPerQuery) break;
 
           const parsed = parseAndNormalizePostIdentifier(item.url || item.contentId, item.platform);
           if (!parsed) continue;
+          processed++;
 
           const existing = await this.repo.getPostByCanonicalId(parsed.canonicalId);
           const now = new Date().toISOString();

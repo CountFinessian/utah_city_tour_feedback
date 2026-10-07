@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { socialSchedulerService } from "@/server/services/social-scheduler";
 
-/** Vercel Fluid / Pro: allow a full discovery + comment sync cycle. */
-export const maxDuration = 300; // Pro/Fluid; Hobby may cap lower
+/** Keep as high as the plan allows — discovery-only cycles should finish well under this. */
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 function authorizeCron(request: Request): boolean {
@@ -28,11 +28,23 @@ export async function GET(request: Request) {
       );
     }
 
-    const result = await socialSchedulerService.runCycle();
+    // Return immediately so schedulers (GitHub Actions / Vercel Cron) don't time out waiting.
+    // Work continues in the same invocation via after().
+    after(async () => {
+      try {
+        const result = await socialSchedulerService.runCycle();
+        console.log(
+          `[CRON] cycle done posts=${result.newPostsDiscovered} comments=${result.newCommentsCollected} cost=${result.tregCostUsd}`
+        );
+      } catch (err) {
+        console.error("[CRON /api/social-pulse/cron] background cycle error:", err);
+      }
+    });
+
     return NextResponse.json({
       success: true,
-      message: "Social listening cycle executed",
-      result,
+      accepted: true,
+      message: "Social listening cycle accepted",
     });
   } catch (err: any) {
     console.error("[CRON /api/social-pulse/cron] Error:", err);
