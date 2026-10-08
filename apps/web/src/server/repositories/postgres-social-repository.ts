@@ -9,7 +9,7 @@ import {
   SearchTermSuggestion,
   SocialPipelineEvent,
 } from "@/domain/social-listening/types";
-import { SEEDED_OFFICIAL_ACCOUNTS } from "@/domain/social-listening/relevance";
+import { SEEDED_OFFICIAL_ACCOUNTS, withSeededExternalIds } from "@/domain/social-listening/relevance";
 import { SocialListenerState, SocialListeningRepository } from "./social-repository";
 import { fileSocialRepository } from "./file-social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
@@ -260,7 +260,12 @@ export const postgresSocialRepository: SocialListeningRepository = {
         and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
         and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
         and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
-        and (${filter?.staleRelevanceBefore || null}::timestamptz is null or relevance_checked_at is null or relevance_checked_at < ${filter?.staleRelevanceBefore || null}::timestamptz)
+        and (
+          ${filter?.staleRelevanceBefore || null}::timestamptz is null
+          or relevance_checked_at is null
+          or relevance_checked_at < ${filter?.staleRelevanceBefore || null}::timestamptz
+          or relevance_status in ('irrelevant', 'needs_review', 'needs_retry')
+        )
       order by coalesce(published_at, first_seen_at) desc
       limit ${filter?.limit || 2000}
     `;
@@ -272,7 +277,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
     const sql = db();
     const rows = await sql`select platform, handle from official_accounts`;
     if (!rows.length) return SEEDED_OFFICIAL_ACCOUNTS;
-    return rows.map((row) => ({ platform: String(row.platform), handle: String(row.handle) }));
+    return withSeededExternalIds(rows.map((row) => ({ platform: String(row.platform), handle: String(row.handle) })));
   },
 
   async recordPipelineEvent(event: SocialPipelineEvent): Promise<void> {

@@ -2,6 +2,8 @@ import { parseAndNormalizePostIdentifier } from "@/domain/social-listening/dedup
 import {
   RELEVANCE_V2_VERSION,
   isVideoPost,
+  postNeedsRelevanceRecheck,
+  relevanceCheckedStamp,
   type OfficialAccountRef,
 } from "@/domain/social-listening/relevance";
 import type { Post, SocialPipelineEvent } from "@/domain/social-listening/types";
@@ -14,15 +16,23 @@ import {
   type RelevanceClassificationResult,
   type TranscriptFetch,
 } from "@/server/intelligence/relevance-classifier";
-import { hasRelevanceModel } from "@/server/ai/model-config";
+import {
+  hasRelevanceModel,
+  resolveCommentClassifyModelName,
+  resolveRelevanceModelName,
+  retiredCommentClassifyModelOverride,
+  retiredRelevanceModelOverride,
+} from "@/server/ai/model-config";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
 import { providerFor } from "@/server/social/providers";
+import { setTregLookupDebugSink, type TregLookupDebugInfo } from "@/server/social/providers/http";
 import { REFERENCE_EVAL_POSTS, type ReferenceEvalPost } from "@/server/social/reference-posts";
 import type { TregSearchResultItem } from "@/server/social/providers/types";
 import { tregClient } from "@/server/services/treg-client";
 
 export const RELEVANCE_CALL_TREG_BUDGET_USD = 0.5;
 export const RELEVANCE_CALL_GEMINI_BUDGET_MICRO = 50_000;
+export const LOOKUP_DEBUG_TREG_BUDGET_USD = 0.05;
 
 export type RelevanceStop = "done" | "deadline" | "treg_budget" | "gemini_budget" | "error";
 
@@ -115,8 +125,11 @@ function mediaKind(item: TregSearchResultItem, url: string): string | undefined 
   return undefined;
 }
 
-function modelFailed(result: RelevanceClassificationResult): boolean {
-  return /Gemini budget|Model call failed|not configured/i.test(result.reason);
+function haltForModel(result: RelevanceClassificationResult): RelevanceStop | null {
+  if (/no longer available|is not available/i.test(result.reason)) return "error";
+  if (/Gemini budget/i.test(result.reason)) return "gemini_budget";
+  if (/Model call failed|not configured/i.test(result.reason)) return "error";
+  return null;
 }
 
 async function withBudgets<T>(options: JobOptions, run: (limits: Required<Pick<JobOptions, "deadlineAt" | "tregBudgetUsd" | "geminiBudgetMicro">>) => Promise<T>): Promise<T> {
@@ -172,6 +185,7 @@ export async function runReferenceEval(options: JobOptions = {}): Promise<Releva
   let stopped: RelevanceStop = "done";
 
   const result = await withBudgets(options, async (limits) => {
+    await noteRetiredModel(record);
     for (const reference of references) {
       const limit = stopForLimits(options, limits);
       if (limit) {
@@ -216,12 +230,14 @@ export async function runReferenceEval(options: JobOptions = {}): Promise<Releva
         platform: parsed.platform,
         author: detail?.authorUsername,
         authorDisplayName: detail?.authorDisplayName,
+        authorId: detail?.authorId,
+        channelId: detail?.channelId,
         url: reference.url,
         mediaKind: detail ? mediaKind(detail, reference.url) : isVideoPost(parsed.platform, reference.url) ? "video" : undefined,
         fetchTranscript: async () => fetchTranscript(parsed.platformContentId, reference.url, parsed.platform),
       });
-      if (modelFailed(verdict)) {
-        stopped = /budget/i.test(verdict.reason) ? "gemini_budget" : "error";
+      const halt = haltForModel(verdict);
+      if (halt) {
         const row: ReferenceEvalRow = {
           url: reference.url,
           expected: reference.expected,
@@ -232,6 +248,7 @@ export async function runReferenceEval(options: JobOptions = {}): Promise<Releva
         };
         rows.push(row);
         await record(referenceEvent(row, parsed, verdict.costMicro));
+        stopped = halt;
         break;
       }
 
@@ -301,8 +318,15 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
   const listOfficialAccounts = options.listOfficialAccounts ?? (() => repo.listOfficialAccounts());
   const fetchTranscript = options.fetchTranscript ?? defaultFetchTranscript;
   const officialAccounts = await listOfficialAccounts();
-  const posts = await listPosts({ staleRelevanceBefore: RELEVANCE_V2_VERSION, limit: 5000 });
-  posts.sort((a, b) => (a.relevanceCheckedAt || "").localeCompare(b.relevanceCheckedAt || ""));
+  const posts = (await listPosts({ staleRelevanceBefore: RELEVANCE_V2_VERSION, limit: 5000 })).filter((post) =>
+    postNeedsRelevanceRecheck(post, RELEVANCE_V2_VERSION)
+  );
+  posts.sort((a, b) => {
+    const rank = (item: Post) => (item.relevanceStatus === "needs_retry" ? 1 : 0);
+    const byRank = rank(a) - rank(b);
+    if (byRank !== 0) return byRank;
+    return (a.relevanceCheckedAt || "").localeCompare(b.relevanceCheckedAt || "");
+  });
 
   const byPlatform: RelevanceReevalResult["byPlatform"] = {};
   let processed = 0;
@@ -313,6 +337,7 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
   let index = 0;
 
   const result = await withBudgets(options, async (limits) => {
+    await noteRetiredModel(record);
     for (; index < posts.length; index += 1) {
       const limit = stopForLimits(options, limits);
       if (limit) {
@@ -324,6 +349,7 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
         platform: post.platform,
         author: post.authorUsername,
         authorDisplayName: post.authorDisplayName,
+        authorId: post.authorId,
         url: post.url,
         mediaKind: isVideoPost(post.platform, post.url) ? "video" : undefined,
         officialAccounts,
@@ -353,9 +379,23 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
           },
         });
       }
-      if (modelFailed(verdict)) {
-        stopped = /budget/i.test(verdict.reason) ? "gemini_budget" : "error";
+      const halt = haltForModel(verdict);
+      if (halt) {
+        stopped = halt;
         break;
+      }
+      if (verdict.decision === "needs_retry") {
+        await upsertPost({
+          ...post,
+          relevanceStatus: "needs_retry",
+          relevanceReason: verdict.reason,
+          isRelevant: false,
+          relevanceScore: verdict.confidence,
+          relevanceModel: verdict.model || post.relevanceModel,
+          relevanceCheckedAt: relevanceCheckedStamp(now),
+        });
+        processed += 1;
+        continue;
       }
 
       await upsertPost({
@@ -370,7 +410,7 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
         matchedEntities: verdict.matchedEntities,
         isRelevant: verdict.isRelevant,
         relevanceModel: verdict.model || post.relevanceModel,
-        relevanceCheckedAt: now,
+        relevanceCheckedAt: relevanceCheckedStamp(now),
       });
       processed += 1;
       const bucket = byPlatform[post.platform] || { kept: 0, official: 0, rejected: 0 };
@@ -402,4 +442,194 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
     };
   });
   return result;
+}
+
+async function noteRetiredModel(record: (event: SocialPipelineEvent) => Promise<void>): Promise<void> {
+  const notes: string[] = [];
+  if (retiredRelevanceModelOverride()) {
+    notes.push(`RELEVANCE_MODEL is set to retired gemini-2.5-flash-lite. Calls use ${resolveRelevanceModelName()} instead.`);
+  }
+  if (retiredCommentClassifyModelOverride()) {
+    notes.push(
+      `SOCIAL_LISTENING_CLASSIFY_MODEL is set to retired gemini-2.5-flash-lite. Calls use ${resolveCommentClassifyModelName()} instead.`
+    );
+  }
+  if (!notes.length) return;
+  await record({
+    id: eventId(),
+    stage: "relevance",
+    decision: "model_unavailable",
+    reason: notes.join(" "),
+    costMicro: 0,
+    at: new Date().toISOString(),
+    detail: { relevanceModel: resolveRelevanceModelName(), classifyModel: resolveCommentClassifyModelName() },
+  });
+}
+
+const SECRET_KEY = /token|secret|password|authorization|cookie|api[-_]?key|session/i;
+
+export interface KeyStructureNode {
+  path: string;
+  type: string;
+  preview?: string;
+}
+
+function previewString(value: string): string {
+  if (/^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/.test(value)) return "[redacted]";
+  return value.replace(/\?[^\s]*/g, "?…").slice(0, 80);
+}
+
+/** Key paths, value types, and the first 80 characters of strings. No secrets. */
+export function responseKeyStructure(
+  value: unknown,
+  prefix = "",
+  depth = 0,
+  budget = { n: 0 },
+  acc: KeyStructureNode[] = []
+): KeyStructureNode[] {
+  if (budget.n >= 250 || depth > 8) return acc;
+  if (value === null) {
+    acc.push({ path: prefix || "$", type: "null" });
+    budget.n += 1;
+    return acc;
+  }
+  if (Array.isArray(value)) {
+    acc.push({ path: prefix || "$", type: `array(${value.length})` });
+    budget.n += 1;
+    if (value.length) responseKeyStructure(value[0], `${prefix}[]`, depth + 1, budget, acc);
+    return acc;
+  }
+  if (typeof value === "object") {
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (budget.n >= 250) break;
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (SECRET_KEY.test(key)) {
+        acc.push({ path, type: "redacted" });
+        budget.n += 1;
+        continue;
+      }
+      if (child && typeof child === "object") responseKeyStructure(child, path, depth + 1, budget, acc);
+      else if (typeof child === "string") {
+        acc.push({ path, type: "string", preview: previewString(child) });
+        budget.n += 1;
+      } else {
+        acc.push({ path, type: typeof child });
+        budget.n += 1;
+      }
+    }
+    return acc;
+  }
+  acc.push({
+    path: prefix || "$",
+    type: typeof value,
+    preview: typeof value === "string" ? previewString(value) : undefined,
+  });
+  budget.n += 1;
+  return acc;
+}
+
+export interface LookupDebugResult {
+  task: "lookup-debug";
+  processed: number;
+  remaining: number;
+  stopped: RelevanceStop;
+  tregSpendUsd: number;
+  rows: Array<{
+    url: string;
+    endpoints: string[];
+    parsed: {
+      caption: string;
+      title: string;
+      description: string;
+      authorUsername: string;
+      authorDisplayName: string;
+      authorId: string;
+      channelId: string;
+    };
+  }>;
+}
+
+function parsedFields(item: TregSearchResultItem | null): LookupDebugResult["rows"][number]["parsed"] {
+  return {
+    caption: item?.caption || "",
+    title: item?.title || "",
+    description: item?.description || "",
+    authorUsername: item?.authorUsername || "",
+    authorDisplayName: item?.authorDisplayName || "",
+    authorId: item?.authorId || "",
+    channelId: item?.channelId || "",
+  };
+}
+
+export async function runLookupDebug(options: JobOptions = {}): Promise<LookupDebugResult> {
+  const record = options.recordPipelineEvent ?? ((event) => getSocialRepository().recordPipelineEvent(event));
+  const fetchDetail = options.fetchDetail ?? defaultFetchDetail;
+  const references = options.references ?? REFERENCE_EVAL_POSTS;
+  const rows: LookupDebugResult["rows"] = [];
+  let stopped: RelevanceStop = "done";
+  const captured: TregLookupDebugInfo[] = [];
+
+  return withBudgets(
+    { ...options, tregBudgetUsd: options.tregBudgetUsd ?? LOOKUP_DEBUG_TREG_BUDGET_USD },
+    async (limits) => {
+      for (const reference of references) {
+        const limit = stopForLimits({ ...options, tregSpentUsd: options.tregSpentUsd }, limits);
+        if (limit) {
+          stopped = limit;
+          break;
+        }
+        const parsedId = parseAndNormalizePostIdentifier(reference.url);
+        captured.length = 0;
+        setTregLookupDebugSink((info) => {
+          captured.push(info);
+        });
+        let detail: TregSearchResultItem | null = null;
+        let error = "";
+        try {
+          if (!parsedId) error = "Could not parse the reference URL.";
+          else detail = await fetchDetail(parsedId.platformContentId, reference.url, parsedId.platform);
+        } catch (err) {
+          error = err instanceof Error ? err.message : "Detail fetch failed.";
+          stopped = "error";
+        } finally {
+          setTregLookupDebugSink(null);
+        }
+        const snapshot = captured.slice();
+        const row = {
+          url: reference.url,
+          endpoints: snapshot.map((info) => info.endpointId),
+          parsed: parsedFields(detail),
+        };
+        rows.push(row);
+        await record({
+          id: eventId(),
+          platform: parsedId?.platform,
+          platformContentId: parsedId?.platformContentId,
+          stage: "lookup_debug",
+          decision: error ? "error" : detail ? "parsed" : "empty",
+          reason: error || (detail ? "Parsed lookup metadata." : "Lookup returned no post."),
+          costMicro: 0,
+          at: new Date().toISOString(),
+          detail: {
+            url: reference.url,
+            parsed: row.parsed,
+            calls: snapshot.map((info) => ({
+              endpointId: info.endpointId,
+              error: info.error,
+              structure: responseKeyStructure(info.output),
+            })),
+          },
+        });
+        if (stopped === "error") break;
+      }
+      return {
+        task: "lookup-debug" as const,
+        processed: rows.length,
+        remaining: references.length - rows.length,
+        stopped,
+        tregSpendUsd: Number((options.tregSpentUsd ? options.tregSpentUsd() : tregClient.getCycleCostUsd()).toFixed(6)),
+        rows,
+      };
+    }
+  );
 }

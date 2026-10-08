@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { hasRelevanceModel } from "@/server/ai/model-config";
 import { acceptSocialListeningCycle } from "@/server/services/social-cycle";
-import { runReferenceEval, runRelevanceReeval } from "@/server/services/relevance-jobs";
+import { runLookupDebug, runReferenceEval, runRelevanceReeval } from "@/server/services/relevance-jobs";
 
-const RELEVANCE_MODES = new Set(["relevance-eval", "relevance-reeval"]);
+const RELEVANCE_MODES = new Set(["relevance-eval", "relevance-reeval", "lookup-debug"]);
 
 /** Keep as high as the plan allows — discovery-only cycles should finish well under this. */
 export const maxDuration = 300;
@@ -36,13 +36,18 @@ export async function GET(request: Request) {
       if (!process.env.TREG_TOKEN) {
         return NextResponse.json({ error: "TREG_TOKEN is not configured in this environment" }, { status: 503 });
       }
-      if (!hasRelevanceModel()) {
+      if (mode !== "lookup-debug" && !hasRelevanceModel()) {
         return NextResponse.json(
           { error: "GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY is not configured" },
           { status: 503 }
         );
       }
-      const result = mode === "relevance-eval" ? await runReferenceEval() : await runRelevanceReeval();
+      const result =
+        mode === "relevance-eval"
+          ? await runReferenceEval()
+          : mode === "relevance-reeval"
+            ? await runRelevanceReeval()
+            : await runLookupDebug();
       console.log(`[CRON /api/social-pulse/cron] ${JSON.stringify(result)}`);
       return NextResponse.json(result);
     }

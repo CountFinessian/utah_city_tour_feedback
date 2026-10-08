@@ -19,23 +19,57 @@ const REPLIES = "scrapecreators.x.v1-youtube-video-comment-replies";
 
 const ORDER_BY: Record<string, string> = { week: "this_week", month: "this_month", year: "this_year" };
 
+function youtubeNode(raw: Record<string, unknown>): Record<string, unknown> {
+  const data = asRecord(raw.data);
+  const nested = asRecord(data?.data);
+  const base =
+    [data, nested].find(
+      (candidate) =>
+        candidate &&
+        (candidate.video_id || candidate.videoId || candidate.title || candidate.channel_id || candidate.channel_handle || candidate.snippet)
+    ) || raw;
+  const snippet = asRecord(base.snippet) || asRecord(raw.snippet);
+  if (!snippet) return base;
+  const idObj = asRecord(base.id);
+  return {
+    ...base,
+    ...snippet,
+    video_id: str(base.video_id || base.videoId || (typeof base.id === "string" ? base.id : idObj?.videoId) || snippet.videoId),
+    channel_id: str(snippet.channelId || base.channel_id || base.channelId),
+    channel_handle: str(base.channel_handle || snippet.customUrl),
+    title: str(snippet.title || base.title),
+    description: str(snippet.description || base.description || base.shortDescription),
+    author: base.author || snippet.channelTitle,
+  };
+}
+
 export function parseYouTubeVideo(raw: Record<string, unknown>): TregSearchResultItem | null {
-  const idObj = asRecord(raw.id);
-  const id = str(raw.video_id || raw.videoId || (typeof raw.id === "string" ? raw.id : idObj?.videoId));
+  const node = youtubeNode(raw);
+  const idObj = asRecord(node.id);
+  const id = str(node.video_id || node.videoId || (typeof node.id === "string" ? node.id : idObj?.videoId));
   if (!id) return null;
-  const author = authorName(raw);
-  const channel = str(raw.channelTitle || raw.channel_title || raw.author || author.username);
+  const author = authorName(node);
+  const handle = str(node.channel_handle).replace(/^@/, "");
+  const channelId = str(node.channel_id || node.channelId);
+  const authorString = typeof node.author === "string" ? str(node.author) : "";
+  const channelTitle = str(node.channelTitle || node.channel_title);
+  const username = handle || authorString || channelTitle || (author.username !== "user" ? author.username : "") || "yt_creator";
+  const title = str(node.title);
+  const description = str(node.description || node.shortDescription);
   return searchItem("youtube", raw, {
     contentId: id,
-    url: str(raw.url) || `https://www.youtube.com/watch?v=${id}`,
-    authorUsername: channel && channel !== "user" ? channel : "yt_creator",
-    caption: str(raw.title || raw.description),
-    title: str(raw.title) || undefined,
-    description: str(raw.description) || undefined,
-    publishedAt: absoluteTime(raw.published_time) || absoluteTime(raw.publishedAt),
-    viewCount: countOf(raw, "view_count", "viewCount", "views"),
-    likeCount: countOf(raw, "like_count", "likeCount"),
-    commentCount: countOf(raw, "comment_count", "commentCount"),
+    url: /youtu\.?be|\/watch|\/shorts\//i.test(str(node.url)) ? str(node.url) : `https://www.youtube.com/watch?v=${id}`,
+    authorUsername: username,
+    authorDisplayName: channelTitle || (authorString && authorString !== username ? authorString : author.display),
+    authorId: channelId || undefined,
+    channelId: channelId || undefined,
+    caption: [title, description].filter(Boolean).join("\n"),
+    title: title || undefined,
+    description: description || undefined,
+    publishedAt: absoluteTime(node.published_time) || absoluteTime(node.publishedAt),
+    viewCount: countOf(node, "view_count", "viewCount", "views"),
+    likeCount: countOf(node, "like_count", "likeCount"),
+    commentCount: countOf(node, "comment_count", "commentCount"),
     shareCount: 0,
   });
 }
@@ -116,8 +150,9 @@ export const youtubeProvider: SocialProvider = {
       queryParams: { video_id: contentId },
       maxCostUsd: 0.02,
     });
+    if (!paid.output) return null;
     const rows = recordsOf(paid.output, ["videos", "items"]);
-    return rows[0] ? parseYouTubeVideo(rows[0]) : parseYouTubeVideo(payloadOf(paid.output));
+    return rows[0] ? parseYouTubeVideo(rows[0]) : parseYouTubeVideo(paid.output);
   },
   async officialFeed(handle, cursor) {
     const clean = handle.replace(/^@/, "");

@@ -23,19 +23,40 @@ const DATE_POSTED: Record<string, string> = {
   year: "last-year",
 };
 
-export function parseInstagramPost(raw: Record<string, unknown>, handle?: string): TregSearchResultItem | null {
+function instagramNode(raw: Record<string, unknown>): Record<string, unknown> {
+  const data = asRecord(raw.data);
+  const nested = asRecord(data?.data);
+  for (const candidate of [data, nested]) {
+    if (!candidate) continue;
+    if (candidate.shortcode || candidate.code || candidate.edge_media_to_caption || asRecord(candidate.owner)?.username) {
+      return candidate;
+    }
+  }
+  return raw;
+}
+
+function instagramCaption(raw: Record<string, unknown>): string {
+  const edge = asRecord(raw.edge_media_to_caption);
+  const edges = Array.isArray(edge?.edges) ? edge.edges : [];
+  const edgeText = str(asRecord(asRecord(edges[0])?.node)?.text);
+  return textOf(raw.caption) || edgeText || str(raw.accessibility_caption) || str(raw.text) || "";
+}
+
+export function parseInstagramPost(input: Record<string, unknown>, handle?: string): TregSearchResultItem | null {
+  const raw = instagramNode(input);
   const permalink = str(raw.permalink || raw.url);
   const shortcode = str(raw.shortcode || raw.code) || permalink.match(/instagram\.com\/(?:reels|reel|p|tv)\/([A-Za-z0-9_-]+)/i)?.[1] || str(raw.id);
   if (!shortcode) return null;
   const owner = asRecord(raw.owner) || asRecord(raw.user) || {};
   const username = handle || str(owner.username || raw.username || raw.author) || "ig_creator";
   const url = permalink ? cleanUrl(permalink) : `https://www.instagram.com/reel/${shortcode}/`;
-  return searchItem("instagram", raw, {
+  return searchItem("instagram", input, {
     contentId: shortcode,
     url,
     authorUsername: username,
     authorDisplayName: str(owner.full_name) || undefined,
-    caption: textOf(raw.caption) || str(raw.text),
+    authorId: str(owner.id || raw.owner_id) || undefined,
+    caption: instagramCaption(raw),
     publishedAt: publishedFrom(raw),
     viewCount: countOf(raw, "video_view_count", "view_count", "play_count", "views"),
     likeCount: countOf(raw, "like_count", "likes"),
@@ -112,9 +133,8 @@ export const instagramProvider: SocialProvider = {
       queryParams: { post_url: url },
       maxCostUsd: 0.02,
     });
-    const body = payloadOf(res.output);
-    const post = asRecord(body.data) || body;
-    return parseInstagramPost(post);
+    if (!res.output) return null;
+    return parseInstagramPost(res.output);
   },
   async officialFeed(handle, cursor) {
     const username = handle.replace(/^@/, "").split("/")[0];

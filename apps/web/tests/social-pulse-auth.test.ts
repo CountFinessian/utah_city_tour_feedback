@@ -7,7 +7,7 @@ import { GET as cronGET, POST as cronPOST, HEAD as cronHEAD } from "@/app/api/so
 import { POST as refreshPOST } from "@/app/api/social-pulse/refresh/route";
 import { SESSION_COOKIE_NAME, signSessionToken } from "@/server/auth/session";
 
-const { runCycle, scheduled, runReferenceEval, runRelevanceReeval } = vi.hoisted(() => ({
+const { runCycle, scheduled, runReferenceEval, runRelevanceReeval, runLookupDebug } = vi.hoisted(() => ({
   runCycle: vi.fn(async () => ({
     newPostsDiscovered: 0,
     newCommentsCollected: 0,
@@ -16,6 +16,7 @@ const { runCycle, scheduled, runReferenceEval, runRelevanceReeval } = vi.hoisted
   scheduled: [] as Array<Promise<unknown>>,
   runReferenceEval: vi.fn(async () => ({ task: "relevance-eval", processed: 12, correct: 12, incorrect: 0 })),
   runRelevanceReeval: vi.fn(async () => ({ task: "relevance-reeval", processed: 4, remaining: 7, kept: 2, rejected: 2 })),
+  runLookupDebug: vi.fn(async () => ({ task: "lookup-debug", processed: 12, remaining: 0, stopped: "done" })),
 }));
 
 vi.mock("next/server", async () => {
@@ -35,6 +36,7 @@ vi.mock("@/server/services/social-scheduler", () => ({
 vi.mock("@/server/services/relevance-jobs", () => ({
   runReferenceEval,
   runRelevanceReeval,
+  runLookupDebug,
 }));
 
 const envSnapshot = {
@@ -76,6 +78,7 @@ describe("Social Pulse cron and leadership refresh", () => {
     runCycle.mockClear();
     runReferenceEval.mockClear();
     runRelevanceReeval.mockClear();
+    runLookupDebug.mockClear();
     setEnv("CRON_SECRET", "test-cron-secret");
     setEnv("TREG_TOKEN", "test-treg-token");
     setEnv("GEMINI_API_KEY", undefined);
@@ -206,6 +209,19 @@ describe("Social Pulse cron and leadership refresh", () => {
     expect(reevalRes.status).toBe(200);
     expect(reevalBody.remaining).toBe(7);
     expect(runRelevanceReeval).toHaveBeenCalledOnce();
+
+    setEnv("GEMINI_API_KEY", undefined);
+    const debugRes = await cronPOST(
+      new Request("https://utahcity.app/api/social-pulse/cron?mode=lookup-debug", {
+        method: "POST",
+        headers: { Authorization: "Bearer test-cron-secret" },
+      })
+    );
+    const debugBody = await debugRes.json();
+    expect(debugRes.status).toBe(200);
+    expect(debugBody.task).toBe("lookup-debug");
+    expect(runLookupDebug).toHaveBeenCalledOnce();
+    expect(runReferenceEval).toHaveBeenCalledOnce();
   });
 
   it("does not start a relevance job without Gemini", async () => {

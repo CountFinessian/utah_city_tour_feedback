@@ -19,7 +19,8 @@ export type RelevanceStatus =
   | "official_comment_source"
   | "rejected_lookalike"
   | "rejected_offtopic"
-  | "rejected_unverifiable";
+  | "rejected_unverifiable"
+  | "needs_retry";
 
 export type Sentiment = "positive" | "neutral" | "negative";
 

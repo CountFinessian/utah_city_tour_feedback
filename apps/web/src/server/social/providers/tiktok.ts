@@ -28,21 +28,64 @@ function datePosted(since?: string): number {
   return 0;
 }
 
+function firstRecord(...values: unknown[]): Record<string, unknown> | null {
+  for (const value of values) {
+    const record = asRecord(value);
+    if (record) return record;
+  }
+  return null;
+}
+
+/** aweme_detail, itemInfo.itemStruct, and a couple of extra wrappers. */
+export function tiktokAweme(raw: Record<string, unknown>): Record<string, unknown> {
+  const data = asRecord(raw.data);
+  const nested = asRecord(data?.data);
+  const itemStruct = firstRecord(
+    asRecord(raw.itemInfo)?.itemStruct,
+    asRecord(data?.itemInfo)?.itemStruct,
+    asRecord(nested?.itemInfo)?.itemStruct,
+    raw.itemStruct,
+    data?.itemStruct
+  );
+  return (
+    firstRecord(
+      raw.aweme_info,
+      raw.aweme_detail,
+      data?.aweme_detail,
+      nested?.aweme_detail,
+      itemStruct,
+      data && (data.desc || asRecord(data.author)?.uniqueId || asRecord(data.author)?.unique_id) ? data : null
+    ) || raw
+  );
+}
+
 export function parseTikTokVideo(raw: Record<string, unknown>): TregSearchResultItem | null {
-  const aweme = asRecord(raw.aweme_info) || raw;
+  const aweme = tiktokAweme(raw);
   const id = str(aweme.aweme_id || aweme.id || raw.aweme_id || raw.id || raw.video_id);
   if (!id) return null;
   const author = authorName(aweme);
+  const authorRecord = asRecord(aweme.author) || {};
   const stats = statsOf(aweme);
   const username = author.username === "user" ? str(aweme.author || raw.author) || "tiktok_creator" : author.username;
   const share = str(aweme.share_url || raw.share_url || raw.url);
   const url = share ? cleanUrl(share) : `https://www.tiktok.com/@${username}/video/${id}`;
+  const challenges = Array.isArray(aweme.challenges)
+    ? aweme.challenges
+        .map((entry) => str(asRecord(entry)?.title))
+        .filter(Boolean)
+        .map((title) => (title.startsWith("#") ? title : `#${title}`))
+        .join(" ")
+    : "";
+  const caption = [textOf(aweme.desc) || textOf(aweme.caption) || str(aweme.title || raw.caption || raw.text), challenges]
+    .filter(Boolean)
+    .join("\n");
   return searchItem("tiktok", raw, {
     contentId: id,
     url,
     authorUsername: username,
     authorDisplayName: author.display,
-    caption: textOf(aweme.desc) || textOf(aweme.caption) || str(aweme.title || raw.caption || raw.text),
+    authorId: str(authorRecord.uid || authorRecord.id || authorRecord.secUid || authorRecord.sec_uid) || undefined,
+    caption,
     publishedAt: publishedFrom(aweme),
     viewCount: countOf(stats, "play_count", "playCount") || countOf(aweme, "play_count", "views", "playCount"),
     likeCount: countOf(stats, "digg_count", "diggCount") || countOf(aweme, "digg_count", "likes", "likeCount"),
@@ -155,9 +198,8 @@ export const tiktokProvider: SocialProvider = {
       queryParams: { itemId: contentId },
       maxCostUsd: 0.02,
     });
-    const body = payloadOf(res.output);
-    const aweme = asRecord(body.aweme_detail) || asRecord(asRecord(body.data)?.aweme_detail) || body;
-    return parseTikTokVideo(aweme);
+    if (!res.output) return null;
+    return parseTikTokVideo(res.output);
   },
   async officialFeed(handle, cursor) {
     const sec = handle.startsWith("MS4w");

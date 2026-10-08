@@ -13,6 +13,8 @@ export function searchItem(
     url: fields.url || "",
     authorUsername: fields.authorUsername || "unknown",
     authorDisplayName: fields.authorDisplayName,
+    authorId: fields.authorId,
+    channelId: fields.channelId,
     caption: fields.caption || "",
     title: fields.title,
     description: fields.description,

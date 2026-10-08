@@ -5,13 +5,14 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: relevance-eval or relevance-reeval
+        description: relevance-eval, relevance-reeval, or lookup-debug
         type: choice
         required: true
         default: relevance-eval
         options:
           - relevance-eval
           - relevance-reeval
+          - lookup-debug
 
 jobs:
   run-task:

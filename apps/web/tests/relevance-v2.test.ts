@@ -119,6 +119,8 @@ describe("relevance v2 rules", () => {
     expect(isOfficialAuthor("instagram", "utahcityutah", SEEDED_OFFICIAL_ACCOUNTS)).toBe(true);
     expect(isOfficialAuthor("youtube", "Utah City", SEEDED_OFFICIAL_ACCOUNTS)).toBe(true);
     expect(isOfficialAuthor("tiktok", "utahcityfoodtruckrally", SEEDED_OFFICIAL_ACCOUNTS)).toBe(false);
+    expect(isOfficialAuthor("youtube", "Utah City", SEEDED_OFFICIAL_ACCOUNTS, ["UCwNkAzWu_PJ0DEiVU5NVo9A"])).toBe(true);
+    expect(isOfficialAuthor("youtube", undefined, SEEDED_OFFICIAL_ACCOUNTS, ["UCwNkAzWu_PJ0DEiVU5NVo9A"])).toBe(true);
 
     const official = await classifyRelevance("Welcome to #UtahCity.", {
       platform: "instagram",
@@ -163,5 +165,35 @@ describe("relevance v2 rules", () => {
     expect(metrics.attention.commentsCount).toBe(2);
     expect(shouldSyncComments(rejected)).toBe(false);
     expect(shouldSyncComments({ ...official, commentCount: 4 })).toBe(true);
+  });
+
+  it("does not reject empty text for no mention, and sends local places to the model", async () => {
+    const empty = rulesPreGate("");
+    expect(empty.decision).toBe("needs_retry");
+    expect(empty.reason).not.toMatch(/No reference/);
+
+    const thin = await classifyRelevance("ok");
+    expect(thin.decision).toBe("needs_retry");
+    expect(thin.relevanceStatus).not.toBe("rejected_offtopic");
+
+    const fini = rulesPreGate("breakfast at #finicafe");
+    expect(fini.candidate).toBe(true);
+    expect(fini.decision).toBeNull();
+
+    const mayor = rulesPreGate("Vineyard Utah… remind the mayor about the road");
+    expect(mayor.candidate).toBe(true);
+    expect(mayor.decision).toBeNull();
+
+    const nowhere = await classifyRelevance("The downtown parking garage on Main was full all afternoon again.");
+    expect(nowhere.decision).toBe("rejected_offtopic");
+
+    const officialVideo = await classifyRelevance("", {
+      platform: "youtube",
+      author: "Some Channel",
+      authorId: "UCwNkAzWu_PJ0DEiVU5NVo9A",
+      channelId: "UCwNkAzWu_PJ0DEiVU5NVo9A",
+      url: "https://www.youtube.com/watch?v=DnQyX-UA7kY",
+    });
+    expect(officialVideo.decision).toBe("official_comment_source");
   });
 });

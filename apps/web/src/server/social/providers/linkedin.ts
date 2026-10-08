@@ -22,15 +22,31 @@ const DATE_POSTED: Record<string, string> = {
   year: "last-year",
 };
 
-export function parseLinkedInPost(raw: Record<string, unknown>): TregSearchResultItem | null {
-  const url = str(raw.url);
-  const activity = str(raw.id || raw.urn).match(/(\d{6,})/)?.[1] || url.match(/activity[:-](\d+)/)?.[1] || "";
+function linkedinNode(raw: Record<string, unknown>): Record<string, unknown> {
+  if (raw.text || raw.commentary || raw.urn || raw.activity) return raw;
+  const data = asRecord(raw.data);
+  const nested = asRecord(data?.data);
+  for (const candidate of [nested, data]) {
+    if (candidate && (candidate.text || candidate.commentary || candidate.urn || candidate.activity || candidate.url)) {
+      return candidate;
+    }
+  }
+  return raw;
+}
+
+export function parseLinkedInPost(input: Record<string, unknown>): TregSearchResultItem | null {
+  const raw = linkedinNode(input);
+  const url = str(raw.url || raw.postUrl || raw.shareUrl);
+  const activity = str(raw.id || raw.urn || raw.activity).match(/(\d{6,})/)?.[1] || url.match(/activity[:-](\d+)/)?.[1] || "";
   if (!activity && !url) return null;
-  return searchItem("linkedin", raw, {
+  const commentary = asRecord(raw.commentary);
+  const caption = str(raw.text) || str(commentary?.text) || (typeof raw.commentary === "string" ? raw.commentary : "");
+  return searchItem("linkedin", input, {
     contentId: activity || url,
     url: url || `https://www.linkedin.com/feed/update/urn:li:activity:${activity}`,
     authorUsername: str(raw.authorName || asRecord(raw.author)?.name || raw.author) || "linkedin_member",
-    caption: str(raw.text || raw.commentary),
+    authorId: str(asRecord(raw.author)?.id || raw.authorId) || undefined,
+    caption,
     publishedAt: publishedFrom(raw),
     viewCount: 0,
     likeCount: countOf(raw, "reactionCount", "likeCount", "likes"),
@@ -105,8 +121,9 @@ export const linkedinProvider: SocialProvider = {
       queryParams: { url: url || contentId, post_url: url },
       maxCostUsd: 0.02,
     });
+    if (!res.output) return null;
     const rows = recordsOf(res.output, ["posts"]);
-    return rows[0] ? parseLinkedInPost(rows[0]) : parseLinkedInPost(payloadOf(res.output));
+    return rows[0] ? parseLinkedInPost(rows[0]) : parseLinkedInPost(res.output);
   },
   async officialFeed(handle, cursor) {
     const slug = handle.replace(/^@/, "").replace(/.*company\//, "").replace(/\/$/, "");
