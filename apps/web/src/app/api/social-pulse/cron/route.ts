@@ -1,17 +1,25 @@
-import { NextResponse, after } from "next/server";
-import { socialSchedulerService } from "@/server/services/social-scheduler";
+import { NextResponse } from "next/server";
+import { acceptSocialListeningCycle } from "@/server/services/social-cycle";
 
 /** Keep as high as the plan allows — discovery-only cycles should finish well under this. */
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-function authorizeCron(request: Request): boolean {
+export function authorizeCron(request: Request): boolean {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return true;
   const { searchParams } = new URL(request.url);
   if (searchParams.get("key") === cronSecret) return true;
   const authHeader = request.headers.get("authorization");
   return authHeader === `Bearer ${cronSecret}`;
+}
+
+/** HEAD must not run discovery. Next would otherwise dispatch HEAD through GET. */
+export function HEAD() {
+  return new NextResponse(null, {
+    status: 405,
+    headers: { Allow: "GET, POST" },
+  });
 }
 
 export async function GET(request: Request) {
@@ -28,23 +36,10 @@ export async function GET(request: Request) {
       );
     }
 
-    const { searchParams } = new URL(request.url);
-    const mode = (searchParams.get("mode") || "discover").toLowerCase();
-    const syncComments = mode === "comments" || mode === "full";
-    const discovery = mode !== "comments";
-
-    // Return immediately so schedulers (GitHub Actions / Vercel Cron) don't time out waiting.
-    // Work continues in the same invocation via after().
-    after(async () => {
-      try {
-        const result = await socialSchedulerService.runCycle({ syncComments, discovery });
-        console.log(
-          `[CRON] mode=${mode} posts=${result.newPostsDiscovered} comments=${result.newCommentsCollected} cost=${result.tregCostUsd}`
-        );
-      } catch (err) {
-        console.error("[CRON /api/social-pulse/cron] background cycle error:", err);
-      }
-    });
+    const mode = acceptSocialListeningCycle(
+      new URL(request.url).searchParams.get("mode") || "discover",
+      "cron"
+    );
 
     return NextResponse.json({
       success: true,
@@ -52,9 +47,10 @@ export async function GET(request: Request) {
       mode,
       message: "Social listening cycle accepted",
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Cron failed";
     console.error("[CRON /api/social-pulse/cron] Error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
