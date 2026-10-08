@@ -157,6 +157,17 @@ export function hasUtahCityPhrase(text: string): boolean {
   return UTAH_CITY_NAME.test(text || "");
 }
 
+/**
+ * #utahcity / "Utah City" / utahcity. The "best Utah city to live in" idiom is not this signal.
+ * A hit blocks a lookalike hard-reject.
+ */
+export function hasProtectedUtahCitySignal(text: string): boolean {
+  const raw = text || "";
+  if (!hasUtahCityPhrase(raw)) return false;
+  const withoutIdiom = raw.replace(/\bbest\s+utah\s+city\s+to\s+live(?:\s+in)?\b/gi, " ");
+  return hasUtahCityPhrase(withoutIdiom);
+}
+
 /** A hashtag (or the official @) with no other words is a candidate, not a relevant post. */
 export function isHashtagOnlyCandidate(text: string): boolean {
   const raw = text || "";
