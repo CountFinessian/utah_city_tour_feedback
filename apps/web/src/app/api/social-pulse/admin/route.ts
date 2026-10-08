@@ -5,6 +5,12 @@ import { socialSchedulerService } from "@/server/services/social-scheduler";
 import { tregClient } from "@/server/services/treg-client";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 import { resolveMaxQueriesPerCycle } from "@/domain/social-listening/query-rotation";
+import {
+  resolveCycleBudgetUsd,
+  resolveCycleDeadlineMs,
+  resolveMaxCommentPages,
+  resolveMaxReplyParents,
+} from "@/domain/social-listening/comment-sync";
 
 export const maxDuration = 300;
 
@@ -27,8 +33,11 @@ export async function GET() {
         totalQueries: queries.length,
         lastRunAt,
         cronSchedule: "every 3 hours (GitHub Actions) + daily Vercel backup",
-        cycleBudgetUsd: Number(process.env.SOCIAL_LISTENING_CYCLE_BUDGET_USD || "0.5"),
+        cycleBudgetUsd: resolveCycleBudgetUsd(),
         maxQueriesPerCycle: resolveMaxQueriesPerCycle(),
+        maxCommentPages: resolveMaxCommentPages(),
+        maxReplyParents: resolveMaxReplyParents(),
+        cycleDeadlineMs: resolveCycleDeadlineMs(),
       },
     });
   } catch (err: any) {
