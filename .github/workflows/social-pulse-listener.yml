@@ -36,11 +36,19 @@ jobs:
           MODE: ${{ steps.mode.outputs.mode }}
         run: |
           set -euo pipefail
-          url="https://utahcity.app/api/social-pulse/cron?mode=${MODE}"
+          # Use www — apex utahcity.app returns 308 and curl without -L fails the job.
+          url="https://www.utahcity.app/api/social-pulse/cron?mode=${MODE}"
           if [ -n "${CRON_SECRET:-}" ]; then
-            code=$(curl -sS -o /tmp/listener.json -w "%{http_code}"               -X POST "$url"               -H "Authorization: Bearer ${CRON_SECRET}"               -H "Content-Type: application/json"               --max-time 60)
+            code=$(curl -sS -L -o /tmp/listener.json -w "%{http_code}" \
+              -X POST "$url" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              -H "Content-Type: application/json" \
+              --max-time 60)
           else
-            code=$(curl -sS -o /tmp/listener.json -w "%{http_code}"               -X POST "$url"               -H "Content-Type: application/json"               --max-time 60)
+            code=$(curl -sS -L -o /tmp/listener.json -w "%{http_code}" \
+              -X POST "$url" \
+              -H "Content-Type: application/json" \
+              --max-time 60)
           fi
           echo "HTTP $code mode=$MODE"
           cat /tmp/listener.json || true
