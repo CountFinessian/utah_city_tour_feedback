@@ -57,6 +57,32 @@ export interface CommentFetchOptions {
   includeReplies?: boolean;
 }
 
+export interface CommentPageQuery {
+  platform: Platform;
+  contentId: string;
+  url?: string;
+  /** Provider token for the next page. Omit to start at the first page. */
+  cursor?: string;
+  phase?: "comments" | "replies";
+  replyParentId?: string;
+  /** Sticky provider choice from an earlier page (Instagram AnyAPI vs routed). */
+  provider?: string;
+}
+
+export interface CommentPageResult {
+  comments: TregCommentItem[];
+  nextCursor?: string;
+  done: boolean;
+  phase: "comments" | "replies";
+  provider?: string;
+}
+
+function tikTokCursorParam(cursor?: string): string | number {
+  if (!cursor) return 0;
+  if (/^\d+$/.test(cursor) && cursor.length <= 15) return Number(cursor);
+  return cursor;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -459,68 +485,184 @@ export class TregClient {
     return [];
   }
 
-  private async fetchTikTokComments(videoId: string, maxPages: number): Promise<TregCommentItem[]> {
-    const all: TregCommentItem[] = [];
-    const seen = new Set<string>();
-    let cursor: string | number | undefined = 0;
+  /**
+   * One provider page, including the cursor needed to resume after a time or budget stop.
+   */
+  async getCommentPage(query: CommentPageQuery): Promise<CommentPageResult> {
+    const phase = query.phase ?? "comments";
+    if (useFixtures()) {
+      if (query.cursor || phase === "replies") {
+        return { comments: [], done: true, phase };
+      }
+      const fixtureComments = await this.loadFixtureComments(query.contentId, query.url);
+      if (fixtureComments && fixtureComments.length > 0) {
+        return { comments: fixtureComments, done: true, phase: "comments" };
+      }
+    }
 
-    for (let page = 0; page < maxPages; page++) {
-      // Prefer TikHub app endpoint (reliable cursor) over routed waterfall
-      const pageCursor: string | number = cursor ?? 0;
-      const res: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
-        endpointId: "tikhub.x.tiktok-app-v3-fetch-video-comments",
-        method: "GET",
-        queryParams: {
-          aweme_id: videoId,
-          cursor: pageCursor,
-          count: 50,
-        },
+    if (phase === "replies") {
+      if (query.platform !== "instagram" || !query.replyParentId) {
+        return { comments: [], done: true, phase: "replies" };
+      }
+      const postUrl = query.url || `https://www.instagram.com/reel/${query.contentId}/`;
+      return this.fetchInstagramReplyPage(postUrl, query.replyParentId, query.cursor);
+    }
+
+    if (query.platform === "tiktok") return this.fetchTikTokCommentPage(query.contentId, query.cursor);
+    if (query.platform === "instagram") {
+      return this.fetchInstagramCommentPage(query.contentId, query.url, query.cursor, query.provider);
+    }
+    if (query.platform === "youtube") {
+      return this.fetchSimpleCommentPage("treg.youtube.video.comments", { video_id: query.contentId }, query.cursor);
+    }
+    if (query.platform === "x") {
+      return this.fetchSimpleCommentPage("treg.x.post.comments", { tweet_id: query.contentId }, query.cursor);
+    }
+    if (query.platform === "reddit") return this.fetchRedditCommentPage(query.contentId, query.url, query.cursor);
+    if (query.platform === "facebook") return this.fetchFacebookCommentPage(query.contentId, query.url, query.cursor);
+    return { comments: [], done: true, phase: "comments" };
+  }
+
+  private async fetchTikTokCommentPage(videoId: string, cursor?: string): Promise<CommentPageResult> {
+    const pageCursor = tikTokCursorParam(cursor);
+    const res: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
+      endpointId: "tikhub.x.tiktok-app-v3-fetch-video-comments",
+      method: "GET",
+      queryParams: {
+        aweme_id: videoId,
+        cursor: pageCursor,
+        count: 50,
+      },
+      maxCostUsd: 0.05,
+    });
+
+    let out: Record<string, unknown> = res.output || {};
+    let nested: Record<string, unknown> = asRecord(out.data) || out;
+    let list: unknown[] = firstArray(
+      out.comments,
+      nested.comments,
+      nested.comments_list,
+      asRecord(nested.data)?.comments
+    );
+
+    if (!list.length && !cursor) {
+      const routed: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
+        endpointId: "treg.tiktok.video.comments",
+        method: "POST",
+        data: { video_id: videoId, aweme_id: videoId },
         maxCostUsd: 0.05,
       });
+      out = routed.output || {};
+      nested = asRecord(out.data) || out;
+      list = firstArray(out.comments, nested.comments, nested.comments_list);
+    }
 
-      let out: Record<string, unknown> = res.output || {};
-      // TikHub often nests under data / comments
-      let nested: Record<string, unknown> = asRecord(out.data) || out;
-      let list: unknown[] = firstArray(
-        out.comments,
-        nested.comments,
-        nested.comments_list,
-        asRecord(nested.data)?.comments
-      );
+    const seen = new Set<string>();
+    const comments: TregCommentItem[] = [];
+    for (const raw of list) {
+      const mapped = this.mapTikTokComment(asRecord(raw) || {});
+      if (!mapped.commentId || seen.has(mapped.commentId)) continue;
+      seen.add(mapped.commentId);
+      comments.push(mapped);
+    }
 
-      // Fallback to routed endpoint if direct miss
-      if (!list.length && page === 0) {
-        const routed: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
-          endpointId: "treg.tiktok.video.comments",
-          method: "POST",
-          data: { video_id: videoId, aweme_id: videoId },
-          maxCostUsd: 0.05,
-        });
-        out = routed.output || {};
-        nested = asRecord(out.data) || out;
-        list = firstArray(out.comments, nested.comments, nested.comments_list);
+    const nextRaw: unknown = pickCursor(out) || pickCursor(nested) || nested.cursor;
+    const next = typeof nextRaw === "string" || typeof nextRaw === "number" ? String(nextRaw) : undefined;
+    const hasMore = Boolean(
+      out.has_more ?? nested.has_more ?? (next && next !== String(pageCursor))
+    );
+    const done = !list.length || comments.length === 0 || !hasMore || !next || next === String(pageCursor);
+    return {
+      comments,
+      nextCursor: done ? undefined : next,
+      done,
+      phase: "comments",
+    };
+  }
+
+  private async fetchTikTokComments(videoId: string, maxPages: number): Promise<TregCommentItem[]> {
+    return this.collectCommentPages(maxPages, (cursor) => this.fetchTikTokCommentPage(videoId, cursor));
+  }
+
+  private async collectCommentPages(
+    maxPages: number,
+    fetchPage: (cursor?: string) => Promise<CommentPageResult>
+  ): Promise<TregCommentItem[]> {
+    const all: TregCommentItem[] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < maxPages; page++) {
+      const result = await fetchPage(cursor);
+      let added = 0;
+      for (const comment of result.comments) {
+        if (!comment.commentId || seen.has(comment.commentId)) continue;
+        seen.add(comment.commentId);
+        all.push(comment);
+        added++;
       }
-
-      let newOnPage = 0;
-      for (const raw of list) {
-        const c = asRecord(raw) || {};
-        const mapped = this.mapTikTokComment(c);
-        if (!mapped.commentId || seen.has(mapped.commentId)) continue;
-        seen.add(mapped.commentId);
-        all.push(mapped);
-        newOnPage++;
-      }
-      const nextRaw: unknown = pickCursor(out) || pickCursor(nested) || nested.cursor;
-      const next: string | number | undefined =
-        typeof nextRaw === "string" || typeof nextRaw === "number" ? nextRaw : undefined;
-      const hasMore = Boolean(
-        out.has_more ?? nested.has_more ?? (next !== undefined && next !== "" && next !== cursor)
-      );
-      if (!list.length || newOnPage === 0 || !hasMore) break;
-      cursor = next;
-      if (cursor === undefined) break;
+      if (added === 0 || result.done || !result.nextCursor) break;
+      cursor = result.nextCursor;
     }
     return all;
+  }
+
+  private async fetchInstagramCommentPage(
+    shortcode: string,
+    url: string | undefined,
+    cursor?: string,
+    provider?: string
+  ): Promise<CommentPageResult> {
+    const postUrl = url || `https://www.instagram.com/reel/${shortcode}/`;
+    let list: unknown[] = [];
+    let next: string | undefined;
+    let usedProvider = provider === "routed" ? "routed" : "anyapi";
+
+    if (usedProvider !== "routed") {
+      const body: Record<string, unknown> = { url: postUrl };
+      if (cursor) body.cursor = cursor;
+      const res = await this.call<Record<string, unknown>>({
+        endpointId: "anyapi.instagram.post.comments",
+        method: "POST",
+        data: body,
+        maxCostUsd: 0.05,
+      });
+      const out = res.output || {};
+      const data = asRecord(out.data);
+      if (data && Array.isArray(data.comments)) {
+        list = data.comments;
+        next = typeof data.nextCursor === "string" ? data.nextCursor : pickCursor(data);
+      } else if (!cursor) {
+        usedProvider = "routed";
+      }
+    }
+
+    if (usedProvider === "routed") {
+      const routed = await this.call<Record<string, unknown>>({
+        endpointId: "treg.instagram.post.comments",
+        method: "POST",
+        data: cursor ? { shortcode, url: postUrl, cursor } : { shortcode, url: postUrl },
+      });
+      const routOut = routed.output || {};
+      list = firstArray(routOut.comments, asRecord(routOut.data)?.comments);
+      next = pickCursor(routOut) || pickCursor(asRecord(routOut.data));
+    }
+
+    const seen = new Set<string>();
+    const comments: TregCommentItem[] = [];
+    for (const raw of list) {
+      const mapped = this.mapInstagramComment(asRecord(raw) || {}, shortcode);
+      if (!mapped.commentId || seen.has(mapped.commentId)) continue;
+      seen.add(mapped.commentId);
+      comments.push(mapped);
+    }
+    const done = !list.length || comments.length === 0 || !next || next === cursor;
+    return {
+      comments,
+      nextCursor: done ? undefined : next,
+      done,
+      phase: "comments",
+      provider: usedProvider,
+    };
   }
 
   private async fetchInstagramComments(
@@ -534,56 +676,20 @@ export class TregClient {
     const all: TregCommentItem[] = [];
     const seen = new Set<string>();
     let cursor: string | undefined;
+    let provider: string | undefined;
 
-    // Prefer AnyAPI for reliable cursor pagination; fall back to routed once if needed
-    let useRouted = false;
     for (let page = 0; page < maxPages; page++) {
-      let list: unknown[] = [];
-      let next: string | undefined;
-
-      if (!useRouted) {
-        const body: Record<string, unknown> = { url: postUrl };
-        if (cursor) body.cursor = cursor;
-        const res = await this.call<Record<string, unknown>>({
-          endpointId: "anyapi.instagram.post.comments",
-          method: "POST",
-          data: body,
-          maxCostUsd: 0.05,
-        });
-        const out = res.output || {};
-        const data = asRecord(out.data);
-        if (data && Array.isArray(data.comments)) {
-          list = data.comments;
-          next = typeof data.nextCursor === "string" ? data.nextCursor : pickCursor(data);
-        } else if (page === 0) {
-          useRouted = true;
-        }
+      const result = await this.fetchInstagramCommentPage(shortcode, url, cursor, provider);
+      provider = result.provider;
+      let added = 0;
+      for (const comment of result.comments) {
+        if (!comment.commentId || seen.has(comment.commentId)) continue;
+        seen.add(comment.commentId);
+        all.push(comment);
+        added++;
       }
-
-      if (useRouted) {
-        const routed = await this.call<Record<string, unknown>>({
-          endpointId: "treg.instagram.post.comments",
-          method: "POST",
-          data: cursor
-            ? { shortcode, url: postUrl, cursor }
-            : { shortcode, url: postUrl },
-        });
-        const routOut = routed.output || {};
-        list = firstArray(routOut.comments, asRecord(routOut.data)?.comments);
-        next = pickCursor(routOut) || pickCursor(asRecord(routOut.data));
-      }
-
-      let newOnPage = 0;
-      for (const raw of list) {
-        const c = asRecord(raw) || {};
-        const mapped = this.mapInstagramComment(c, shortcode);
-        if (!mapped.commentId || seen.has(mapped.commentId)) continue;
-        seen.add(mapped.commentId);
-        all.push(mapped);
-        newOnPage++;
-      }
-      if (!list.length || newOnPage === 0 || !next || next === cursor) break;
-      cursor = next;
+      if (added === 0 || result.done || !result.nextCursor) break;
+      cursor = result.nextCursor;
     }
 
     if (includeReplies) {
@@ -604,41 +710,102 @@ export class TregClient {
     return all;
   }
 
+  private async fetchInstagramReplyPage(
+    postUrl: string,
+    commentId: string,
+    cursor?: string
+  ): Promise<CommentPageResult> {
+    const body: Record<string, unknown> = { url: postUrl, commentId };
+    if (cursor) body.cursor = cursor;
+    const res = await this.call<Record<string, unknown>>({
+      endpointId: "anyapi.instagram.comment_replies",
+      method: "POST",
+      data: body,
+      maxCostUsd: 0.05,
+    });
+    const out = res.output || {};
+    const data = asRecord(out.data) || out;
+    const list = firstArray(data.comments, data.replies);
+    const seen = new Set<string>();
+    const comments: TregCommentItem[] = [];
+    for (const raw of list) {
+      const mapped = this.mapInstagramComment(asRecord(raw) || {}, commentId);
+      if (!mapped.commentId || seen.has(mapped.commentId)) continue;
+      seen.add(mapped.commentId);
+      comments.push({ ...mapped, parentCommentId: commentId });
+    }
+    const next = pickCursor(data) || pickCursor(out);
+    const done = !list.length || comments.length === 0 || !next || next === cursor;
+    return {
+      comments,
+      nextCursor: done ? undefined : next,
+      done,
+      phase: "replies",
+    };
+  }
+
   private async fetchInstagramReplies(
     postUrl: string,
     commentId: string,
     maxPages: number
   ): Promise<TregCommentItem[]> {
-    const all: TregCommentItem[] = [];
-    const seen = new Set<string>();
-    let cursor: string | undefined;
+    const replies = await this.collectCommentPages(maxPages, (cursor) =>
+      this.fetchInstagramReplyPage(postUrl, commentId, cursor)
+    );
+    return replies.map((reply) => ({ ...reply, parentCommentId: commentId }));
+  }
 
-    for (let page = 0; page < maxPages; page++) {
-      const body: Record<string, unknown> = { url: postUrl, commentId };
-      if (cursor) body.cursor = cursor;
-      const res = await this.call<Record<string, unknown>>({
-        endpointId: "anyapi.instagram.comment_replies",
-        method: "POST",
-        data: body,
-        maxCostUsd: 0.05,
-      });
-      const out = res.output || {};
-      const data = asRecord(out.data) || out;
-      const list = firstArray(data.comments, data.replies);
-      let newOnPage = 0;
-      for (const raw of list) {
-        const c = asRecord(raw) || {};
-        const mapped = this.mapInstagramComment(c, commentId);
-        if (!mapped.commentId || seen.has(mapped.commentId)) continue;
-        seen.add(mapped.commentId);
-        all.push(mapped);
-        newOnPage++;
-      }
-      const next = pickCursor(data) || pickCursor(out);
-      if (!list.length || newOnPage === 0 || !next || next === cursor) break;
-      cursor = next;
+  private async fetchRedditCommentPage(
+    contentId: string,
+    url: string | undefined,
+    cursor?: string
+  ): Promise<CommentPageResult> {
+    const postUrl = url || `https://www.reddit.com/comments/${contentId}/`;
+    const queryParams: Record<string, string | number | boolean> = { url: postUrl };
+    if (cursor) queryParams.cursor = cursor;
+    const res: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
+      endpointId: "scrapecreators.x.v1-reddit-post-comments",
+      method: "GET",
+      queryParams,
+      maxCostUsd: 0.05,
+    });
+    const out: Record<string, unknown> = res.output || {};
+    const data = asRecord(out.data) || out;
+    const list = firstArray(out.comments, data.comments, data.replies);
+    const flat: Record<string, unknown>[] = [];
+    const stack = [...list];
+    while (stack.length) {
+      const raw = stack.shift();
+      const c = asRecord(raw);
+      if (!c) continue;
+      flat.push(c);
+      const kids = firstArray(c.replies, c.children, asRecord(c.data)?.children);
+      for (const k of kids) stack.push(k);
     }
-    return all;
+
+    const seen = new Set<string>();
+    const comments: TregCommentItem[] = [];
+    for (const c of flat) {
+      const id = String(c.id || c.name || c.comment_id || "");
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      comments.push({
+        commentId: id.replace(/^t1_/, ""),
+        authorUsername: String(c.author || c.author_fullname || "reddit_user"),
+        text: String(c.body || c.text || c.selftext || ""),
+        createdAt: c.created_utc
+          ? new Date(Number(c.created_utc) * 1000).toISOString()
+          : c.created_at_iso
+            ? String(c.created_at_iso)
+            : new Date().toISOString(),
+        likeCount: Number(c.score || c.ups || c.likes || 0),
+        replyCount: Number(Array.isArray(c.replies) ? c.replies.length : c.reply_count || 0),
+        raw: c,
+      });
+    }
+    const next = pickCursor(out) || pickCursor(data);
+    const done = !flat.length || comments.length === 0 || !next || next === cursor;
+    return { comments, nextCursor: done ? undefined : next, done, phase: "comments" };
   }
 
   private async fetchRedditComments(
@@ -646,62 +813,62 @@ export class TregClient {
     url: string | undefined,
     maxPages: number
   ): Promise<TregCommentItem[]> {
-    const postUrl = url || `https://www.reddit.com/comments/${contentId}/`;
-    const all: TregCommentItem[] = [];
-    const seen = new Set<string>();
-    let cursor: string | undefined;
+    return this.collectCommentPages(maxPages, (cursor) => this.fetchRedditCommentPage(contentId, url, cursor));
+  }
 
-    for (let page = 0; page < maxPages; page++) {
-      const queryParams: Record<string, string | number | boolean> = { url: postUrl };
-      if (cursor) queryParams.cursor = cursor;
-      const res: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
-        endpointId: "scrapecreators.x.v1-reddit-post-comments",
+  private async fetchFacebookCommentPage(
+    contentId: string,
+    url: string | undefined,
+    cursor?: string
+  ): Promise<CommentPageResult> {
+    const postUrl = url || `https://www.facebook.com/posts/${contentId}`;
+    const res: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
+      endpointId: "treg.facebook.post.comments",
+      method: "POST",
+      data: cursor ? { url: postUrl, post_id: contentId, cursor } : { url: postUrl, post_id: contentId },
+      maxCostUsd: 0.08,
+    });
+    const out: Record<string, unknown> = res.output || {};
+    const data = asRecord(out.data) || out;
+    let pageList = firstArray(out.comments, data.comments);
+    if (!pageList.length && !cursor) {
+      const direct: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
+        endpointId: "scrapecreators.x.v1-facebook-post-comments",
         method: "GET",
-        queryParams,
+        queryParams: { url: postUrl },
         maxCostUsd: 0.05,
       });
-      const out: Record<string, unknown> = res.output || {};
-      const data = asRecord(out.data) || out;
-      const list = firstArray(out.comments, data.comments, data.replies);
-      // Flatten nested replies one level if present as children arrays
-      const flat: Record<string, unknown>[] = [];
-      const stack = [...list];
-      while (stack.length) {
-        const raw = stack.shift();
-        const c = asRecord(raw);
-        if (!c) continue;
-        flat.push(c);
-        const kids = firstArray(c.replies, c.children, asRecord(c.data)?.children);
-        for (const k of kids) stack.push(k);
-      }
-
-      let newOnPage = 0;
-      for (const c of flat) {
-        const id = String(c.id || c.name || c.comment_id || "");
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        all.push({
-          commentId: id.replace(/^t1_/, ""),
-          authorUsername: String(c.author || c.author_fullname || "reddit_user"),
-          text: String(c.body || c.text || c.selftext || ""),
-          createdAt: c.created_utc
-            ? new Date(Number(c.created_utc) * 1000).toISOString()
-            : c.created_at_iso
-              ? String(c.created_at_iso)
-              : new Date().toISOString(),
-          likeCount: Number(c.score || c.ups || c.likes || 0),
-          replyCount: Number(
-            Array.isArray(c.replies) ? c.replies.length : c.reply_count || 0
-          ),
-          raw: c,
-        });
-        newOnPage++;
-      }
-      const next = pickCursor(out) || pickCursor(data);
-      if (!flat.length || newOnPage === 0 || !next || next === cursor) break;
-      cursor = next;
+      const dOut = direct.output || {};
+      pageList = firstArray(dOut.comments, asRecord(dOut.data)?.comments);
     }
-    return all;
+
+    const seen = new Set<string>();
+    const comments: TregCommentItem[] = [];
+    for (const raw of pageList) {
+      const c = asRecord(raw) || {};
+      const id = String(c.id || c.comment_id || c.legacy_fbid || "");
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const author = asRecord(c.author) || asRecord(c.from) || {};
+      comments.push({
+        commentId: id,
+        authorUsername: String(author.name || author.username || c.author_name || c.author || "fb_user"),
+        text: String(c.text || c.message || c.comment_text || ""),
+        createdAt: c.created_time
+          ? String(c.created_time)
+          : c.created_at
+            ? String(c.created_at)
+            : c.timestamp
+              ? new Date(Number(c.timestamp) * 1000).toISOString()
+              : new Date().toISOString(),
+        likeCount: Number(c.like_count || c.likes || c.reaction_count || 0),
+        replyCount: Number(c.comment_count || c.reply_count || 0),
+        raw: c,
+      });
+    }
+    const next = pickCursor(out) || pickCursor(data);
+    const done = !pageList.length || comments.length === 0 || !next || next === cursor;
+    return { comments, nextCursor: done ? undefined : next, done, phase: "comments" };
   }
 
   private async fetchFacebookComments(
@@ -709,69 +876,42 @@ export class TregClient {
     url: string | undefined,
     maxPages: number
   ): Promise<TregCommentItem[]> {
-    const postUrl = url || `https://www.facebook.com/posts/${contentId}`;
-    const all: TregCommentItem[] = [];
+    return this.collectCommentPages(maxPages, (cursor) => this.fetchFacebookCommentPage(contentId, url, cursor));
+  }
+
+  private async fetchSimpleCommentPage(
+    endpointId: string,
+    baseBody: Record<string, unknown>,
+    cursor?: string
+  ): Promise<CommentPageResult> {
+    const data = cursor ? { ...baseBody, cursor } : { ...baseBody };
+    const res = await this.call<Record<string, unknown>>({
+      endpointId,
+      method: "POST",
+      data,
+    });
+    const out = res.output || {};
+    const list = firstArray(out.comments, asRecord(out.data)?.comments);
     const seen = new Set<string>();
-    let cursor: string | undefined;
-
-    for (let page = 0; page < maxPages; page++) {
-      // Prefer URL-based scrapecreators via routed endpoint
-      const res: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
-        endpointId: "treg.facebook.post.comments",
-        method: "POST",
-        data: cursor
-          ? { url: postUrl, post_id: contentId, cursor }
-          : { url: postUrl, post_id: contentId },
-        maxCostUsd: 0.08,
+    const comments: TregCommentItem[] = [];
+    for (const raw of list) {
+      const c = asRecord(raw) || {};
+      const id = String(c.id || c.commentId || c.tweet_id || "");
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      comments.push({
+        commentId: id,
+        authorUsername: String(c.author || c.authorDisplayName || c.author_username || c.username || "user"),
+        text: String(c.text || c.textDisplay || ""),
+        createdAt: String(c.publishedAt || c.created_at || new Date().toISOString()),
+        likeCount: Number(c.likeCount || c.like_count || 0),
+        replyCount: Number(c.totalReplyCount || c.reply_count || 0),
+        raw: c,
       });
-      const out: Record<string, unknown> = res.output || {};
-      const data = asRecord(out.data) || out;
-      const list = firstArray(out.comments, data.comments);
-
-      // Fallback direct scrapecreators if routed empty on page 1
-      let pageList = list;
-      if (!pageList.length && page === 0) {
-        const direct: TregCallResult<Record<string, unknown>> = await this.call<Record<string, unknown>>({
-          endpointId: "scrapecreators.x.v1-facebook-post-comments",
-          method: "GET",
-          queryParams: { url: postUrl },
-          maxCostUsd: 0.05,
-        });
-        const dOut = direct.output || {};
-        pageList = firstArray(dOut.comments, asRecord(dOut.data)?.comments);
-      }
-
-      let newOnPage = 0;
-      for (const raw of pageList) {
-        const c = asRecord(raw) || {};
-        const id = String(c.id || c.comment_id || c.legacy_fbid || "");
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        const author = asRecord(c.author) || asRecord(c.from) || {};
-        all.push({
-          commentId: id,
-          authorUsername: String(
-            author.name || author.username || c.author_name || c.author || "fb_user"
-          ),
-          text: String(c.text || c.message || c.comment_text || ""),
-          createdAt: c.created_time
-            ? String(c.created_time)
-            : c.created_at
-              ? String(c.created_at)
-              : c.timestamp
-                ? new Date(Number(c.timestamp) * 1000).toISOString()
-                : new Date().toISOString(),
-          likeCount: Number(c.like_count || c.likes || c.reaction_count || 0),
-          replyCount: Number(c.comment_count || c.reply_count || 0),
-          raw: c,
-        });
-        newOnPage++;
-      }
-      const next = pickCursor(out) || pickCursor(data);
-      if (!pageList.length || newOnPage === 0 || !next || next === cursor) break;
-      cursor = next;
     }
-    return all;
+    const next = pickCursor(out);
+    const done = !list.length || comments.length === 0 || !next || next === cursor;
+    return { comments, nextCursor: done ? undefined : next, done, phase: "comments" };
   }
 
   private async fetchSimpleComments(
@@ -779,43 +919,7 @@ export class TregClient {
     baseBody: Record<string, unknown>,
     maxPages: number
   ): Promise<TregCommentItem[]> {
-    const all: TregCommentItem[] = [];
-    const seen = new Set<string>();
-    let cursor: string | undefined;
-
-    for (let page = 0; page < maxPages; page++) {
-      const data = cursor ? { ...baseBody, cursor } : { ...baseBody };
-      const res = await this.call<Record<string, unknown>>({
-        endpointId,
-        method: "POST",
-        data,
-      });
-      const out = res.output || {};
-      const list = firstArray(out.comments, asRecord(out.data)?.comments);
-      let newOnPage = 0;
-      for (const raw of list) {
-        const c = asRecord(raw) || {};
-        const id = String(c.id || c.commentId || c.tweet_id || "");
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        all.push({
-          commentId: id,
-          authorUsername: String(
-            c.author || c.authorDisplayName || c.author_username || c.username || "user"
-          ),
-          text: String(c.text || c.textDisplay || ""),
-          createdAt: String(c.publishedAt || c.created_at || new Date().toISOString()),
-          likeCount: Number(c.likeCount || c.like_count || 0),
-          replyCount: Number(c.totalReplyCount || c.reply_count || 0),
-          raw: c,
-        });
-        newOnPage++;
-      }
-      const next = pickCursor(out);
-      if (!list.length || newOnPage === 0 || !next || next === cursor) break;
-      cursor = next;
-    }
-    return all;
+    return this.collectCommentPages(maxPages, (cursor) => this.fetchSimpleCommentPage(endpointId, baseBody, cursor));
   }
 
   /** Live smoke checks for admin / CI. */

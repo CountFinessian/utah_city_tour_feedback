@@ -28,23 +28,46 @@ const TOPICS_LIST = [
   "other",
 ] as const;
 
-export async function analyzeSentimentAndTopic(
-  text: string,
-  context?: {
-    platform?: string;
-    parentPostSnippet?: string;
-  }
-): Promise<SentimentAnalysisResult> {
-  const normalized = (text || "").toLowerCase();
+const POSITIVE_CUES = [
+  "looks amazing",
+  "so excited",
+  "love this",
+  "awesome",
+  "beautiful",
+  "gorgeous",
+  "about time",
+  "can't wait",
+  "cant wait",
+  "needed this",
+];
+const NEGATIVE_CUES = [
+  "traffic is already terrible",
+  "traffic sucks",
+  "overpriced",
+  "ruining utah",
+  "hate this",
+  "overcrowded",
+  "too expensive",
+  "congestion",
+  "nightmare",
+  "stop building",
+  "disgusting",
+  "gross lake",
+  "shallow lake",
+];
+const POSITIVE_WORDS =
+  /\b(love|loved|loving|amazing|awesome|beautiful|gorgeous|excited|wonderful|perfect|stunning|impressive|fantastic|incredible|excellent|wholesome|iconic)\b|\bcool\b/;
+const NEGATIVE_WORDS =
+  /\b(hate|hated|terrible|nightmare|awful|disgusting|gross|overpriced|overcrowded|congestion|sucks|worst|ruined|ruining|ugly|trash|horrible|disappointing|polluted)\b/;
+const POSITIVE_EMOJI = /❤️|😍|🔥|👏|💯|🥰|😊|🙂/;
+const NEGATIVE_EMOJI = /😡|💩|👎|🤮|😠|🤬/;
 
-  // Fast rule check for clear-cut sentiment & topics to save tokens
-  const positiveCues = ["looks amazing", "so excited", "cool", "love this", "awesome", "beautiful", "gorgeous", "about time", "can't wait", "needed this"];
-  const negativeCues = ["traffic is already terrible", "traffic sucks", "overpriced", "ruining utah", "hate this", "overcrowded", "too expensive", "congestion", "nightmare", "stop building", "disgusting", "gross lake", "shallow lake"];
+export interface KeywordSentiment extends SentimentAnalysisResult {
+  /** True when the keyword pass cannot pick a side. Those comments are the only LLM candidates. */
+  ambiguous: boolean;
+}
 
-  const hasPos = positiveCues.some((c) => normalized.includes(c));
-  const hasNeg = negativeCues.some((c) => normalized.includes(c));
-
-  // Determine heuristic topic
+function heuristicTopicFor(normalized: string): Topic {
   let heuristicTopic: Topic = "general_opinion";
   if (
     normalized.includes("google maps") ||
@@ -86,10 +109,36 @@ export async function analyzeSentimentAndTopic(
   } else if (normalized.includes("downtown") || normalized.includes("master plan") || normalized.includes("city") || normalized.includes("growth")) {
     heuristicTopic = "development";
   }
+  return heuristicTopic;
+}
 
-  // If obvious and clear-cut without ambiguity
+function neutralFallback(topic: Topic, confidence = 0.7): SentimentAnalysisResult {
+  return {
+    sentiment: "neutral",
+    confidence,
+    target: "Utah City",
+    reason: "Descriptive statement or question regarding development details.",
+    primaryTopic: topic,
+    secondaryTopics: [],
+  };
+}
+
+/** Keyword and emoji pass. Ambiguous comments are the only ones that should call a model. */
+export function classifyCommentByKeyword(text: string): KeywordSentiment {
+  const normalized = (text || "").toLowerCase();
+  const heuristicTopic = heuristicTopicFor(normalized);
+  const hasPos =
+    POSITIVE_CUES.some((cue) => normalized.includes(cue)) ||
+    POSITIVE_WORDS.test(normalized) ||
+    POSITIVE_EMOJI.test(text || "");
+  const hasNeg =
+    NEGATIVE_CUES.some((cue) => normalized.includes(cue)) ||
+    NEGATIVE_WORDS.test(normalized) ||
+    NEGATIVE_EMOJI.test(text || "");
+
   if (hasNeg && !hasPos) {
     return {
+      ambiguous: false,
       sentiment: "negative",
       confidence: 0.9,
       target: "Utah City development / impact",
@@ -101,6 +150,7 @@ export async function analyzeSentimentAndTopic(
 
   if (hasPos && !hasNeg) {
     return {
+      ambiguous: false,
       sentiment: "positive",
       confidence: 0.9,
       target: "Utah City development / amenities",
@@ -110,21 +160,34 @@ export async function analyzeSentimentAndTopic(
     };
   }
 
-  // If no LLM configured, default to neutral classification
-  if (!hasLLM()) {
-    return {
-      sentiment: "neutral",
-      confidence: 0.7,
-      target: "Utah City",
-      reason: "Descriptive statement or question regarding development details.",
-      primaryTopic: heuristicTopic,
-      secondaryTopics: [],
-    };
-  }
+  return {
+    ...neutralFallback(heuristicTopic),
+    ambiguous: true,
+  };
+}
 
-  // LLM Sentiment & Topic Classification
-  try {
-    const prompt = `You are an expert social media sentiment analyst evaluating commentary on Utah City (the new master-planned downtown development in Vineyard, UT).
+const sentimentSchema = z.object({
+  sentiment: z.enum(["positive", "neutral", "negative"]).describe("Sentiment specifically toward Utah City"),
+  confidence: z.number().min(0).max(1).describe("Confidence score between 0.0 and 1.0"),
+  target: z.string().describe("Specific entity or aspect the sentiment targets (e.g. Utah City, Vineyard Traffic, Fini Pizza)"),
+  reason: z.string().describe("Concise reason explaining the sentiment verdict"),
+  primary_topic: z.enum(TOPICS_LIST).describe("Primary topic"),
+  secondary_topics: z.array(z.enum(TOPICS_LIST)).describe("Secondary topics if applicable"),
+});
+
+function fromModelObject(object: z.infer<typeof sentimentSchema>): SentimentAnalysisResult {
+  return {
+    sentiment: object.sentiment,
+    confidence: object.confidence,
+    target: object.target,
+    reason: object.reason,
+    primaryTopic: object.primary_topic,
+    secondaryTopics: object.secondary_topics,
+  };
+}
+
+function sentimentPrompt(text: string, context?: { parentPostSnippet?: string }): string {
+  return `You are an expert social media sentiment analyst evaluating commentary on Utah City (the new master-planned downtown development in Vineyard, UT).
 
 Target Content: """${text}"""
 ${context?.parentPostSnippet ? `Context of post being discussed: """${context.parentPostSnippet}"""` : ""}
@@ -139,37 +202,109 @@ Important Rules:
 - Enthusiasm ("This looks so great for Utah County!") -> POSITIVE.
 - Frustration ("The roads are already full, why add more people?") -> NEGATIVE.
 - Primary topic must be chosen from the allowed list.`;
+}
 
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+export interface ClassifyCommentsOptions {
+  platform?: string;
+  parentPostSnippet?: string;
+  concurrency?: number;
+  batchSize?: number;
+  /** When this returns true, remaining ambiguous comments stay on the keyword fallback. */
+  skipLlm?: () => boolean;
+}
+
+/**
+ * Keyword pass for every comment. One model call covers a batch of ambiguous comments,
+ * and only a few batches run at once.
+ */
+export async function classifyComments(
+  texts: string[],
+  options?: ClassifyCommentsOptions
+): Promise<SentimentAnalysisResult[]> {
+  const keywords = texts.map((text) => classifyCommentByKeyword(text));
+  const results: SentimentAnalysisResult[] = keywords.map(({ ambiguous: _ambiguous, ...rest }) => rest);
+  if (!hasLLM()) return results;
+
+  const ambiguousIndexes = keywords
+    .map((item, index) => (item.ambiguous ? index : -1))
+    .filter((index) => index >= 0);
+  if (ambiguousIndexes.length === 0) return results;
+
+  const batchSize = Math.max(1, options?.batchSize ?? 20);
+  const chunks: number[][] = [];
+  for (let i = 0; i < ambiguousIndexes.length; i += batchSize) {
+    chunks.push(ambiguousIndexes.slice(i, i + batchSize));
+  }
+
+  await mapPool(chunks, Math.max(1, options?.concurrency ?? 4), async (chunk) => {
+    if (options?.skipLlm?.()) return;
+    const listed = chunk
+      .map((index, position) => `${position}. ${texts[index]}`)
+      .join("\n");
+    try {
+      const res = await generateObject({
+        model: llmModel(),
+        schema: z.object({
+          results: z.array(
+            sentimentSchema.extend({
+              index: z.number().int().describe("Index of the comment in the batch, starting at 0"),
+            })
+          ),
+        }),
+        prompt: `${sentimentPrompt("(see numbered comments)", options)}
+
+Classify each numbered comment. Return one result per comment with its index.
+Comments:
+${listed}`,
+      });
+      for (const item of res.object.results) {
+        const sourceIndex = chunk[item.index];
+        if (sourceIndex === undefined) continue;
+        results[sourceIndex] = fromModelObject(item);
+      }
+    } catch {
+      // Keep the keyword fallback already stored for this chunk.
+    }
+  });
+
+  return results;
+}
+
+export async function analyzeSentimentAndTopic(
+  text: string,
+  context?: {
+    platform?: string;
+    parentPostSnippet?: string;
+  }
+): Promise<SentimentAnalysisResult> {
+  const keyword = classifyCommentByKeyword(text);
+  if (!keyword.ambiguous || !hasLLM()) {
+    const { ambiguous: _ambiguous, ...rest } = keyword;
+    return rest;
+  }
+
+  try {
     const res = await generateObject({
       model: llmModel(),
-      schema: z.object({
-        sentiment: z.enum(["positive", "neutral", "negative"]).describe("Sentiment specifically toward Utah City"),
-        confidence: z.number().min(0).max(1).describe("Confidence score between 0.0 and 1.0"),
-        target: z.string().describe("Specific entity or aspect the sentiment targets (e.g. Utah City, Vineyard Traffic, Fini Pizza)"),
-        reason: z.string().describe("Concise reason explaining the sentiment verdict"),
-        primary_topic: z.enum(TOPICS_LIST).describe("Primary topic"),
-        secondary_topics: z.array(z.enum(TOPICS_LIST)).describe("Secondary topics if applicable"),
-      }),
-      prompt,
+      schema: sentimentSchema,
+      prompt: sentimentPrompt(text, context),
     });
-
-    return {
-      sentiment: res.object.sentiment,
-      confidence: res.object.confidence,
-      target: res.object.target,
-      reason: res.object.reason,
-      primaryTopic: res.object.primary_topic,
-      secondaryTopics: res.object.secondary_topics,
-    };
-  } catch (err: any) {
-    return {
-      sentiment: "neutral",
-      confidence: 0.6,
-      target: "Utah City",
-      reason: "Fallback neutral classification.",
-      primaryTopic: heuristicTopic,
-      secondaryTopics: [],
-    };
+    return fromModelObject(res.object);
+  } catch {
+    return neutralFallback(keyword.primaryTopic, 0.6);
   }
 }
 

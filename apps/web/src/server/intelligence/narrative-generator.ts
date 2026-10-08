@@ -2,7 +2,10 @@ import { generateText } from "ai";
 import { llmModel, hasLLM } from "../ai/model-config";
 import { SocialPulseMetrics } from "@/domain/social-listening/types";
 
-export async function generateNarrativeSummary(metrics: SocialPulseMetrics): Promise<string> {
+export async function generateNarrativeSummary(
+  metrics: SocialPulseMetrics,
+  options?: { useLlm?: boolean }
+): Promise<string> {
   const { attention, sentiment, topics, representativeComments, narrativeConfidence, periodDays } = metrics;
 
   // If no posts or tiny sample, return honest grounded sentence
@@ -28,7 +31,7 @@ export async function generateNarrativeSummary(metrics: SocialPulseMetrics): Pro
     return `Social conversation surrounding Utah City ${changeDir} by ${changePct}% over the last ${periodDays} days, driven largely by content focused on ${topTopicStr}. Public sentiment is currently ${sentDesc} (${posPct}% positive vs ${negPct}% negative), with excitement centering on new dining and downtown amenities, while concerns remain centered around infrastructure and local road capacity.${caveat}`;
   };
 
-  if (!hasLLM()) {
+  if (!hasLLM() || options?.useLlm === false) {
     return fallbackNarrative();
   }
 

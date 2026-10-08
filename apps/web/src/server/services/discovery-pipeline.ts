@@ -1,18 +1,32 @@
 import { tregClient } from "./treg-client";
+import type { TregCommentItem } from "./treg-client";
 import { getSocialRepository } from "../repositories/postgres-social-repository";
 import { classifyRelevance } from "../intelligence/relevance-classifier";
-import { analyzeSentimentAndTopic } from "../intelligence/sentiment-classifier";
+import { analyzeSentimentAndTopic, classifyComments } from "../intelligence/sentiment-classifier";
 import {
   parseAndNormalizePostIdentifier,
   parseAndNormalizeCommentIdentifier,
 } from "@/domain/social-listening/deduplication";
 import { inferDiscoveryStrategy } from "@/domain/social-listening/vocabulary";
 import { resolveMaxQueriesPerCycle, selectQueriesForCycle } from "@/domain/social-listening/query-rotation";
+import {
+  CommentSyncState,
+  freshCommentSync,
+  isCommentSyncPending,
+  needsFullCommentHarvest,
+  readCommentSync,
+  resolveClassifyBatchSize,
+  resolveClassifyConcurrency,
+  resolveCycleBudgetUsd,
+  resolveMaxCommentPages,
+  resolveMaxReplyParents,
+  withCommentSync,
+} from "@/domain/social-listening/comment-sync";
 import { Post, Comment, SearchRun, ActivityState } from "@/domain/social-listening/types";
 
-const DEFAULT_CYCLE_BUDGET_USD = Number(process.env.SOCIAL_LISTENING_CYCLE_BUDGET_USD || "0.5");
 const COMMENT_RESYNC_MIN_DELTA = 3;
 const COMMENT_RESYNC_STALE_HOURS = 24;
+const LLM_SKIP_BEFORE_DEADLINE_MS = 25_000;
 
 function getCommentsFetchedAt(post: Post): string | undefined {
   if (post.commentsFetchedAt) return post.commentsFetchedAt;
@@ -20,22 +34,13 @@ function getCommentsFetchedAt(post: Post): string | undefined {
   return typeof raw.commentsFetchedAt === "string" ? raw.commentsFetchedAt : undefined;
 }
 
-function withCommentsFetchedAt(post: Post, iso: string): Post {
-  return {
-    ...post,
-    commentsFetchedAt: iso,
-    rawProviderData: {
-      ...(post.rawProviderData || {}),
-      commentsFetchedAt: iso,
-    },
-  };
-}
-
 export function shouldSyncComments(post: Post, prevCommentCount?: number): boolean {
   if (!post.isRelevant) return false;
+  if (isCommentSyncPending(post)) return true;
   if (post.commentCount <= 0 && (prevCommentCount === undefined || prevCommentCount <= 0)) {
     return false;
   }
+  if (needsFullCommentHarvest(post)) return post.commentCount > 0;
 
   const fetchedAt = getCommentsFetchedAt(post);
   if (!fetchedAt) return post.commentCount > 0;
@@ -51,6 +56,23 @@ export function shouldSyncComments(post: Post, prevCommentCount?: number): boole
       post.activityState === "RESURGENT" ||
       post.activityState === "NEW");
   return stale && post.commentCount > 0;
+}
+
+export interface CommentSyncOptions {
+  /** `0` harvests every provider page. A positive number is a ceiling for the whole harvest. */
+  maxCommentPages?: number;
+  /** `0` walks every Instagram reply parent already seen. */
+  maxReplyParents?: number;
+  budgetUsd?: number;
+  /** Epoch ms. The loop stops before the next provider call once this time is reached. */
+  deadlineAt?: number;
+}
+
+export interface CommentSyncResult {
+  added: number;
+  /** True when time or spend should stop the rest of the cycle, not just this post. */
+  stopCycle: boolean;
+  complete: boolean;
 }
 
 export class DiscoveryPipelineService {
@@ -70,7 +92,7 @@ export class DiscoveryPipelineService {
     costUsd: number;
   }> {
     tregClient.resetCycleCost();
-    const budget = options?.cycleBudgetUsd ?? DEFAULT_CYCLE_BUDGET_USD;
+    const budget = options?.cycleBudgetUsd ?? resolveCycleBudgetUsd();
 
     const allQueries = await this.repo.listQueries(true);
     const targetQueries = options?.queryId
@@ -266,83 +288,198 @@ export class DiscoveryPipelineService {
   }
 
   /**
-   * Incremental comment ingestion with pagination + dedupe.
+   * Harvest comments one provider page at a time.
+   * Each page is classified and saved before the next fetch, and the resume cursor
+   * is stored on the post so a deadline or budget stop does not drop the thread.
    */
-  async syncCommentsForPost(
-    post: Post,
-    options?: { maxCommentPages?: number; maxReplyParents?: number }
-  ): Promise<number> {
-    try {
-      const rawComments = await tregClient.getPostComments(post.platform, post.platformContentId, post.url, {
-        maxCommentPages: options?.maxCommentPages ?? 3,
-        includeReplies: post.platform === "instagram",
-        maxReplyParents: options?.maxReplyParents ?? 8,
-      });
-      if (!rawComments || rawComments.length === 0) {
-        const stamped = withCommentsFetchedAt(post, new Date().toISOString());
-        await this.repo.upsertPost(stamped);
-        return 0;
-      }
+  async syncCommentsForPost(post: Post, options?: CommentSyncOptions): Promise<CommentSyncResult> {
+    const budget = options?.budgetUsd ?? resolveCycleBudgetUsd();
+    const maxPages = options?.maxCommentPages ?? resolveMaxCommentPages();
+    const maxReplyParents = options?.maxReplyParents ?? resolveMaxReplyParents();
+    const includeReplies = post.platform === "instagram";
+    const existing = readCommentSync(post);
+    let state: CommentSyncState = !existing || existing.complete ? freshCommentSync() : existing;
+    let added = 0;
+    let touched = false;
 
-      const newCommentsToSave: Comment[] = [];
+    const known = new Set(
+      (await this.repo.listComments({ postId: post.id, limit: 20000 })).map((comment) => comment.canonicalId)
+    );
+
+    const stopForTime = () => typeof options?.deadlineAt === "number" && Date.now() >= options.deadlineAt;
+    const stopForBudget = () => tregClient.getCycleCostUsd() >= budget;
+
+    const persist = async (next: CommentSyncState, complete: boolean) => {
       const now = new Date().toISOString();
-
-      for (const item of rawComments) {
-        const { canonicalId, platformCommentId } = parseAndNormalizeCommentIdentifier(
-          post.platform,
-          item.commentId,
-          post.id
-        );
-
-        const existingComment = await this.repo.getCommentByCanonicalId(canonicalId);
-        if (!existingComment) {
-          const sentAnalysis = await analyzeSentimentAndTopic(item.text, {
-            platform: post.platform,
-            parentPostSnippet: (post.caption || "").slice(0, 100),
-          });
-
-          const evidenceScore = item.likeCount * 0.1 + sentAnalysis.confidence * 1.0;
-
-          newCommentsToSave.push({
-            id: `comm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            canonicalId,
-            platform: post.platform,
-            platformCommentId,
-            postId: post.id,
-            parentCommentId: item.parentCommentId,
-            authorUsername: item.authorUsername,
-            authorDisplayName: item.authorDisplayName,
-            text: item.text,
-            createdAt: item.createdAt,
-            firstSeenAt: now,
-            lastSeenAt: now,
-            likeCount: item.likeCount,
-            replyCount: item.replyCount,
-            sentiment: sentAnalysis.sentiment,
-            sentimentConfidence: sentAnalysis.confidence,
-            sentimentReason: sentAnalysis.reason,
-            sentimentTarget: sentAnalysis.target,
-            topic: sentAnalysis.primaryTopic,
-            evidenceScore,
-            rawProviderData: item.raw,
-          });
-        }
-      }
-
-      if (newCommentsToSave.length > 0) {
-        await this.repo.bulkUpsertComments(newCommentsToSave);
-      }
-
-      post.lastCommentCount = post.commentCount;
-      post.lastCheckedAt = now;
-      const stamped = withCommentsFetchedAt(post, now);
+      state = { ...next, complete, updatedAt: now };
+      const stamped = complete
+        ? withCommentSync({ ...post, lastCommentCount: post.commentCount }, state, now)
+        : withCommentSync(post, state);
+      Object.assign(post, stamped);
       await this.repo.upsertPost(stamped);
+    };
 
-      return newCommentsToSave.length;
+    try {
+      while (true) {
+        if (stopForTime()) {
+          if (touched) await persist(state, false);
+          console.log(`[Pipeline] comment sync paused post=${post.id} saved=${added} reason=deadline`);
+          return { added, stopCycle: true, complete: false };
+        }
+        if (stopForBudget()) {
+          if (touched) await persist(state, false);
+          console.log(`[Pipeline] comment sync paused post=${post.id} saved=${added} reason=budget`);
+          return { added, stopCycle: true, complete: false };
+        }
+        if (state.phase === "comments" && maxPages > 0 && state.pagesFetched >= maxPages) {
+          await persist(state, true);
+          console.warn(
+            `[Pipeline] comment page cap ${maxPages} reached for post=${post.id}; harvest marked complete`
+          );
+          return { added, stopCycle: false, complete: true };
+        }
+
+        if (state.phase === "replies") {
+          const capped = maxReplyParents > 0 && state.replyParentIndex >= maxReplyParents;
+          const parentId = state.pendingReplyParents[state.replyParentIndex];
+          if (capped || !parentId || !includeReplies) {
+            await persist(state, true);
+            console.log(`[Pipeline] comment sync complete post=${post.id} saved=${added} pages=${state.pagesFetched}`);
+            return { added, stopCycle: false, complete: true };
+          }
+
+          const page = await tregClient.getCommentPage({
+            platform: post.platform,
+            contentId: post.platformContentId,
+            url: post.url,
+            cursor: state.replyCursor,
+            phase: "replies",
+            replyParentId: parentId,
+          });
+          touched = true;
+          added += await this.saveCommentPage(post, page.comments, known, options?.deadlineAt);
+          if (page.done || !page.nextCursor) {
+            state = { ...state, replyParentIndex: state.replyParentIndex + 1, replyCursor: undefined };
+          } else {
+            state = { ...state, replyCursor: page.nextCursor };
+          }
+          await persist(state, false);
+          continue;
+        }
+
+        const page = await tregClient.getCommentPage({
+          platform: post.platform,
+          contentId: post.platformContentId,
+          url: post.url,
+          cursor: state.cursor,
+          phase: "comments",
+          provider: state.provider,
+        });
+        touched = true;
+        added += await this.saveCommentPage(post, page.comments, known, options?.deadlineAt);
+
+        if (includeReplies) {
+          const parents = new Set(state.pendingReplyParents);
+          for (const item of page.comments) {
+            if (item.replyCount > 0 && item.commentId && !item.parentCommentId) parents.add(item.commentId);
+          }
+          state = { ...state, pendingReplyParents: [...parents] };
+        }
+
+        state = {
+          ...state,
+          provider: page.provider || state.provider,
+          pagesFetched: state.pagesFetched + 1,
+        };
+
+        if (page.done || !page.nextCursor) {
+          state = { ...state, cursor: undefined, phase: includeReplies && state.pendingReplyParents.length > 0 ? "replies" : "comments" };
+          if (state.phase === "comments") {
+            await persist(state, true);
+            console.log(`[Pipeline] comment sync complete post=${post.id} saved=${added} pages=${state.pagesFetched}`);
+            return { added, stopCycle: false, complete: true };
+          }
+          await persist(state, false);
+          continue;
+        }
+
+        state = { ...state, cursor: page.nextCursor };
+        await persist(state, false);
+        console.log(
+          `[Pipeline] comment page saved post=${post.id} pages=${state.pagesFetched} new=${added} cursor=yes`
+        );
+      }
     } catch (err: any) {
       console.warn(`[Pipeline] Failed to sync comments for post ${post.id}:`, err.message);
-      return 0;
+      try {
+        await persist(state, false);
+      } catch (persistErr) {
+        console.warn(`[Pipeline] Failed to persist comment cursor for post ${post.id}:`, persistErr);
+      }
+      return { added, stopCycle: false, complete: false };
     }
+  }
+
+  private async saveCommentPage(
+    post: Post,
+    items: TregCommentItem[],
+    known: Set<string>,
+    deadlineAt?: number
+  ): Promise<number> {
+    const fresh = items.filter((item) => {
+      if (!item.commentId) return false;
+      const { canonicalId } = parseAndNormalizeCommentIdentifier(post.platform, item.commentId, post.id);
+      return !known.has(canonicalId);
+    });
+    if (fresh.length === 0) return 0;
+
+    const now = new Date().toISOString();
+    const analyses = await classifyComments(
+      fresh.map((item) => item.text),
+      {
+        platform: post.platform,
+        parentPostSnippet: (post.caption || "").slice(0, 100),
+        concurrency: resolveClassifyConcurrency(),
+        batchSize: resolveClassifyBatchSize(),
+        skipLlm: () => typeof deadlineAt === "number" && Date.now() >= deadlineAt - LLM_SKIP_BEFORE_DEADLINE_MS,
+      }
+    );
+
+    const comments: Comment[] = fresh.map((item, index) => {
+      const { canonicalId, platformCommentId } = parseAndNormalizeCommentIdentifier(
+        post.platform,
+        item.commentId,
+        post.id
+      );
+      const sentAnalysis = analyses[index];
+      known.add(canonicalId);
+      return {
+        id: `comm_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 7)}`,
+        canonicalId,
+        platform: post.platform,
+        platformCommentId,
+        postId: post.id,
+        parentCommentId: item.parentCommentId,
+        authorUsername: item.authorUsername,
+        authorDisplayName: item.authorDisplayName,
+        text: item.text,
+        createdAt: item.createdAt,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        likeCount: item.likeCount,
+        replyCount: item.replyCount,
+        sentiment: sentAnalysis?.sentiment,
+        sentimentConfidence: sentAnalysis?.confidence,
+        sentimentReason: sentAnalysis?.reason,
+        sentimentTarget: sentAnalysis?.target,
+        topic: sentAnalysis?.primaryTopic,
+        evidenceScore: item.likeCount * 0.1 + (sentAnalysis?.confidence || 0),
+        rawProviderData: item.raw,
+      };
+    });
+
+    await this.repo.bulkUpsertComments(comments);
+    return comments.length;
   }
 
   private determineActivityState(post: Post, prevViews: number, prevComments: number): ActivityState {

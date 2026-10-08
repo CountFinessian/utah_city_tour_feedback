@@ -1,4 +1,5 @@
 import { Post } from "@/domain/social-listening/types";
+import { isCommentSyncPending, resolveCycleBudgetUsd, resolveCycleDeadlineMs, resolveMaxCommentPages, resolveMaxReplyParents } from "@/domain/social-listening/comment-sync";
 import { getSocialRepository } from "../repositories/postgres-social-repository";
 import { discoveryPipelineService, shouldSyncComments } from "./discovery-pipeline";
 import { calculateDeterministicSocialMetrics } from "../analytics/social-metrics";
@@ -15,8 +16,13 @@ export function isBrandFollowPost(post: Post): boolean {
   return strategy === "account" || BRAND_HANDLES.has(author);
 }
 
-/** Brand-account posts sync first so comments on Utah City's own posts are not crowded out. */
+/**
+ * Resume an in-progress thread first, then Utah City's own posts.
+ * A saved cursor stays ahead of posts that have not been harvested yet.
+ */
 export function comparePostsForCommentSync(a: Post, b: Post): number {
+  const pending = Number(isCommentSyncPending(b)) - Number(isCommentSyncPending(a));
+  if (pending !== 0) return pending;
   return Number(isBrandFollowPost(b)) - Number(isBrandFollowPost(a));
 }
 
@@ -98,6 +104,8 @@ export class SocialSchedulerService {
     let resynced = 0;
 
     const maxCommentSyncPosts = Number(process.env.SOCIAL_LISTENING_MAX_COMMENT_POSTS || "5");
+    const cycleBudgetUsd = resolveCycleBudgetUsd();
+    const deadlineAt = Date.now() + resolveCycleDeadlineMs();
     for (const post of activePosts) {
       initialViewsTotal += post.lastViewCount || post.viewCount;
       currentViewsTotal += post.viewCount;
@@ -105,21 +113,28 @@ export class SocialSchedulerService {
       currentCommentsTotal += post.commentCount;
 
       if (!shouldSyncComments(post)) continue;
+      if (Date.now() >= deadlineAt) {
+        console.warn("[Scheduler] Stopping comment sync before the function time limit");
+        break;
+      }
       if (resynced >= maxCommentSyncPosts) {
         console.warn(`[Scheduler] Comment sync post cap (${maxCommentSyncPosts}) reached`);
         break;
       }
-      if (tregClient.getCycleCostUsd() >= Number(process.env.SOCIAL_LISTENING_CYCLE_BUDGET_USD || "0.5")) {
+      if (tregClient.getCycleCostUsd() >= cycleBudgetUsd) {
         console.warn("[Scheduler] Skipping further comment sync — cycle budget reached");
         break;
       }
 
-      const addedComments = await discoveryPipelineService.syncCommentsForPost(post, {
-        maxCommentPages: 2,
-        maxReplyParents: 5,
+      const synced = await discoveryPipelineService.syncCommentsForPost(post, {
+        maxCommentPages: resolveMaxCommentPages(),
+        maxReplyParents: resolveMaxReplyParents(),
+        budgetUsd: cycleBudgetUsd,
+        deadlineAt,
       });
-      newCommentsTotal += addedComments;
+      newCommentsTotal += synced.added;
       resynced++;
+      if (synced.stopCycle) break;
     }
 
     const viewsVelocityDelta = currentViewsTotal - initialViewsTotal;
@@ -133,7 +148,9 @@ export class SocialSchedulerService {
       periodDays: 7,
     });
 
-    const narrative = await generateNarrativeSummary(metrics7d);
+    const narrative = await generateNarrativeSummary(metrics7d, {
+      useLlm: Date.now() < deadlineAt,
+    });
 
     try {
       const alertState = await this.repo.getListenerState();
