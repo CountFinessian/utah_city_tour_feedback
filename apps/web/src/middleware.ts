@@ -21,6 +21,9 @@ const LEADERSHIP_APIS = [
   "/api/analyst",
   "/api/digest",
   "/api/seed",
+  "/api/social-pulse/admin",
+  "/api/social-pulse/posts",
+  "/api/social-pulse/refresh",
 ];
 
 function clearSessionAndRedirectToLogin(req: NextRequest, reason?: string) {

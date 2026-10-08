@@ -97,13 +97,18 @@ export default function SocialPulsePage() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    let triggerError: string | null = null;
     try {
-      // Trigger live 3-hour cron sync cycle
-      await fetch("/api/social-pulse/cron");
+      const res = await fetch("/api/social-pulse/refresh", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        triggerError = body.error || "Could not start a listening cycle";
+      }
     } catch {
-      // fallback to regular fetch
+      triggerError = "Could not start a listening cycle";
     }
     await fetchData(period);
+    if (triggerError) setError(triggerError);
   };
 
   return (
@@ -151,7 +156,7 @@ export default function SocialPulsePage() {
             onClick={handleRefresh}
             disabled={refreshing}
             className="p-2 text-slate-400 hover:text-white bg-white/[0.04] border border-white/10 rounded-lg hover:bg-white/[0.08] transition"
-            title="Trigger immediate 3-hour sync cycle"
+            title="Start a listening cycle"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#20d0c3]" : ""}`} />
           </button>
