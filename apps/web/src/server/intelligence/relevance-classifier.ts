@@ -7,12 +7,15 @@ import {
   hasUtahCityPhrase,
   isContentRelevant,
   isHashtagOnlyCandidate,
+  hasLocalPlaceSignal,
   isOfficialAuthor,
   isVideoPost,
+  lookalikeHit,
   looksUnverifiableClaim,
   resolveBorderline,
   rulesPreGate,
   SEEDED_OFFICIAL_ACCOUNTS,
+  withSeededExternalIds,
   type OfficialAccountRef,
   type RelevanceDecision,
 } from "@/domain/social-listening/relevance";
@@ -20,6 +23,7 @@ import type { RelevanceStatus } from "@/domain/social-listening/types";
 import {
   geminiFlashLiteCostMicro,
   hasRelevanceModel,
+  isModelUnavailableError,
   relevanceModel,
   resolveRelevanceModelName,
 } from "../ai/model-config";
@@ -130,6 +134,12 @@ function noModelDecision(text: string): { decision: RelevanceDecision; reason: s
       reason: "Hashtag alone is a candidate, not a relevant post.",
     };
   }
+  if (hasLocalPlaceSignal(text) || /\butah\b/i.test(text)) {
+    return {
+      decision: "needs_retry",
+      reason: "Local signal needs the relevance model, which did not run.",
+    };
+  }
   return {
     decision: "rejected_offtopic",
     reason: "No reference to Utah City or the Vineyard development.",
@@ -154,9 +164,9 @@ async function callModel(caption: string, transcript?: string): Promise<{ decisi
 
   const prompt = `Decide if this public post is about Utah City, the master-planned development in Vineyard, Utah (former Geneva Steel site on Utah Lake, the Greenline, 120 Bend, 220 Bend, about $1.8 billion).
 
-relevant: the post is about that development, its downtown, streets, buildings, or public reaction to it.
-rejected_lookalike: Park City, Salt Lake City, SLC, "best Utah city to live in", or generic Utah, unless the text clearly references the Vineyard development. A #utahcity hashtag alone is not enough.
-rejected_offtopic: something else.
+relevant: the post is about that development, its downtown, streets, buildings, public reaction to it, or a business or place there (Fini Cafe at the Greenline, Bella's Market, Utah City Racquet Club). Vineyard, Orem, Lindon, Utah County, Geneva, and the Greenline count when the post is about that place.
+rejected_lookalike: Park City, Salt Lake City, SLC, or "best Utah city to live in", unless the text also references the Vineyard development or one of those places. A #utahcity hashtag alone is not enough.
+rejected_offtopic: something else, and only when the text clearly is not about Utah City or those nearby places.
 rejected_unverifiable: a specific claim about Utah City that is made up or cannot be checked, such as an invented price, a secret payment, or a logo that cost a large unpublished sum. The published $1.8 billion project figure is fine.
 unsure: the text is not enough to decide.
 
@@ -186,6 +196,8 @@ export async function classifyRelevance(
     discoveryGroup?: string;
     author?: string;
     authorDisplayName?: string;
+    authorId?: string;
+    channelId?: string;
     url?: string;
     mediaKind?: string;
     officialAccounts?: OfficialAccountRef[];
@@ -193,12 +205,15 @@ export async function classifyRelevance(
     fetchTranscript?: () => Promise<TranscriptFetch | null>;
   }
 ): Promise<RelevanceClassificationResult> {
-  const accounts = metadata?.officialAccounts?.length ? metadata.officialAccounts : SEEDED_OFFICIAL_ACCOUNTS;
+  const accounts = withSeededExternalIds(
+    metadata?.officialAccounts?.length ? metadata.officialAccounts : SEEDED_OFFICIAL_ACCOUNTS
+  );
   const caption = text || "";
+  const authorIds = [metadata?.authorId, metadata?.channelId];
 
   if (
-    isOfficialAuthor(metadata?.platform, metadata?.author, accounts) ||
-    isOfficialAuthor(metadata?.platform, metadata?.authorDisplayName, accounts)
+    isOfficialAuthor(metadata?.platform, metadata?.author, accounts, authorIds) ||
+    isOfficialAuthor(metadata?.platform, metadata?.authorDisplayName, accounts, authorIds)
   ) {
     const handle = metadata?.author || metadata?.authorDisplayName || "official";
     const reason = `Official account @${handle}. Hidden as content. Comments stay in the harvest.`;
@@ -240,15 +255,24 @@ export async function classifyRelevance(
       stage = "stage2_llm";
       events.push({ decision, reason, costMicro: first.costMicro, stage: "stage2_llm" });
     } catch (error) {
+      if (isModelUnavailableError(error)) {
+        reason = `Model ${model} is not available: ${error instanceof Error ? error.message : "unknown"}.`;
+        events.push({ decision: "model_unavailable", reason, costMicro: 0, stage: "stage2_llm" });
+        return finish("needs_retry", reason, gate.matchedEntities, "stage2_llm", costMicro, events, { model });
+      }
       const fallback = noModelDecision(caption);
       decision = fallback.decision;
       reason = `${fallback.reason} Model call failed (${error instanceof Error ? error.message : "unknown"}).`;
       events.push({ decision, reason, costMicro: 0, stage: "stage1_rule" });
     }
 
+    const localVideo =
+      isVideoPost(metadata?.platform, metadata?.url, metadata?.mediaKind) &&
+      (hasLocalPlaceSignal(caption) || /\butah\b/i.test(caption)) &&
+      !lookalikeHit(caption);
     const needsTranscript =
       isVideoPost(metadata?.platform, metadata?.url, metadata?.mediaKind) &&
-      (decision === "relevant" || decision === "unsure") &&
+      (decision === "relevant" || decision === "unsure" || (localVideo && decision === "rejected_offtopic")) &&
       !transcript &&
       Boolean(metadata?.fetchTranscript);
 
@@ -272,6 +296,15 @@ export async function classifyRelevance(
           stage = "transcript";
           events.push({ decision, reason, costMicro: second.costMicro, stage: "transcript" });
         } catch (error) {
+          if (isModelUnavailableError(error)) {
+            reason = `Model ${model} is not available: ${error instanceof Error ? error.message : "unknown"}.`;
+            events.push({ decision: "model_unavailable", reason, costMicro: 0, stage: "transcript" });
+            return finish("needs_retry", reason, gate.matchedEntities, "transcript", costMicro, events, {
+              model,
+              transcript,
+              transcriptProvider,
+            });
+          }
           if (decision === "unsure") decision = resolveBorderline("unsure", `${caption}\n${transcript}`);
           reason = `${reason} Transcript model call failed (${error instanceof Error ? error.message : "unknown"}).`;
         }

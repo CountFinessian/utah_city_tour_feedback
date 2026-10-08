@@ -15,6 +15,8 @@ export interface TregSearchResultItem {
   url: string;
   authorUsername: string;
   authorDisplayName?: string;
+  authorId?: string;
+  channelId?: string;
   caption: string;
   title?: string;
   description?: string;

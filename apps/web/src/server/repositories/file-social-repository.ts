@@ -10,7 +10,13 @@ import {
   SearchTermSuggestion,
   SocialPipelineEvent,
 } from "@/domain/social-listening/types";
-import { postCommentsInDashboard, postShownAsContent, SEEDED_OFFICIAL_ACCOUNTS } from "@/domain/social-listening/relevance";
+import {
+  postCommentsInDashboard,
+  postNeedsRelevanceRecheck,
+  postShownAsContent,
+  SEEDED_OFFICIAL_ACCOUNTS,
+  withSeededExternalIds,
+} from "@/domain/social-listening/relevance";
 import { SocialListenerState, SocialListeningRepository } from "./social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 
@@ -120,8 +126,7 @@ export const fileSocialRepository: SocialListeningRepository = {
       res = res.filter((p) => (p.publishedAt || p.firstSeenAt) <= filter.endDate!);
     }
     if (filter?.staleRelevanceBefore) {
-      const cutoff = filter.staleRelevanceBefore;
-      res = res.filter((p) => !p.relevanceCheckedAt || p.relevanceCheckedAt < cutoff);
+      res = res.filter((p) => postNeedsRelevanceRecheck(p, filter.staleRelevanceBefore));
     }
     res.sort((a, b) => (b.publishedAt || b.firstSeenAt).localeCompare(a.publishedAt || a.firstSeenAt));
     if (filter?.limit) {
@@ -263,7 +268,7 @@ export const fileSocialRepository: SocialListeningRepository = {
   },
 
   async listOfficialAccounts() {
-    return SEEDED_OFFICIAL_ACCOUNTS;
+    return withSeededExternalIds(SEEDED_OFFICIAL_ACCOUNTS);
   },
 
   async recordPipelineEvent(event: SocialPipelineEvent): Promise<void> {

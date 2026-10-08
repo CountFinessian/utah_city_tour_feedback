@@ -1,10 +1,10 @@
 import { readFileSync } from "fs";
 import path from "path";
 import { describe, expect, it, vi } from "vitest";
-import { RELEVANCE_V2_VERSION } from "@/domain/social-listening/relevance";
+import { postNeedsRelevanceRecheck, RELEVANCE_V2_VERSION } from "@/domain/social-listening/relevance";
 import { Post, SocialPipelineEvent } from "@/domain/social-listening/types";
 import { classifyRelevance, relevanceGeminiBudgetMicro } from "@/server/intelligence/relevance-classifier";
-import { runReferenceEval, runRelevanceReeval } from "@/server/services/relevance-jobs";
+import { responseKeyStructure, runLookupDebug, runReferenceEval, runRelevanceReeval } from "@/server/services/relevance-jobs";
 import { REFERENCE_EVAL_POSTS } from "@/server/social/reference-posts";
 import type { TregSearchResultItem } from "@/server/social/providers/types";
 
@@ -62,6 +62,7 @@ describe("production relevance jobs", () => {
     expect(workflow).not.toContain("schedule:");
     expect(workflow).toContain("relevance-eval");
     expect(workflow).toContain("relevance-reeval");
+    expect(workflow).toContain("lookup-debug");
     expect(workflow).toContain("Authorization: Bearer ${CRON_SECRET}");
     expect(workflow).toContain("https://www.utahcity.app/api/social-pulse/cron?mode=${TASK}");
   });
@@ -203,5 +204,93 @@ describe("production relevance jobs", () => {
     expect(result.processed).toBe(0);
     expect(result.remaining).toBe(1);
     expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("re-judges legacy irrelevant posts even when their check timestamp is current", async () => {
+    const legacy = post({
+      id: "old-rules",
+      caption: "Utah City is finally opening its new downtown!",
+      relevanceStatus: "irrelevant",
+      relevanceReason: "Old rules: no utah city token.",
+      relevanceCheckedAt: "2026-10-09T00:00:00.000Z",
+      isRelevant: false,
+    });
+    expect(postNeedsRelevanceRecheck(legacy)).toBe(true);
+    const upserts: Post[] = [];
+    const result = await runRelevanceReeval({
+      classify: classifyRelevance,
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: async () => [legacy],
+      upsertPost: async (item) => {
+        upserts.push(item);
+        return item;
+      },
+      fetchTranscript: async () => null,
+    });
+    expect(result.processed).toBe(1);
+    expect(result.kept).toBe(1);
+    expect(upserts[0].relevanceStatus).toBe("relevant");
+    expect(upserts[0].relevanceReason).not.toContain("Old rules");
+  });
+
+  it("does not score an empty lookup as a no-mention reject", async () => {
+    const result = await runReferenceEval({
+      classify: classifyRelevance,
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      references: [
+        { url: "https://www.tiktok.com/@itsyaboievan11/video/7621280382356360462", spec: "GOOD", expected: "relevant" },
+      ],
+      fetchDetail: async () =>
+        detail({
+          platform: "tiktok",
+          url: "https://www.tiktok.com/@itsyaboievan11/video/7621280382356360462",
+          authorUsername: "itscarolynh",
+          caption: "",
+        }),
+      fetchTranscript: async () => {
+        throw new Error("empty lookup must not fetch a transcript");
+      },
+    });
+    expect(result.stopped).toBe("done");
+    expect(result.rows[0].decision).toBe("needs_retry");
+    expect(result.rows[0].reason).not.toMatch(/No reference to Utah City/);
+    expect(result.rows[0].correct).toBe("no");
+  });
+
+  it("stores only the key structure for lookup-debug", async () => {
+    const events: SocialPipelineEvent[] = [];
+    const upsert = vi.fn();
+    const result = await runLookupDebug({
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      tregBudgetUsd: 0.05,
+      references: REFERENCE_EVAL_POSTS.slice(0, 1),
+      upsertPost: upsert,
+      recordPipelineEvent: async (event) => {
+        events.push(event);
+      },
+      fetchDetail: async () =>
+        detail({
+          platform: "instagram",
+          caption: "Hello from the Greenline",
+          authorUsername: "utahcityutah",
+          authorId: "123",
+        }),
+    });
+    expect(upsert).not.toHaveBeenCalled();
+    expect(result.task).toBe("lookup-debug");
+    expect(result.processed).toBe(1);
+    expect(result.rows[0].parsed.caption).toBe("Hello from the Greenline");
+    expect(events[0].stage).toBe("lookup_debug");
+    const structure = responseKeyStructure({
+      data: { caption: "Hello from the Greenline", token: "super-secret-value", nested: { author: "utahcityutah" } },
+    });
+    expect(structure.find((node) => node.path === "data.caption")?.preview).toBe("Hello from the Greenline");
+    expect(structure.find((node) => node.path === "data.token")?.type).toBe("redacted");
+    expect(JSON.stringify(structure)).not.toContain("super-secret-value");
+    expect(structure.find((node) => node.path === "data.caption")?.preview?.length).toBeLessThanOrEqual(80);
   });
 });

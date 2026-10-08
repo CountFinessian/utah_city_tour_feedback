@@ -75,8 +75,8 @@ Live listening uses the treg catalog (`utah-city-intelligence` team). Do not com
 | `SOCIAL_LISTENING_CYCLE_DEADLINE_MS` | No | `240000` | Stop the cycle this long after it starts and persist the comment cursor. Clamped to `270000` so a run ends before the 300s function limit. |
 | `SOCIAL_LISTENING_CLASSIFY_CONCURRENCY` | No | `4` | How many ambiguous-comment model batches run at once (max 8). |
 | `SOCIAL_LISTENING_CLASSIFY_BATCH_SIZE` | No | `20` | Ambiguous comments per model call (max 40). Keyword matches, junk, and already-classified wording skip the model. |
-| `SOCIAL_LISTENING_CLASSIFY_MODEL` | No | `gemini-2.5-flash-lite` | Gemini model for comment sentiment and topic. Lowest-cost current Flash model with structured output ($0.10 / $0.40 per 1M tokens). Does not change the leadership summary model. |
-| `RELEVANCE_MODEL` | No | `gemini-2.5-flash-lite` | Gemini model for Social Pulse relevance. Same Flash Lite price. Requires `GEMINI_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`. Does not fall through to `GOOGLE_MODEL`. |
+| `SOCIAL_LISTENING_CLASSIFY_MODEL` | No | `gemini-3.5-flash-lite` | Gemini model for comment sentiment and topic. Lowest-cost current Flash model with structured output ($0.30 / $2.50 per 1M tokens, output includes thinking). Does not change the leadership summary model. A value of `gemini-2.5-flash-lite` is remapped because Google retired that id. |
+| `RELEVANCE_MODEL` | No | `gemini-3.5-flash-lite` | Gemini model for Social Pulse relevance. Same Flash Lite price (https://ai.google.dev/gemini-api/docs/pricing). Requires `GEMINI_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`. Does not fall through to `GOOGLE_MODEL`. A value of `gemini-2.5-flash-lite` is remapped. |
 | `SOCIAL_LISTENING_SYNC_COMMENTS` | No | off | When `true`, discover-mode cycles also sync comments. The comments cron mode syncs regardless. |
 | `SOCIAL_LISTENING_USE_FIXTURES` | No | fixtures outside production | `true` forces bundled fixtures. `false` forces live treg even in development. |
 | `SOCIAL_LISTENING_ALERTS` | No | on | Set `false` to skip immediate and daily Social Pulse email. |

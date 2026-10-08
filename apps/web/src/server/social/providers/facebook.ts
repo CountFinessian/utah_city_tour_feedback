@@ -17,21 +17,36 @@ const REPLIES = "scrapecreators.x.v1-facebook-post-comment-replies";
 
 const TBS: Record<string, string> = { hour: "qdr:h", day: "qdr:d", week: "qdr:w", month: "qdr:m", year: "qdr:y" };
 
-export function parseFacebookPost(raw: Record<string, unknown>, handle?: string): TregSearchResultItem | null {
-  const url = str(raw.url || raw.link);
+function facebookNode(raw: Record<string, unknown>): Record<string, unknown> {
+  const data = asRecord(raw.data);
+  const nested = asRecord(data?.data);
+  for (const candidate of [data, nested]) {
+    if (candidate && (candidate.message || candidate.text || candidate.post_id || candidate.story || asRecord(candidate.from)?.name)) {
+      return candidate;
+    }
+  }
+  return raw;
+}
+
+export function parseFacebookPost(input: Record<string, unknown>, handle?: string): TregSearchResultItem | null {
+  const raw = facebookNode(input);
+  const url = str(raw.url || raw.link || raw.permalink_url);
   const parsed = url ? parseAndNormalizePostIdentifier(url, "facebook") : null;
   const id = str(raw.post_id || raw.id || raw.feedback_id) || parsed?.platformContentId || "";
   if (!id && !url) return null;
   const author = asRecord(raw.author);
-  const authorName = handle || str(typeof raw.author === "string" ? raw.author : author?.name || raw.author_name) || "fb_page";
-  return searchItem("facebook", raw, {
+  const from = asRecord(raw.from);
+  const authorName =
+    handle || str(typeof raw.author === "string" ? raw.author : author?.name || from?.name || raw.author_name) || "fb_page";
+  return searchItem("facebook", input, {
     contentId: id || url,
     url: url || (handle ? `https://www.facebook.com/${handle}/posts/${id}` : `https://www.facebook.com/posts/${id}`),
     authorUsername: authorName,
-    authorDisplayName: str(author?.name) || undefined,
-    caption: str(raw.message || raw.text || raw.title || raw.snippet),
+    authorDisplayName: str(author?.name || from?.name) || undefined,
+    authorId: str(from?.id || author?.id) || undefined,
+    caption: str(raw.message || raw.text || raw.story || raw.title || raw.snippet),
     title: str(raw.title) || undefined,
-    description: str(raw.snippet) || undefined,
+    description: str(raw.snippet || raw.description) || undefined,
     publishedAt: publishedFrom(raw),
     viewCount: countOf(raw, "video_view_count"),
     likeCount: countOf(raw, "reactions_count", "reaction_count", "likes"),
@@ -106,8 +121,9 @@ export const facebookProvider: SocialProvider = {
       data: { url: url || contentId, postId: contentId },
       maxCostUsd: 0.02,
     });
+    if (!res.output) return null;
     const rows = recordsOf(res.output, ["posts"]);
-    return rows[0] ? parseFacebookPost(rows[0]) : parseFacebookPost(payloadOf(res.output));
+    return rows[0] ? parseFacebookPost(rows[0]) : parseFacebookPost(res.output);
   },
   async officialFeed(handle, cursor) {
     const clean = handle.replace(/^@/, "").split("/")[0];

@@ -6,9 +6,11 @@ export { hasAnthropicKey, hasASR, hasGoogleKey } from "./env-flags";
 
 const GOOGLE_MODEL = process.env.GOOGLE_MODEL ?? "gemini-3.8-flash";
 /** Cheapest current Flash model with structured output. Leadership summary stays on GOOGLE_MODEL. */
-export const DEFAULT_COMMENT_CLASSIFY_MODEL = "gemini-2.5-flash-lite";
+export const DEFAULT_COMMENT_CLASSIFY_MODEL = "gemini-3.5-flash-lite";
 /** Relevance v2. Separate from the leadership summary model. */
-export const DEFAULT_RELEVANCE_MODEL = "gemini-2.5-flash-lite";
+export const DEFAULT_RELEVANCE_MODEL = "gemini-3.5-flash-lite";
+/** Google retired this id for new users. Env overrides of it are remapped. */
+export const RETIRED_FLASH_LITE_MODEL = "gemini-2.5-flash-lite";
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 const GATEWAY_MODEL = process.env.EXTRACTION_MODEL ?? "anthropic/claude-sonnet-4-6";
 
@@ -69,9 +71,24 @@ export function llmLabel(): string | null {
   return null;
 }
 
+export function resolveFlashLiteModel(configured: string | undefined, fallback: string): {
+  model: string;
+  retiredOverride: boolean;
+} {
+  const name = (configured || "").trim().replace(/^models\//, "");
+  if (!name) return { model: fallback, retiredOverride: false };
+  if (name === RETIRED_FLASH_LITE_MODEL || name.startsWith(`${RETIRED_FLASH_LITE_MODEL}-`)) {
+    return { model: fallback, retiredOverride: true };
+  }
+  return { model: name, retiredOverride: false };
+}
+
 export function resolveCommentClassifyModelName(): string {
-  const configured = process.env.SOCIAL_LISTENING_CLASSIFY_MODEL?.trim();
-  return configured || DEFAULT_COMMENT_CLASSIFY_MODEL;
+  return resolveFlashLiteModel(process.env.SOCIAL_LISTENING_CLASSIFY_MODEL, DEFAULT_COMMENT_CLASSIFY_MODEL).model;
+}
+
+export function retiredCommentClassifyModelOverride(): boolean {
+  return resolveFlashLiteModel(process.env.SOCIAL_LISTENING_CLASSIFY_MODEL, DEFAULT_COMMENT_CLASSIFY_MODEL).retiredOverride;
 }
 
 /** Comment sentiment/topic only. Narrative and other leadership calls keep llmModel(). */
@@ -82,8 +99,19 @@ export function commentClassifyModel(): any {
 }
 
 export function resolveRelevanceModelName(): string {
-  const configured = process.env.RELEVANCE_MODEL?.trim();
-  return configured || DEFAULT_RELEVANCE_MODEL;
+  return resolveFlashLiteModel(process.env.RELEVANCE_MODEL, DEFAULT_RELEVANCE_MODEL).model;
+}
+
+export function retiredRelevanceModelOverride(): boolean {
+  return resolveFlashLiteModel(process.env.RELEVANCE_MODEL, DEFAULT_RELEVANCE_MODEL).retiredOverride;
+}
+
+/** Google's "no longer available" / not-found response for a retired model id. */
+export function isModelUnavailableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /no longer available|not available to new users|is not found|not found for api|model.?not.?found|models\/gemini-2\.5-flash-lite/i.test(
+    message
+  );
 }
 
 export function hasRelevanceModel(): boolean {
@@ -99,7 +127,11 @@ export function relevanceModel(): any {
   return getGoogleModel(resolveRelevanceModelName());
 }
 
-/** gemini-2.5-flash-lite list price: $0.10 / 1M input, $0.40 / 1M output. Result is micro-USD. */
+/**
+ * gemini-3.5-flash-lite paid tier: $0.30 / 1M input, $2.50 / 1M output (thinking tokens included).
+ * Source: https://ai.google.dev/gemini-api/docs/pricing
+ * Result is micro-USD (1 USD = 1_000_000).
+ */
 export function geminiFlashLiteCostMicro(inputTokens: number, outputTokens: number): number {
-  return Math.round(inputTokens * 0.1 + outputTokens * 0.4);
+  return Math.round(inputTokens * 0.3 + outputTokens * 2.5);
 }

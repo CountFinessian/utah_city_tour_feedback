@@ -35,7 +35,9 @@ function walkPosts(node: unknown, found: Record<string, unknown>[], seen: Set<st
   for (const value of Object.values(record)) walkPosts(value, found, seen);
 }
 
-export function parseRedditPost(raw: Record<string, unknown>): TregSearchResultItem | null {
+export function parseRedditPost(input: Record<string, unknown>): TregSearchResultItem | null {
+  const nested = asRecord(input.data);
+  const raw = nested && (nested.title || nested.name || nested.selftext) && !input.title ? nested : input;
   const id = str(raw.id || raw.name).replace(/^t3_/, "");
   if (!id) return null;
   const permalink = str(raw.permalink);

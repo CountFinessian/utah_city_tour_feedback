@@ -1,0 +1,145 @@
+import { describe, expect, it } from "vitest";
+import { parseFacebookPost } from "@/server/social/providers/facebook";
+import { parseInstagramPost } from "@/server/social/providers/instagram";
+import { parseLinkedInPost } from "@/server/social/providers/linkedin";
+import { parseRedditSearch } from "@/server/social/providers/reddit";
+import { parseTikTokVideo } from "@/server/social/providers/tiktok";
+import { parseXPost } from "@/server/social/providers/x";
+import { parseYouTubeVideo } from "@/server/social/providers/youtube";
+
+describe("detail parsers", () => {
+  it("reads TikTok itemStruct and aweme_detail", () => {
+    const itemStruct = parseTikTokVideo({
+      data: {
+        itemInfo: {
+          itemStruct: {
+            id: "7621280382356360462",
+            desc: "Fini Cafe at the Greenline #finicafe",
+            author: { uniqueId: "itscarolynh", nickname: "Carolyn", id: "99" },
+            challenges: [{ title: "finicafe" }],
+          },
+        },
+      },
+    });
+    expect(itemStruct?.caption).toContain("Fini Cafe");
+    expect(itemStruct?.caption).toContain("#finicafe");
+    expect(itemStruct?.authorUsername).toBe("itscarolynh");
+    expect(itemStruct?.authorId).toBe("99");
+
+    const aweme = parseTikTokVideo({
+      data: {
+        aweme_detail: {
+          aweme_id: "7636545255524846855",
+          desc: "day in salt lake city",
+          author: { unique_id: "jorge323.n" },
+        },
+      },
+    });
+    expect(aweme?.caption).toBe("day in salt lake city");
+    expect(aweme?.authorUsername).toBe("jorge323.n");
+  });
+
+  it("reads Instagram edge captions and the owner handle", () => {
+    const post = parseInstagramPost({
+      data: {
+        shortcode: "Cy_oSOOx0Gk",
+        owner: { username: "utahcityutah", id: "123" },
+        edge_media_to_caption: { edges: [{ node: { text: "Hello from #UtahCity" } }] },
+      },
+    });
+    expect(post?.contentId).toBe("Cy_oSOOx0Gk");
+    expect(post?.caption).toBe("Hello from #UtahCity");
+    expect(post?.authorUsername).toBe("utahcityutah");
+    expect(post?.authorId).toBe("123");
+  });
+
+  it("reads YouTube channel handle, channel id, title, and description", () => {
+    const video = parseYouTubeVideo({
+      data: {
+        video_id: "DnQyX-UA7kY",
+        title: "Welcome to Utah City",
+        description: "A new city in Vineyard",
+        author: "Utah City",
+        channel_id: "UCwNkAzWu_PJ0DEiVU5NVo9A",
+        channel_handle: "@UtahCity",
+      },
+    });
+    expect(video?.title).toBe("Welcome to Utah City");
+    expect(video?.description).toBe("A new city in Vineyard");
+    expect(video?.caption).toContain("Vineyard");
+    expect(video?.authorUsername).toBe("UtahCity");
+    expect(video?.channelId).toBe("UCwNkAzWu_PJ0DEiVU5NVo9A");
+    expect(video?.authorId).toBe("UCwNkAzWu_PJ0DEiVU5NVo9A");
+  });
+
+  it("reads X text from data and from GraphQL legacy", () => {
+    const flat = parseXPost({
+      data: {
+        id: "1697605773616935075",
+        text: "Utah City in Vineyard",
+        author: { screen_name: "JeffSpeckFAICP", name: "Jeff Speck" },
+      },
+    });
+    expect(flat?.caption).toBe("Utah City in Vineyard");
+    expect(flat?.authorUsername).toBe("JeffSpeckFAICP");
+
+    const graph = parseXPost({
+      data: {
+        tweetResult: {
+          result: {
+            rest_id: "2025821503401468189",
+            legacy: { full_text: "they paid $500k for the logo" },
+            core: { user_results: { result: { rest_id: "55", legacy: { screen_name: "Dacivisualz" } } } },
+          },
+        },
+      },
+    });
+    expect(graph?.contentId).toBe("2025821503401468189");
+    expect(graph?.caption).toBe("they paid $500k for the logo");
+    expect(graph?.authorUsername).toBe("Dacivisualz");
+    expect(graph?.authorId).toBe("55");
+  });
+
+  it("reads a Reddit listing title and author", () => {
+    const page = parseRedditSearch({
+      data: {
+        children: [
+          {
+            kind: "t3",
+            data: { name: "t3_1sxqkyy", title: "Utah City", selftext: "Vineyard downtown", author: "resident" },
+          },
+        ],
+      },
+    });
+    expect(page.items[0]?.title).toBe("Utah City");
+    expect(page.items[0]?.caption).toContain("Vineyard downtown");
+    expect(page.items[0]?.authorUsername).toBe("resident");
+  });
+
+  it("reads a Facebook message under data", () => {
+    const post = parseFacebookPost({
+      data: {
+        post_id: "fb1",
+        message: "Come see Utah City",
+        from: { name: "Utah City", id: "77" },
+        url: "https://www.facebook.com/utahcityutah/posts/fb1",
+      },
+    });
+    expect(post?.caption).toBe("Come see Utah City");
+    expect(post?.authorUsername).toBe("Utah City");
+    expect(post?.authorId).toBe("77");
+  });
+
+  it("reads LinkedIn commentary under data", () => {
+    const post = parseLinkedInPost({
+      data: {
+        urn: "urn:li:activity:1234567890123",
+        commentary: { text: "Building Utah City" },
+        author: { name: "Utah City", id: "li-1" },
+      },
+    });
+    expect(post?.caption).toBe("Building Utah City");
+    expect(post?.authorUsername).toBe("Utah City");
+    expect(post?.authorId).toBe("li-1");
+  });
+});

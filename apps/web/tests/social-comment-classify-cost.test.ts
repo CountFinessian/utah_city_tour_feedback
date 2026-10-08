@@ -163,10 +163,12 @@ describe("comment classification cost", () => {
     expect(generateObject).not.toHaveBeenCalled();
   });
 
-  it("defaults comment classification to Gemini 2.5 Flash-Lite and leaves the name configurable", () => {
-    expect(resolveCommentClassifyModelName()).toBe("gemini-2.5-flash-lite");
+  it("defaults comment classification to Gemini 3.5 Flash-Lite and leaves the name configurable", () => {
+    expect(resolveCommentClassifyModelName()).toBe("gemini-3.5-flash-lite");
     process.env.SOCIAL_LISTENING_CLASSIFY_MODEL = "gemini-3.1-flash-lite";
     expect(resolveCommentClassifyModelName()).toBe("gemini-3.1-flash-lite");
+    process.env.SOCIAL_LISTENING_CLASSIFY_MODEL = "gemini-2.5-flash-lite";
+    expect(resolveCommentClassifyModelName()).toBe("gemini-3.5-flash-lite");
   });
 
   it("keeps junk out of representative evidence", () => {

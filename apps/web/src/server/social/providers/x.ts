@@ -14,24 +14,53 @@ const TRANSCRIPT = "anyapi.twitter.tweet_transcript";
 const COMMENTS = "tikhub.x.twitter-web-fetch-latest-post-comments";
 const REPLIES = "anyapi.x.search.posts";
 
+function xParts(raw: Record<string, unknown>): {
+  node: Record<string, unknown>;
+  legacy: Record<string, unknown>;
+  user: Record<string, unknown>;
+  userId: string;
+} {
+  const data = asRecord(raw.data);
+  const base =
+    data && (data.text || data.display_text || data.id || data.rest_id || data.tweetResult || data.tweet_results || data.legacy)
+      ? data
+      : raw;
+  const result =
+    asRecord(asRecord(base.tweetResult)?.result) ||
+    asRecord(asRecord(base.tweet_results)?.result) ||
+    asRecord(base.result) ||
+    base;
+  const legacy = asRecord(result.legacy) || asRecord(base.legacy) || asRecord(raw.legacy) || {};
+  const userResult =
+    asRecord(asRecord(asRecord(result.core)?.user_results)?.result) ||
+    asRecord(asRecord(asRecord(base.core)?.user_results)?.result) ||
+    asRecord(result.author) ||
+    asRecord(base.author) ||
+    asRecord(base.user) ||
+    {};
+  const user = asRecord(userResult.legacy) || userResult;
+  return { node: result, legacy, user, userId: str(userResult.rest_id || user.id_str || user.id) };
+}
+
 export function parseXPost(raw: Record<string, unknown>): TregSearchResultItem | null {
-  const legacy = asRecord(raw.legacy) || {};
-  const author = asRecord(raw.author) || asRecord(raw.core) || {};
-  const id = str(raw.id || raw.rest_id || raw.tweet_id || legacy.id_str);
+  const { node, legacy, user, userId } = xParts(raw);
+  const id = str(node.rest_id || node.id || node.tweet_id || legacy.id_str || raw.id || raw.rest_id);
   if (!id) return null;
-  const username = str(raw.authorUsername || author.username || author.screen_name || raw.username) || "x_creator";
-  const created = publishedFrom(raw) || publishedFrom(legacy);
+  const username = str(user.screen_name || user.username || node.screen_name || raw.authorUsername || raw.username) || "x_creator";
+  const created = publishedFrom(node) || publishedFrom(legacy) || publishedFrom(raw);
+  const caption = str(node.text || node.display_text || node.full_text || legacy.full_text || raw.text || raw.full_text);
   return searchItem("x", raw, {
     contentId: id,
-    url: str(raw.url) || `https://x.com/${username}/status/${id}`,
+    url: str(node.url || raw.url) || `https://x.com/${username}/status/${id}`,
     authorUsername: username,
-    authorDisplayName: str(author.name || raw.authorName) || undefined,
-    caption: str(raw.text || legacy.full_text || raw.full_text),
+    authorDisplayName: str(user.name || node.authorName || raw.authorName) || undefined,
+    authorId: userId || undefined,
+    caption,
     publishedAt: created,
-    viewCount: countOf(raw, "viewCount", "views") || countOf(legacy, "views"),
-    likeCount: countOf(raw, "likeCount", "favorite_count") || countOf(legacy, "favorite_count"),
-    commentCount: countOf(raw, "replyCount", "reply_count") || countOf(legacy, "reply_count"),
-    shareCount: countOf(raw, "retweetCount", "retweet_count") || countOf(legacy, "retweet_count"),
+    viewCount: countOf(node, "viewCount", "views") || countOf(legacy, "views") || countOf(raw, "viewCount"),
+    likeCount: countOf(node, "likeCount", "favorite_count") || countOf(legacy, "favorite_count") || countOf(raw, "likeCount"),
+    commentCount: countOf(node, "replyCount", "reply_count") || countOf(legacy, "reply_count") || countOf(raw, "replyCount"),
+    shareCount: countOf(node, "retweetCount", "retweet_count") || countOf(legacy, "retweet_count") || countOf(raw, "retweetCount"),
   });
 }
 
@@ -99,8 +128,9 @@ export const xProvider: SocialProvider = {
       queryParams: { tweet_id: contentId },
       maxCostUsd: 0.02,
     });
+    if (!res.output) return null;
     const rows = recordsOf(res.output, ["tweets", "timeline"]);
-    return rows[0] ? parseXPost(rows[0]) : parseXPost(payloadOf(res.output));
+    return rows[0] ? parseXPost(rows[0]) : parseXPost(res.output);
   },
   async officialFeed(handle, cursor) {
     const res = await tregHttp.call({

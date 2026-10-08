@@ -4,13 +4,29 @@ import type { Platform, RelevanceStatus } from "./types";
  * Posts checked before this instant still need the v2 gate.
  * Bump it to send every stored post through relevance again.
  */
-export const RELEVANCE_V2_VERSION = "2026-10-08T00:00:00.000Z";
+export const RELEVANCE_V2_VERSION = "2026-10-08T20:00:00.000Z";
 
 export function relevanceCheckIsCurrent(checkedAt: string | undefined, version = RELEVANCE_V2_VERSION): boolean {
   if (!checkedAt) return false;
   const checked = Date.parse(checkedAt);
   const cutoff = Date.parse(version);
   return Number.isFinite(checked) && Number.isFinite(cutoff) && checked >= cutoff;
+}
+
+/** A check is current only when it used this rules version. Legacy irrelevant rows are always due. */
+export function postNeedsRelevanceRecheck(
+  post: { relevanceCheckedAt?: string; relevanceStatus?: string },
+  version = RELEVANCE_V2_VERSION
+): boolean {
+  if (post.relevanceStatus === "irrelevant" || post.relevanceStatus === "needs_review" || post.relevanceStatus === "needs_retry") {
+    return true;
+  }
+  return !relevanceCheckIsCurrent(post.relevanceCheckedAt, version);
+}
+
+/** Stamp at or after the version so a check is not immediately stale again. */
+export function relevanceCheckedStamp(now = new Date().toISOString(), version = RELEVANCE_V2_VERSION): string {
+  return now >= version ? now : version;
 }
 
 /** Stored outcomes. `unsure` is an intermediate model answer and is never persisted. */
@@ -20,22 +36,35 @@ export type RelevanceDecision =
   | "rejected_offtopic"
   | "rejected_unverifiable"
   | "unsure"
-  | "official_comment_source";
+  | "official_comment_source"
+  | "needs_retry";
 
 export interface OfficialAccountRef {
   platform: string;
   handle: string;
+  /** Channel or user ids. YouTube @UtahCity is also UCwNkAzWu_PJ0DEiVU5NVo9A. */
+  externalIds?: string[];
 }
 
-/** Mirrors migration 0003. The database table is the source of truth when it is reachable. */
+/** Mirrors migration 0003. The database table is the source of truth for handles when it is reachable. */
 export const SEEDED_OFFICIAL_ACCOUNTS: OfficialAccountRef[] = [
   { platform: "tiktok", handle: "utahcityutah" },
   { platform: "instagram", handle: "utahcityutah" },
-  { platform: "youtube", handle: "UtahCity" },
+  { platform: "youtube", handle: "UtahCity", externalIds: ["UCwNkAzWu_PJ0DEiVU5NVo9A"] },
   { platform: "x", handle: "utahcityutah" },
   { platform: "facebook", handle: "utahcityutah" },
   { platform: "linkedin", handle: "utah-city" },
 ];
+
+export function withSeededExternalIds(accounts: OfficialAccountRef[]): OfficialAccountRef[] {
+  return accounts.map((account) => {
+    const seed = SEEDED_OFFICIAL_ACCOUNTS.find(
+      (item) => item.platform === account.platform && compactHandle(item.handle) === compactHandle(account.handle)
+    );
+    if (!seed?.externalIds?.length) return account;
+    return { ...account, externalIds: [...new Set([...(account.externalIds || []), ...seed.externalIds])] };
+  });
+}
 
 const DEVELOPMENT_ANCHOR =
   /\butah\s*city\s+in\s+vineyard\b|\bvineyard\b[\s\S]{0,120}\b(greenline|geneva|120\s*bend|220\s*bend|utah\s*city)\b|\b(greenline|geneva|120\s*bend|220\s*bend|utah\s*city)\b[\s\S]{0,120}\bvineyard\b|\b(greenline|geneva\s+steel|old\s+geneva|120\s*bend|220\s*bend)\b|\$\s*1\.8\s*b\b|\b1\.8\s*billion\b/i;
@@ -83,14 +112,41 @@ export function compactHandle(value: string | undefined | null): string {
 export function isOfficialAuthor(
   platform: string | undefined,
   author: string | undefined,
-  accounts: OfficialAccountRef[]
+  accounts: OfficialAccountRef[],
+  ids?: Array<string | undefined | null>
 ): boolean {
   const handle = compactHandle(author);
-  if (!handle) return false;
+  const idSet = new Set((ids || []).map((id) => (id || "").trim()).filter(Boolean));
+  if (author?.trim() && /^UC[\w-]{20,}$/.test(author.trim())) idSet.add(author.trim());
+  if (!handle && idSet.size === 0) return false;
   return accounts.some((account) => {
     if (platform && account.platform !== platform) return false;
-    return compactHandle(account.handle) === handle;
+    if (handle && compactHandle(account.handle) === handle) return true;
+    return (account.externalIds || []).some((id) => idSet.has(id));
   });
+}
+
+/**
+ * Places and tenants that mean "this could be Utah City" even without the words Utah City.
+ * Martha's Vineyard is not one of them. Clear Park City / SLC lookalikes still win when
+ * none of these are present.
+ */
+const LOCAL_PLACE =
+  /\borem\b|\blindon\b|\butah\s+county\b|\bgeneva\b|\bgreenline\b|\bfini\s*caf[eé]\b|(^|[^a-z0-9])finicafe(?![a-z0-9])|\bbella'?s?\s+market\b|\bracquet\s+club\b|\bbuilt\s+for\s+becoming\b|\b120\s*bend\b|\b220\s*bend\b/i;
+
+export function hasLocalPlaceSignal(text: string): boolean {
+  const raw = text || "";
+  if (LOCAL_PLACE.test(raw)) return true;
+  const withoutMartha = raw.replace(/martha['’]s\s+vineyard/gi, " ");
+  return /\bvineyard\b/i.test(withoutMartha);
+}
+
+/** Enough words that a "no mention" reject is about the post, not a failed lookup. */
+export function hasSubstantialText(text: string): boolean {
+  const raw = (text || "").replace(/\s+/g, " ").trim();
+  if (raw.length >= 40) return true;
+  const words = raw.split(" ").filter((word) => /[a-z0-9]/i.test(word));
+  return words.length >= 6;
 }
 
 export function hasDevelopmentAnchor(text: string): boolean {
@@ -118,13 +174,10 @@ export function isHashtagOnlyCandidate(text: string): boolean {
 
 export function lookalikeHit(text: string): string | null {
   const raw = text || "";
-  if (hasDevelopmentAnchor(raw)) return null;
+  if (hasDevelopmentAnchor(raw) || hasUtahCityPhrase(raw) || hasLocalPlaceSignal(raw)) return null;
   for (const pattern of LOOKALIKE) {
     if (pattern.re.test(raw)) return pattern.id;
   }
-  const mentionsUtah = /\butah\b/i.test(raw);
-  const namesDevelopment = hasUtahCityPhrase(raw);
-  if (mentionsUtah && !namesDevelopment) return "generic utah";
   if (/\bbest\s+utah\s+city\b/i.test(raw)) return "best utah city to live in";
   return null;
 }
@@ -162,11 +215,12 @@ export function rulesPreGate(text: string): RulesGate {
   const entities: string[] = [];
   if (hasUtahCityPhrase(raw)) entities.push("utah city");
   if (hasDevelopmentAnchor(raw)) entities.push("vineyard development");
+  if (hasLocalPlaceSignal(raw)) entities.push("local place");
 
-  if (hasDevelopmentAnchor(raw)) {
+  if (hasDevelopmentAnchor(raw) || hasLocalPlaceSignal(raw)) {
     return {
       decision: null,
-      reason: "Development anchor present. Sending to the relevance model.",
+      reason: "Local Utah City signal present. Sending to the relevance model.",
       matchedEntities: entities,
       candidate: true,
     };
@@ -183,7 +237,7 @@ export function rulesPreGate(text: string): RulesGate {
   }
 
   const noise = offtopicNoiseHit(raw);
-  if (noise) {
+  if (noise && hasSubstantialText(raw)) {
     return {
       decision: "rejected_offtopic",
       reason: `Unrelated local mention: "${noise}".`,
@@ -201,12 +255,21 @@ export function rulesPreGate(text: string): RulesGate {
     };
   }
 
-  if (hasUtahCityPhrase(raw) || entities.length > 0) {
+  if (hasUtahCityPhrase(raw) || /\butah\b/i.test(raw)) {
     return {
       decision: null,
-      reason: "Named Utah City. Sending to the relevance model.",
-      matchedEntities: entities,
+      reason: "Utah mention. Sending to the relevance model.",
+      matchedEntities: entities.length ? entities : ["utah"],
       candidate: true,
+    };
+  }
+
+  if (!hasSubstantialText(raw)) {
+    return {
+      decision: "needs_retry",
+      reason: "Lookup text is empty or too thin to apply the no-mention rule.",
+      matchedEntities: [],
+      candidate: false,
     };
   }
 
@@ -222,20 +285,24 @@ export function rulesPreGate(text: string): RulesGate {
 export function resolveBorderline(decision: RelevanceDecision, text: string): RelevanceDecision {
   if (decision !== "unsure") return decision;
   if (looksUnverifiableClaim(text)) return "rejected_unverifiable";
-  if (hasDevelopmentAnchor(text)) return "relevant";
+  if (hasDevelopmentAnchor(text) || hasLocalPlaceSignal(text)) return "relevant";
   if (lookalikeHit(text)) return "rejected_lookalike";
   if (hasUtahCityPhrase(text) && !isHashtagOnlyCandidate(text)) return "relevant";
+  if (/\butah\b/i.test(text || "")) return "relevant";
+  if (!hasSubstantialText(text)) return "needs_retry";
   return "rejected_offtopic";
 }
 
 export function applyUnverifiableGuard(decision: RelevanceDecision, text: string): RelevanceDecision {
-  if (decision === "official_comment_source" || decision === "rejected_lookalike") return decision;
+  if (decision === "official_comment_source" || decision === "rejected_lookalike" || decision === "needs_retry") {
+    return decision;
+  }
   if (looksUnverifiableClaim(text)) return "rejected_unverifiable";
   return decision;
 }
 
 export function decisionToStatus(decision: RelevanceDecision): RelevanceStatus {
-  if (decision === "unsure") return "rejected_offtopic";
+  if (decision === "unsure") return "unclassified";
   return decision;
 }
 

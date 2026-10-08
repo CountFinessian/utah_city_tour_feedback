@@ -18,6 +18,24 @@ export interface TregCallResult<T = unknown> {
   costUsd: number;
 }
 
+export interface TregLookupDebugInfo {
+  endpointId: string;
+  output: Record<string, unknown> | null;
+  error?: string;
+}
+
+let lookupDebugSink: ((info: TregLookupDebugInfo) => void) | null = null;
+
+/** Records response bodies for mode=lookup-debug. The caller must structure and drop them. */
+export function setTregLookupDebugSink(sink: ((info: TregLookupDebugInfo) => void) | null): void {
+  lookupDebugSink = sink;
+}
+
+function notifyLookupDebug(endpointId: string, output: Record<string, unknown> | null, error?: string): void {
+  if (!lookupDebugSink) return;
+  lookupDebugSink({ endpointId, output, error });
+}
+
 export class TregHttp {
   cycleCostMicro = 0;
 
@@ -37,7 +55,9 @@ export class TregHttp {
     const { endpointId, method = "POST", data, queryParams, maxCostUsd = 0.05, timeoutMs = 45000 } = params;
     const token = process.env.TREG_TOKEN || "";
     if (!token) {
-      return { data: null, output: null, error: "TREG_TOKEN is not set", costMicro: 0, costUsd: 0 };
+      const error = "TREG_TOKEN is not set";
+      notifyLookupDebug(endpointId, null, error);
+      return { data: null, output: null, error, costMicro: 0, costUsd: 0 };
     }
 
     try {
@@ -69,10 +89,12 @@ export class TregHttp {
       this.cycleCostMicro += costMicro;
 
       if (!response.ok) {
+        const error = `HTTP ${response.status} from ${endpointId}`;
+        notifyLookupDebug(endpointId, bodyRec, error);
         return {
           data: null,
           output: null,
-          error: `HTTP ${response.status} from ${endpointId}`,
+          error,
           servedBy,
           costMicro,
           costUsd: costMicro / 1e6,
@@ -80,6 +102,7 @@ export class TregHttp {
       }
 
       const output = asRecord(bodyRec?.output) ?? bodyRec;
+      notifyLookupDebug(endpointId, output);
       return {
         data: (output as T) ?? null,
         output,
@@ -89,6 +112,7 @@ export class TregHttp {
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      notifyLookupDebug(endpointId, null, message);
       return { data: null, output: null, error: message, costMicro: 0, costUsd: 0 };
     }
   }
