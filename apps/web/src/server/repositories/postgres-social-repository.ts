@@ -260,6 +260,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
         and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
         and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
         and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
+        and (${filter?.staleRelevanceBefore || null}::timestamptz is null or relevance_checked_at is null or relevance_checked_at < ${filter?.staleRelevanceBefore || null}::timestamptz)
       order by coalesce(published_at, first_seen_at) desc
       limit ${filter?.limit || 2000}
     `;

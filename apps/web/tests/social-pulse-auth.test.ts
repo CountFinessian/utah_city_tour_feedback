@@ -7,13 +7,15 @@ import { GET as cronGET, POST as cronPOST, HEAD as cronHEAD } from "@/app/api/so
 import { POST as refreshPOST } from "@/app/api/social-pulse/refresh/route";
 import { SESSION_COOKIE_NAME, signSessionToken } from "@/server/auth/session";
 
-const { runCycle, scheduled } = vi.hoisted(() => ({
+const { runCycle, scheduled, runReferenceEval, runRelevanceReeval } = vi.hoisted(() => ({
   runCycle: vi.fn(async () => ({
     newPostsDiscovered: 0,
     newCommentsCollected: 0,
     tregCostUsd: 0,
   })),
   scheduled: [] as Array<Promise<unknown>>,
+  runReferenceEval: vi.fn(async () => ({ task: "relevance-eval", processed: 12, correct: 12, incorrect: 0 })),
+  runRelevanceReeval: vi.fn(async () => ({ task: "relevance-reeval", processed: 4, remaining: 7, kept: 2, rejected: 2 })),
 }));
 
 vi.mock("next/server", async () => {
@@ -30,12 +32,18 @@ vi.mock("@/server/services/social-scheduler", () => ({
   socialSchedulerService: { runCycle },
 }));
 
+vi.mock("@/server/services/relevance-jobs", () => ({
+  runReferenceEval,
+  runRelevanceReeval,
+}));
+
 const envSnapshot = {
   CRON_SECRET: process.env.CRON_SECRET,
   TREG_TOKEN: process.env.TREG_TOKEN,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
 };
 
-function setEnv(name: "CRON_SECRET" | "TREG_TOKEN", value: string | undefined) {
+function setEnv(name: "CRON_SECRET" | "TREG_TOKEN" | "GEMINI_API_KEY", value: string | undefined) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
@@ -66,13 +74,17 @@ describe("Social Pulse cron and leadership refresh", () => {
   beforeEach(() => {
     scheduled.length = 0;
     runCycle.mockClear();
+    runReferenceEval.mockClear();
+    runRelevanceReeval.mockClear();
     setEnv("CRON_SECRET", "test-cron-secret");
     setEnv("TREG_TOKEN", "test-treg-token");
+    setEnv("GEMINI_API_KEY", undefined);
   });
 
   afterEach(() => {
     setEnv("CRON_SECRET", envSnapshot.CRON_SECRET);
     setEnv("TREG_TOKEN", envSnapshot.TREG_TOKEN);
+    setEnv("GEMINI_API_KEY", envSnapshot.GEMINI_API_KEY);
   });
 
   it("rejects HEAD before any listening cycle, even with the cron secret", async () => {
@@ -147,6 +159,64 @@ describe("Social Pulse cron and leadership refresh", () => {
     );
     expect(host.status).toBe(403);
     await Promise.all(scheduled);
+    expect(runCycle).not.toHaveBeenCalled();
+  });
+
+  it("rejects unauthenticated relevance modes and HEAD, then returns the job JSON", async () => {
+    const denied = await cronPOST(
+      new Request("https://utahcity.app/api/social-pulse/cron?mode=relevance-eval", { method: "POST" })
+    );
+    expect(denied.status).toBe(401);
+    expect(runReferenceEval).not.toHaveBeenCalled();
+    expect(runCycle).not.toHaveBeenCalled();
+
+    setEnv("CRON_SECRET", undefined);
+    const open = await cronPOST(
+      new Request("https://utahcity.app/api/social-pulse/cron?mode=relevance-reeval", {
+        method: "POST",
+        headers: { Authorization: "Bearer test-cron-secret" },
+      })
+    );
+    expect(open.status).toBe(401);
+    expect(runRelevanceReeval).not.toHaveBeenCalled();
+
+    setEnv("CRON_SECRET", "test-cron-secret");
+    const head = await cronHEAD();
+    expect(head.status).toBe(405);
+    expect(runReferenceEval).not.toHaveBeenCalled();
+
+    setEnv("GEMINI_API_KEY", "test-gemini-key");
+    const evalRes = await cronPOST(
+      new Request("https://utahcity.app/api/social-pulse/cron?mode=relevance-eval", {
+        method: "POST",
+        headers: { Authorization: "Bearer test-cron-secret" },
+      })
+    );
+    const evalBody = await evalRes.json();
+    expect(evalRes.status).toBe(200);
+    expect(evalBody.processed).toBe(12);
+    expect(evalBody.correct).toBe(12);
+    expect(runReferenceEval).toHaveBeenCalledOnce();
+    expect(runCycle).not.toHaveBeenCalled();
+
+    const reevalRes = await cronGET(
+      new Request("https://utahcity.app/api/social-pulse/cron?mode=relevance-reeval&key=test-cron-secret")
+    );
+    const reevalBody = await reevalRes.json();
+    expect(reevalRes.status).toBe(200);
+    expect(reevalBody.remaining).toBe(7);
+    expect(runRelevanceReeval).toHaveBeenCalledOnce();
+  });
+
+  it("does not start a relevance job without Gemini", async () => {
+    const res = await cronPOST(
+      new Request("https://utahcity.app/api/social-pulse/cron?mode=relevance-eval", {
+        method: "POST",
+        headers: { Authorization: "Bearer test-cron-secret" },
+      })
+    );
+    expect(res.status).toBe(503);
+    expect(runReferenceEval).not.toHaveBeenCalled();
     expect(runCycle).not.toHaveBeenCalled();
   });
 

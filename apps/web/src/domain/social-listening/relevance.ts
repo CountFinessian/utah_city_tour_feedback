@@ -1,5 +1,18 @@
 import type { Platform, RelevanceStatus } from "./types";
 
+/**
+ * Posts checked before this instant still need the v2 gate.
+ * Bump it to send every stored post through relevance again.
+ */
+export const RELEVANCE_V2_VERSION = "2026-10-08T00:00:00.000Z";
+
+export function relevanceCheckIsCurrent(checkedAt: string | undefined, version = RELEVANCE_V2_VERSION): boolean {
+  if (!checkedAt) return false;
+  const checked = Date.parse(checkedAt);
+  const cutoff = Date.parse(version);
+  return Number.isFinite(checked) && Number.isFinite(cutoff) && checked >= cutoff;
+}
+
 /** Stored outcomes. `unsure` is an intermediate model answer and is never persisted. */
 export type RelevanceDecision =
   | "relevant"

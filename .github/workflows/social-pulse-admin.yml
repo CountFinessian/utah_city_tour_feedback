@@ -1,0 +1,36 @@
+name: Social Pulse admin
+
+# Manual production relevance runs. No schedule. The listener workflow stays unchanged.
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: relevance-eval or relevance-reeval
+        type: choice
+        required: true
+        default: relevance-eval
+        options:
+          - relevance-eval
+          - relevance-reeval
+
+jobs:
+  run-task:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Run production relevance task
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TASK: ${{ github.event.inputs.task }}
+        run: |
+          set -euo pipefail
+          url="https://www.utahcity.app/api/social-pulse/cron?mode=${TASK}"
+          code=$(curl -sS -L -o /tmp/relevance.json -w "%{http_code}" \
+            -X POST "$url" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            --max-time 280)
+          echo "HTTP $code task=$TASK"
+          cat /tmp/relevance.json
+          echo
+          test "$code" = "200"

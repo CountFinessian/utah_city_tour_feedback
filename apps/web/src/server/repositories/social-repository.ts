@@ -30,6 +30,8 @@ export interface SocialListeningRepository {
     platform?: string;
     startDate?: string;
     endDate?: string;
+    /** Include posts never checked, or checked before this ISO time. */
+    staleRelevanceBefore?: string;
     limit?: number;
   }): Promise<Post[]>;
   listOfficialAccounts(): Promise<OfficialAccountRef[]>;

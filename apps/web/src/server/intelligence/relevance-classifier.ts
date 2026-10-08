@@ -52,9 +52,18 @@ export interface TranscriptFetch {
   provider?: string;
 }
 
-const GEMINI_BUDGET_MICRO = 100_000;
+const DEFAULT_GEMINI_BUDGET_MICRO = 100_000;
 
+let budgetMicro = DEFAULT_GEMINI_BUDGET_MICRO;
 let spentMicro = 0;
+
+export function setRelevanceGeminiBudgetMicro(micro: number): void {
+  budgetMicro = micro > 0 ? micro : DEFAULT_GEMINI_BUDGET_MICRO;
+}
+
+export function relevanceGeminiBudgetMicro(): number {
+  return budgetMicro;
+}
 
 export function relevanceGeminiSpendMicro(): number {
   return spentMicro;
@@ -134,11 +143,11 @@ function usageMicro(usage: { inputTokens?: number; outputTokens?: number; prompt
 }
 
 async function callModel(caption: string, transcript?: string): Promise<{ decision: RelevanceDecision; reason: string; costMicro: number }> {
-  if (spentMicro >= GEMINI_BUDGET_MICRO) {
+  if (spentMicro >= budgetMicro) {
     const fallback = noModelDecision(`${caption}\n${transcript || ""}`);
     return {
       decision: fallback.decision,
-      reason: `${fallback.reason} Gemini budget of $0.10 was already reached.`,
+      reason: `${fallback.reason} Gemini budget of $${(budgetMicro / 1_000_000).toFixed(2)} was already reached.`,
       costMicro: 0,
     };
   }
