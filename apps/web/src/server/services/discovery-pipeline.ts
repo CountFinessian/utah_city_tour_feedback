@@ -2,6 +2,8 @@ import { tregClient } from "./treg-client";
 import type { TregCommentItem } from "./treg-client";
 import { getSocialRepository } from "../repositories/postgres-social-repository";
 import { classifyRelevance } from "../intelligence/relevance-classifier";
+import { providerFor } from "../social/providers";
+import { postEligibleForCommentHarvest } from "@/domain/social-listening/relevance";
 import { analyzeSentimentAndTopic, classifyComments, type SentimentAnalysisResult } from "../intelligence/sentiment-classifier";
 import { isExplicitDropReason, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
 import {
@@ -36,7 +38,7 @@ function getCommentsFetchedAt(post: Post): string | undefined {
 }
 
 export function shouldSyncComments(post: Post, prevCommentCount?: number): boolean {
-  if (!post.isRelevant) return false;
+  if (!postEligibleForCommentHarvest(post)) return false;
   if (isCommentSyncPending(post)) return true;
   if (post.commentCount <= 0 && (prevCommentCount === undefined || prevCommentCount <= 0)) {
     return false;
@@ -103,6 +105,7 @@ export class DiscoveryPipelineService {
     const runs: SearchRun[] = [];
     let totalNew = 0;
     let totalRel = 0;
+    const officialAccounts = await this.repo.listOfficialAccounts();
 
     for (const q of targetQueries) {
       if (tregClient.getCycleCostUsd() >= budget) {
@@ -136,25 +139,24 @@ export class DiscoveryPipelineService {
 
           if (!existing) {
             const combinedText = `${item.title || ""} ${item.caption} ${item.description || ""}`.trim();
-            let relVerdict = await classifyRelevance(combinedText, {
+            const relVerdict = await classifyRelevance(combinedText, {
               platform: item.platform,
               discoveryQuery: q.query,
               discoveryGroup: q.searchGroup,
               author: item.authorUsername,
+              authorDisplayName: item.authorDisplayName,
+              url: item.url || parsed.normalizedUrl,
+              officialAccounts,
+              fetchTranscript: async () => {
+                const provider = providerFor(parsed.platform);
+                if (!provider) return null;
+                const result = await provider.transcript(
+                  parsed.platformContentId,
+                  item.url || parsed.normalizedUrl
+                );
+                return result ? { text: result.text, provider: result.provider } : null;
+              },
             });
-            if (strategy === "account") {
-              relVerdict = {
-                ...relVerdict,
-                isRelevant: true,
-                confidence: Math.max(relVerdict.confidence, 0.99),
-                reason: relVerdict.isRelevant
-                  ? relVerdict.reason
-                  : `Brand account follow (${q.platform}:${q.query}).`,
-                matchedEntities: relVerdict.matchedEntities.length
-                  ? relVerdict.matchedEntities
-                  : [q.query.replace(/^@/, "")],
-              };
-            }
 
             let sentimentVerdict;
             if (relVerdict.isRelevant) {
@@ -168,12 +170,17 @@ export class DiscoveryPipelineService {
               platform: parsed.platform,
               platformContentId: parsed.platformContentId,
               url: parsed.platform === "tiktok" ? parsed.normalizedUrl : item.url || parsed.normalizedUrl,
-              isOfficialSource: strategy === "account",
+              isOfficialSource: relVerdict.decision === "official_comment_source",
               authorUsername: item.authorUsername,
               authorDisplayName: item.authorDisplayName,
               caption: item.caption,
               title: item.title,
               description: item.description,
+              transcript: relVerdict.transcript,
+              transcriptProvider: relVerdict.transcriptProvider,
+              transcriptFetchedAt: relVerdict.transcript ? now : undefined,
+              relevanceModel: relVerdict.model,
+              relevanceCheckedAt: now,
               publishedAt: item.publishedAt,
               firstSeenAt: now,
               lastSeenAt: now,
@@ -186,7 +193,7 @@ export class DiscoveryPipelineService {
               lastViewCount: item.viewCount,
               activityState: "NEW",
               relevanceScore: relVerdict.confidence,
-              relevanceStatus: relVerdict.isRelevant ? "relevant" : "irrelevant",
+              relevanceStatus: relVerdict.relevanceStatus,
               relevanceReason: relVerdict.reason,
               matchedEntities: relVerdict.matchedEntities,
               isRelevant: relVerdict.isRelevant,
@@ -205,6 +212,25 @@ export class DiscoveryPipelineService {
             };
 
             await this.repo.upsertPost(newPost);
+            for (const event of relVerdict.events) {
+              await this.repo.recordPipelineEvent({
+                id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+                postId: newPost.id,
+                platform: newPost.platform,
+                platformContentId: newPost.platformContentId,
+                stage: "relevance",
+                decision: event.decision,
+                reason: event.reason,
+                costMicro: event.costMicro,
+                at: now,
+                detail: {
+                  classifierStage: event.stage,
+                  model: relVerdict.model || null,
+                  transcriptUsed: relVerdict.transcriptUsed,
+                  discoveryStrategy: strategy,
+                },
+              });
+            }
             await this.repo.recordSnapshot({
               id: `snap_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
               postId: newPost.id,

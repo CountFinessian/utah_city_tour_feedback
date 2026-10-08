@@ -7,7 +7,9 @@ import {
   PostMetricSnapshot,
   SearchRun,
   SearchTermSuggestion,
+  SocialPipelineEvent,
 } from "@/domain/social-listening/types";
+import { SEEDED_OFFICIAL_ACCOUNTS } from "@/domain/social-listening/relevance";
 import { SocialListenerState, SocialListeningRepository } from "./social-repository";
 import { fileSocialRepository } from "./file-social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
@@ -248,16 +250,43 @@ export const postgresSocialRepository: SocialListeningRepository = {
   async listPosts(filter): Promise<Post[]> {
     await ensureSocialSchema();
     const sql = db();
+    const contentOnly = filter?.contentOnly === true;
+    const commentHarvest = filter?.commentHarvest === true;
     const rows = await sql`
       select * from social_posts
       where (${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean is null or is_relevant = ${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean)
+        and (${contentOnly}::boolean = false or relevance_status = 'relevant')
+        and (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
         and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
         and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
         and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
+        and (${filter?.staleRelevanceBefore || null}::timestamptz is null or relevance_checked_at is null or relevance_checked_at < ${filter?.staleRelevanceBefore || null}::timestamptz)
       order by coalesce(published_at, first_seen_at) desc
       limit ${filter?.limit || 2000}
     `;
     return rows.map(mapPostRow);
+  },
+
+  async listOfficialAccounts() {
+    await ensureSocialSchema();
+    const sql = db();
+    const rows = await sql`select platform, handle from official_accounts`;
+    if (!rows.length) return SEEDED_OFFICIAL_ACCOUNTS;
+    return rows.map((row) => ({ platform: String(row.platform), handle: String(row.handle) }));
+  },
+
+  async recordPipelineEvent(event: SocialPipelineEvent): Promise<void> {
+    await ensureSocialSchema();
+    const sql = db();
+    await sql`
+      insert into social_pipeline_events (
+        id, post_id, platform, platform_content_id, stage, decision, reason, cost_micro, at, detail
+      ) values (
+        ${event.id}, ${event.postId || null}, ${event.platform || null}, ${event.platformContentId || null},
+        ${event.stage}, ${event.decision}, ${event.reason || null}, ${event.costMicro || 0}, ${event.at},
+        ${JSON.stringify(event.detail || {})}
+      )
+    `;
   },
 
   async getPost(id: string): Promise<Post | null> {

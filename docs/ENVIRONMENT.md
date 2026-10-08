@@ -66,7 +66,7 @@ Live listening uses the treg catalog (`utah-city-intelligence` team). Do not com
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `TREG_TOKEN` | Yes, for live listening | — | Treg API token. Without it, cron and admin cycles refuse to run. |
-| `CRON_SECRET` | No | Open when unset | Bearer secret for `POST /api/social-pulse/cron`. Also accepted as `?key=`. The leadership refresh button does not send this secret. |
+| `CRON_SECRET` | No | Open when unset | Bearer secret for `POST /api/social-pulse/cron`. Also accepted as `?key=`. `mode=relevance-eval` and `mode=relevance-reeval` refuse to run when this secret is missing. The leadership refresh button does not send this secret. |
 | `SOCIAL_LISTENING_CYCLE_BUDGET_USD` | No | `0.5` | Per-cycle treg spend cap. Discovery and comment sync stop at this amount. |
 | `SOCIAL_LISTENING_MAX_QUERIES` | No | `8` | Searches per cycle, least-recently-run first, with a slot per platform and Utah City account feeds. |
 | `SOCIAL_LISTENING_MAX_COMMENT_POSTS` | No | `5` | Maximum posts whose comments are synced in one cycle. In-progress threads resume first, then brand-account posts. |
@@ -76,6 +76,7 @@ Live listening uses the treg catalog (`utah-city-intelligence` team). Do not com
 | `SOCIAL_LISTENING_CLASSIFY_CONCURRENCY` | No | `4` | How many ambiguous-comment model batches run at once (max 8). |
 | `SOCIAL_LISTENING_CLASSIFY_BATCH_SIZE` | No | `20` | Ambiguous comments per model call (max 40). Keyword matches, junk, and already-classified wording skip the model. |
 | `SOCIAL_LISTENING_CLASSIFY_MODEL` | No | `gemini-2.5-flash-lite` | Gemini model for comment sentiment and topic. Lowest-cost current Flash model with structured output ($0.10 / $0.40 per 1M tokens). Does not change the leadership summary model. |
+| `RELEVANCE_MODEL` | No | `gemini-2.5-flash-lite` | Gemini model for Social Pulse relevance. Same Flash Lite price. Requires `GEMINI_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`. Does not fall through to `GOOGLE_MODEL`. |
 | `SOCIAL_LISTENING_SYNC_COMMENTS` | No | off | When `true`, discover-mode cycles also sync comments. The comments cron mode syncs regardless. |
 | `SOCIAL_LISTENING_USE_FIXTURES` | No | fixtures outside production | `true` forces bundled fixtures. `false` forces live treg even in development. |
 | `SOCIAL_LISTENING_ALERTS` | No | on | Set `false` to skip immediate and daily Social Pulse email. |

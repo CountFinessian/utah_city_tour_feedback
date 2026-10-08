@@ -91,7 +91,7 @@ export class SocialSchedulerService {
       options?.syncComments === true ||
       (options?.syncComments !== false && process.env.SOCIAL_LISTENING_SYNC_COMMENTS === "true");
     const activePosts = syncComments
-      ? (await this.repo.listPosts({ isRelevant: true, limit: 200 })).sort(comparePostsForCommentSync)
+      ? (await this.repo.listPosts({ commentHarvest: true, limit: 200 })).sort(comparePostsForCommentSync)
       : [];
     if (!syncComments) {
       console.log("[Scheduler] Comment sync skipped this cycle");

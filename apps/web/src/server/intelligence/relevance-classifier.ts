@@ -1,64 +1,182 @@
 import { generateObject } from "ai";
 import { z } from "zod";
-import { llmModel, hasLLM } from "../ai/model-config";
+import {
+  applyUnverifiableGuard,
+  decisionToStatus,
+  hasDevelopmentAnchor,
+  hasUtahCityPhrase,
+  isContentRelevant,
+  isHashtagOnlyCandidate,
+  isOfficialAuthor,
+  isVideoPost,
+  looksUnverifiableClaim,
+  resolveBorderline,
+  rulesPreGate,
+  SEEDED_OFFICIAL_ACCOUNTS,
+  type OfficialAccountRef,
+  type RelevanceDecision,
+} from "@/domain/social-listening/relevance";
+import type { RelevanceStatus } from "@/domain/social-listening/types";
+import {
+  geminiFlashLiteCostMicro,
+  hasRelevanceModel,
+  relevanceModel,
+  resolveRelevanceModelName,
+} from "../ai/model-config";
+
+export interface RelevanceDecisionEvent {
+  decision: string;
+  reason: string;
+  costMicro: number;
+  stage: "stage1_rule" | "stage2_llm" | "transcript";
+}
 
 export interface RelevanceClassificationResult {
   isRelevant: boolean;
   confidence: number;
   reason: string;
   matchedEntities: string[];
-  stage: "stage1_rule" | "stage2_llm";
+  stage: "stage1_rule" | "stage2_llm" | "transcript";
+  decision: RelevanceDecision;
+  relevanceStatus: RelevanceStatus;
+  costMicro: number;
+  model?: string;
+  transcript?: string;
+  transcriptProvider?: string;
+  transcriptUsed: boolean;
+  events: RelevanceDecisionEvent[];
 }
 
-const AUTHOR_ALLOWLIST = ["utahcityutah", "utahcityfoodtruckrally"];
+export interface TranscriptFetch {
+  text: string;
+  provider?: string;
+}
 
-/** Phrase / hashtag forms — prefer word-ish matches over naive substrings where possible. */
-const EXACT_BRAND_PATTERNS: Array<{ term: string; re: RegExp }> = [
-  { term: "utah city", re: /\butah\s*city\b/i },
-  { term: "#utahcity", re: /#utahcity\b/i },
-  { term: "#utahcityutah", re: /#utahcityutah\b/i },
-  { term: "@utahcityutah", re: /@utahcityutah\b/i },
-  { term: "utah city vineyard", re: /\butah\s*city\s+vineyard\b/i },
-  { term: "utah city racquet club", re: /\butah\s*city\s+racquet\b/i },
-  { term: "120 bend", re: /\b120\s*bend\b/i },
-  { term: "220 bend", re: /\b220\s*bend\b/i },
-];
+const DEFAULT_GEMINI_BUDGET_MICRO = 100_000;
 
-const URBAN_INDICATORS = [
-  "new downtown",
-  "downtown vineyard",
-  "geneva steel",
-  "old geneva",
-  "lakefront development",
-  "fini pizza",
-  "fini cafe",
-  "greenline",
-  "urban core",
-  "700 acre",
-  "700-acre",
-  "master planned",
-  "master-planned",
-  "walkable downtown",
-  "bella's market",
-  "bellas market",
-  "builtforbecoming",
-  "built for becoming",
-];
+let budgetMicro = DEFAULT_GEMINI_BUDGET_MICRO;
+let spentMicro = 0;
 
-const IRRELEVANT_PATTERNS = [
-  "softball tournament",
-  "baseball tournament",
-  "high school soccer",
-  "vineyard high school",
-  "youth soccer",
-  "little league",
-  "vineyard church",
-  "winery tour",
-  "wine tasting",
-  "martha's vineyard",
-  "clearfield",
-  "salt lake city itinerary",
-];
+export function setRelevanceGeminiBudgetMicro(micro: number): void {
+  budgetMicro = micro > 0 ? micro : DEFAULT_GEMINI_BUDGET_MICRO;
+}
+
+export function relevanceGeminiBudgetMicro(): number {
+  return budgetMicro;
+}
+
+export function relevanceGeminiSpendMicro(): number {
+  return spentMicro;
+}
+
+export function resetRelevanceGeminiSpend(): void {
+  spentMicro = 0;
+}
+
+const decisionSchema = z.object({
+  decision: z.enum([
+    "relevant",
+    "rejected_lookalike",
+    "rejected_offtopic",
+    "rejected_unverifiable",
+    "unsure",
+  ]),
+  reason: z.string().describe("One or two sentences"),
+});
+
+function finish(
+  decision: RelevanceDecision,
+  reason: string,
+  matchedEntities: string[],
+  stage: RelevanceClassificationResult["stage"],
+  costMicro: number,
+  events: RelevanceDecisionEvent[],
+  extra?: Partial<RelevanceClassificationResult>
+): RelevanceClassificationResult {
+  const stored = decision === "unsure" ? resolveBorderline(decision, extra?.transcript || "") : decision;
+  return {
+    confidence: stored === "official_comment_source" ? 0.99 : stage === "stage1_rule" ? 0.9 : 0.86,
+    reason,
+    matchedEntities,
+    stage,
+    costMicro,
+    events,
+    transcript: extra?.transcript,
+    transcriptProvider: extra?.transcriptProvider,
+    model: extra?.model,
+    transcriptUsed: Boolean(extra?.transcriptUsed ?? extra?.transcript),
+    decision: stored,
+    relevanceStatus: decisionToStatus(stored),
+    isRelevant: isContentRelevant(stored),
+  };
+}
+
+function noModelDecision(text: string): { decision: RelevanceDecision; reason: string } {
+  if (looksUnverifiableClaim(text)) {
+    return {
+      decision: "rejected_unverifiable",
+      reason: "Specific claim about Utah City is not a published project fact.",
+    };
+  }
+  if (hasDevelopmentAnchor(text)) {
+    return { decision: "relevant", reason: "Text names the Vineyard development." };
+  }
+  if (hasUtahCityPhrase(text) && !isHashtagOnlyCandidate(text)) {
+    return { decision: "relevant", reason: "Text names Utah City beyond a hashtag." };
+  }
+  if (isHashtagOnlyCandidate(text)) {
+    return {
+      decision: "rejected_offtopic",
+      reason: "Hashtag alone is a candidate, not a relevant post.",
+    };
+  }
+  return {
+    decision: "rejected_offtopic",
+    reason: "No reference to Utah City or the Vineyard development.",
+  };
+}
+
+function usageMicro(usage: { inputTokens?: number; outputTokens?: number; promptTokens?: number; completionTokens?: number } | undefined): number {
+  const input = usage?.inputTokens ?? usage?.promptTokens ?? 0;
+  const output = usage?.outputTokens ?? usage?.completionTokens ?? 0;
+  return geminiFlashLiteCostMicro(input, output);
+}
+
+async function callModel(caption: string, transcript?: string): Promise<{ decision: RelevanceDecision; reason: string; costMicro: number }> {
+  if (spentMicro >= budgetMicro) {
+    const fallback = noModelDecision(`${caption}\n${transcript || ""}`);
+    return {
+      decision: fallback.decision,
+      reason: `${fallback.reason} Gemini budget of $${(budgetMicro / 1_000_000).toFixed(2)} was already reached.`,
+      costMicro: 0,
+    };
+  }
+
+  const prompt = `Decide if this public post is about Utah City, the master-planned development in Vineyard, Utah (former Geneva Steel site on Utah Lake, the Greenline, 120 Bend, 220 Bend, about $1.8 billion).
+
+relevant: the post is about that development, its downtown, streets, buildings, or public reaction to it.
+rejected_lookalike: Park City, Salt Lake City, SLC, "best Utah city to live in", or generic Utah, unless the text clearly references the Vineyard development. A #utahcity hashtag alone is not enough.
+rejected_offtopic: something else.
+rejected_unverifiable: a specific claim about Utah City that is made up or cannot be checked, such as an invented price, a secret payment, or a logo that cost a large unpublished sum. The published $1.8 billion project figure is fine.
+unsure: the text is not enough to decide.
+
+Post:
+"""${caption.slice(0, 3500)}"""
+${transcript ? `Transcript:\n"""${transcript.slice(0, 5000)}"""` : ""}`;
+
+  const result = await generateObject({
+    model: relevanceModel(),
+    schema: decisionSchema,
+    prompt,
+  });
+  const costMicro = usageMicro(result.usage as { inputTokens?: number; outputTokens?: number });
+  spentMicro += costMicro;
+  return {
+    decision: result.object.decision,
+    reason: result.object.reason,
+    costMicro,
+  };
+}
 
 export async function classifyRelevance(
   text: string,
@@ -67,137 +185,112 @@ export async function classifyRelevance(
     discoveryQuery?: string;
     discoveryGroup?: string;
     author?: string;
+    authorDisplayName?: string;
+    url?: string;
+    mediaKind?: string;
+    officialAccounts?: OfficialAccountRef[];
+    transcript?: string;
+    fetchTranscript?: () => Promise<TranscriptFetch | null>;
   }
 ): Promise<RelevanceClassificationResult> {
-  const normalized = (text || "").toLowerCase();
-  const author = (metadata?.author || "").toLowerCase().replace(/^@/, "");
+  const accounts = metadata?.officialAccounts?.length ? metadata.officialAccounts : SEEDED_OFFICIAL_ACCOUNTS;
+  const caption = text || "";
 
-  // Author allowlist is a strong brand signal
-  if (author && AUTHOR_ALLOWLIST.includes(author)) {
-    return {
-      isRelevant: true,
-      confidence: 0.99,
-      reason: `Author allowlist match: @${author}.`,
-      matchedEntities: [`@${author}`],
-      stage: "stage1_rule",
-    };
+  if (
+    isOfficialAuthor(metadata?.platform, metadata?.author, accounts) ||
+    isOfficialAuthor(metadata?.platform, metadata?.authorDisplayName, accounts)
+  ) {
+    const handle = metadata?.author || metadata?.authorDisplayName || "official";
+    const reason = `Official account @${handle}. Hidden as content. Comments stay in the harvest.`;
+    const events: RelevanceDecisionEvent[] = [
+      { decision: "official_comment_source", reason, costMicro: 0, stage: "stage1_rule" },
+    ];
+    return finish("official_comment_source", reason, [`@${handle}`], "stage1_rule", 0, events);
   }
 
-  for (const noise of IRRELEVANT_PATTERNS) {
-    if (normalized.includes(noise)) {
-      return {
-        isRelevant: false,
-        confidence: 0.95,
-        reason: `Filtered out by exclusion pattern: "${noise}".`,
-        matchedEntities: [],
-        stage: "stage1_rule",
-      };
+  const gate = rulesPreGate(caption);
+  if (!gate.candidate && gate.decision) {
+    const events: RelevanceDecisionEvent[] = [
+      { decision: gate.decision, reason: gate.reason, costMicro: 0, stage: "stage1_rule" },
+    ];
+    return finish(gate.decision, gate.reason, gate.matchedEntities, "stage1_rule", 0, events);
+  }
+
+  const events: RelevanceDecisionEvent[] = [];
+  let decision: RelevanceDecision;
+  let reason: string;
+  let costMicro = 0;
+  let stage: RelevanceClassificationResult["stage"] = "stage1_rule";
+  let model: string | undefined;
+  let transcript = metadata?.transcript;
+  let transcriptProvider: string | undefined;
+
+  if (!hasRelevanceModel()) {
+    const fallback = noModelDecision(caption);
+    decision = fallback.decision;
+    reason = fallback.reason;
+    events.push({ decision, reason, costMicro: 0, stage: "stage1_rule" });
+  } else {
+    model = resolveRelevanceModelName();
+    try {
+      const first = await callModel(caption);
+      decision = applyUnverifiableGuard(first.decision, caption);
+      reason = decision === first.decision ? first.reason : `${first.reason} Overridden: unverifiable specific claim.`;
+      costMicro += first.costMicro;
+      stage = "stage2_llm";
+      events.push({ decision, reason, costMicro: first.costMicro, stage: "stage2_llm" });
+    } catch (error) {
+      const fallback = noModelDecision(caption);
+      decision = fallback.decision;
+      reason = `${fallback.reason} Model call failed (${error instanceof Error ? error.message : "unknown"}).`;
+      events.push({ decision, reason, costMicro: 0, stage: "stage1_rule" });
+    }
+
+    const needsTranscript =
+      isVideoPost(metadata?.platform, metadata?.url, metadata?.mediaKind) &&
+      (decision === "relevant" || decision === "unsure") &&
+      !transcript &&
+      Boolean(metadata?.fetchTranscript);
+
+    if (needsTranscript && metadata?.fetchTranscript) {
+      let fetched: TranscriptFetch | null = null;
+      try {
+        fetched = await metadata.fetchTranscript();
+      } catch (error) {
+        reason = `${reason} Transcript fetch failed (${error instanceof Error ? error.message : "unknown"}).`;
+      }
+      if (fetched?.text) {
+        transcript = fetched.text;
+        transcriptProvider = fetched.provider;
+        try {
+          const second = await callModel(caption, transcript);
+          const combined = `${caption}\n${transcript}`;
+          decision = applyUnverifiableGuard(second.decision, combined);
+          if (decision === "unsure") decision = resolveBorderline("unsure", combined);
+          reason = decision === second.decision ? second.reason : `${second.reason} Resolved with the transcript.`;
+          costMicro += second.costMicro;
+          stage = "transcript";
+          events.push({ decision, reason, costMicro: second.costMicro, stage: "transcript" });
+        } catch (error) {
+          if (decision === "unsure") decision = resolveBorderline("unsure", `${caption}\n${transcript}`);
+          reason = `${reason} Transcript model call failed (${error instanceof Error ? error.message : "unknown"}).`;
+        }
+      }
+    }
+
+    if (decision === "unsure") {
+      decision = resolveBorderline("unsure", `${caption}\n${transcript || ""}`);
+      reason = `${reason} Borderline resolved to ${decision}.`;
+      events.push({ decision, reason, costMicro: 0, stage });
     }
   }
 
-  const matchedExact: string[] = [];
-  for (const { term, re } of EXACT_BRAND_PATTERNS) {
-    if (re.test(text || "") || re.test(normalized)) {
-      matchedExact.push(term);
-    }
-  }
-  // Compact form utahcity as standalone hashtag/token (not inside saltlakecity)
-  if (/(^|[^a-z])utahcity([^a-z]|$)/i.test(normalized) || /#utahcity\b/i.test(normalized)) {
-    if (!matchedExact.includes("utahcity")) matchedExact.push("utahcity");
-  }
+  decision = applyUnverifiableGuard(decision, `${caption}\n${transcript || ""}`);
 
-  if (matchedExact.length > 0) {
-    return {
-      isRelevant: true,
-      confidence: 0.98,
-      reason: `Matched primary brand keyword: "${matchedExact[0]}".`,
-      matchedEntities: matchedExact,
-      stage: "stage1_rule",
-    };
-  }
-
-  const hasVineyard = /\bvineyard\b/i.test(normalized);
-  const matchedUrbanTerms = URBAN_INDICATORS.filter((term) => normalized.includes(term));
-
-  if (hasVineyard && matchedUrbanTerms.length >= 1) {
-    return {
-      isRelevant: true,
-      confidence: 0.92,
-      reason: `Discusses Vineyard development with co-occurring entities: ${matchedUrbanTerms.join(", ")}.`,
-      matchedEntities: ["Vineyard", ...matchedUrbanTerms],
-      stage: "stage1_rule",
-    };
-  }
-
-  if (!hasVineyard && matchedUrbanTerms.length === 0) {
-    return {
-      isRelevant: false,
-      confidence: 0.9,
-      reason: "No references to Utah City, Vineyard, or associated development entities.",
-      matchedEntities: [],
-      stage: "stage1_rule",
-    };
-  }
-
-  if (!hasLLM()) {
-    const isRel = hasVineyard && matchedUrbanTerms.length > 0;
-    return {
-      isRelevant: isRel,
-      confidence: 0.7,
-      reason: isRel
-        ? "Heuristic match on Vineyard development context."
-        : "Heuristic rejection: insufficient entity evidence.",
-      matchedEntities: matchedUrbanTerms,
-      stage: "stage1_rule",
-    };
-  }
-
-  try {
-    const prompt = `You are an expert analyst evaluating public social media content.
-Determine whether the content is discussing "Utah City", the 700-acre master-planned mixed-use development/downtown in Vineyard, Utah (at the former Geneva Steel site by Utah Lake).
-
-Context:
-- Discovery Query: "${metadata?.discoveryQuery || "none"}"
-- Discovery Group: "${metadata?.discoveryGroup || "none"}"
-- Author: "${metadata?.author || "unknown"}"
-- Text: """${text}"""
-
-Rules:
-1. "Utah City" is an entity, not just the exact phrase. People may describe "the new downtown in Vineyard", "building by Utah Lake at the old steel mill", "Fini pizza in Vineyard", "120 Bend", "walkable city in Utah County".
-2. Generic Vineyard mentions (e.g. youth sports, family visits, high school games, wineries) are NOT about Utah City.
-3. Generic Utah / Salt Lake City tourism with only #utah is NOT about Utah City.
-4. Be strict: return is_relevant = true ONLY if there is reasonable evidence the post/discussion refers to this development or its immediate components.`;
-
-    const result = await generateObject({
-      model: llmModel(),
-      schema: z.object({
-        is_relevant: z.boolean().describe("Whether this content discusses Utah City development"),
-        confidence: z.number().min(0).max(1).describe("Confidence score between 0.0 and 1.0"),
-        reason: z.string().describe("Concise explanation of the decision"),
-        matched_entities: z.array(z.string()).describe("List of matched entities or phrases"),
-      }),
-      prompt,
-    });
-
-    return {
-      isRelevant: result.object.is_relevant,
-      confidence: result.object.confidence,
-      reason: result.object.reason,
-      matchedEntities: result.object.matched_entities,
-      stage: "stage2_llm",
-    };
-  } catch {
-    const isRel =
-      hasVineyard &&
-      (normalized.includes("development") ||
-        normalized.includes("downtown") ||
-        normalized.includes("building"));
-    return {
-      isRelevant: isRel,
-      confidence: 0.65,
-      reason: `LLM evaluation fallback: ${isRel ? "Matched Vineyard development keywords" : "No sufficient entity evidence"}.`,
-      matchedEntities: isRel ? ["Vineyard"] : [],
-      stage: "stage1_rule",
-    };
-  }
+  return finish(decision, reason, gate.matchedEntities, stage, costMicro, events, {
+    model,
+    transcript,
+    transcriptProvider,
+    transcriptUsed: Boolean(transcript),
+  });
 }

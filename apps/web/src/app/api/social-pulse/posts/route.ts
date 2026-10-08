@@ -9,13 +9,12 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const platform = searchParams.get("platform") || undefined;
-    const isRelevant = searchParams.get("isRelevant") !== null ? searchParams.get("isRelevant") === "true" : undefined;
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!, 10) : 50;
 
     const repo = getSocialRepository();
     const posts = await repo.listPosts({
       platform,
-      isRelevant,
+      contentOnly: true,
       limit,
     });
 
@@ -71,10 +70,14 @@ export async function POST(request: Request) {
       lastViewCount: 0,
       activityState: "NEW",
       relevanceScore: relVerdict.confidence,
-      relevanceStatus: relVerdict.isRelevant ? "relevant" : "irrelevant",
+      relevanceStatus: relVerdict.relevanceStatus,
       relevanceReason: relVerdict.reason,
       matchedEntities: relVerdict.matchedEntities,
       isRelevant: relVerdict.isRelevant,
+      isOfficialSource: relVerdict.decision === "official_comment_source",
+      relevanceModel: relVerdict.model,
+      relevanceCheckedAt: now,
+      transcript: relVerdict.transcript,
       sentiment: sentVerdict?.sentiment,
       sentimentConfidence: sentVerdict?.confidence,
       sentimentReason: sentVerdict?.reason,
@@ -84,6 +87,20 @@ export async function POST(request: Request) {
     };
 
     await repo.upsertPost(newPost);
+    for (const event of relVerdict.events) {
+      await repo.recordPipelineEvent({
+        id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+        postId: newPost.id,
+        platform: newPost.platform,
+        platformContentId: newPost.platformContentId,
+        stage: "relevance",
+        decision: event.decision,
+        reason: event.reason,
+        costMicro: event.costMicro,
+        at: now,
+        detail: { classifierStage: event.stage, model: relVerdict.model || null, transcriptUsed: relVerdict.transcriptUsed },
+      });
+    }
     return NextResponse.json({ post: newPost }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

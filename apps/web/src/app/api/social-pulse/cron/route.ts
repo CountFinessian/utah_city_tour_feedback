@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
+import { hasRelevanceModel } from "@/server/ai/model-config";
 import { acceptSocialListeningCycle } from "@/server/services/social-cycle";
+import { runReferenceEval, runRelevanceReeval } from "@/server/services/relevance-jobs";
+
+const RELEVANCE_MODES = new Set(["relevance-eval", "relevance-reeval"]);
 
 /** Keep as high as the plan allows — discovery-only cycles should finish well under this. */
 export const maxDuration = 300;
@@ -24,6 +28,25 @@ export function HEAD() {
 
 export async function GET(request: Request) {
   try {
+    const mode = (new URL(request.url).searchParams.get("mode") || "discover").toLowerCase();
+    if (RELEVANCE_MODES.has(mode)) {
+      if (!process.env.CRON_SECRET || !authorizeCron(request)) {
+        return NextResponse.json({ error: "Unauthorized cron execution" }, { status: 401 });
+      }
+      if (!process.env.TREG_TOKEN) {
+        return NextResponse.json({ error: "TREG_TOKEN is not configured in this environment" }, { status: 503 });
+      }
+      if (!hasRelevanceModel()) {
+        return NextResponse.json(
+          { error: "GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY is not configured" },
+          { status: 503 }
+        );
+      }
+      const result = mode === "relevance-eval" ? await runReferenceEval() : await runRelevanceReeval();
+      console.log(`[CRON /api/social-pulse/cron] ${JSON.stringify(result)}`);
+      return NextResponse.json(result);
+    }
+
     if (!authorizeCron(request)) {
       return NextResponse.json({ error: "Unauthorized cron execution" }, { status: 401 });
     }
@@ -36,15 +59,12 @@ export async function GET(request: Request) {
       );
     }
 
-    const mode = acceptSocialListeningCycle(
-      new URL(request.url).searchParams.get("mode") || "discover",
-      "cron"
-    );
+    const accepted = acceptSocialListeningCycle(mode, "cron");
 
     return NextResponse.json({
       success: true,
       accepted: true,
-      mode,
+      mode: accepted,
       message: "Social listening cycle accepted",
     });
   } catch (err: unknown) {

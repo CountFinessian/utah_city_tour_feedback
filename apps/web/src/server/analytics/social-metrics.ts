@@ -7,6 +7,7 @@ import {
   CommentWithContext,
   Sentiment,
 } from "@/domain/social-listening/types";
+import { postCommentsInDashboard, postShownAsContent } from "@/domain/social-listening/relevance";
 
 export type PublicFeedbackKind =
   | "wayfinding_and_access"
@@ -163,8 +164,8 @@ export function calculateDeterministicSocialMetrics(params: {
     return postDate >= previousCutoff && postDate < currentCutoff;
   });
 
-  const currentRelPosts = currentPosts.filter((p) => p.isRelevant);
-  const prevRelPosts = previousPosts.filter((p) => p.isRelevant);
+  const currentRelPosts = currentPosts.filter((p) => postShownAsContent(p));
+  const prevRelPosts = previousPosts.filter((p) => postShownAsContent(p));
 
   // Attention KPIs: Current
   const relevantPostsCount = currentRelPosts.length;
@@ -196,7 +197,7 @@ export function calculateDeterministicSocialMetrics(params: {
   const uniqueCreatorsChange = calcChange(currentCreators, prevCreators);
 
   // Comments are windowed by comment time, including fresh replies on older relevant posts.
-  const relevantById = new Map(posts.filter((p) => p.isRelevant).map((p) => [p.id, p]));
+  const relevantById = new Map(posts.filter((p) => postCommentsInDashboard(p)).map((p) => [p.id, p]));
   const currentComments = comments.filter((c) => {
     if (!relevantById.has(c.postId)) return false;
     const at = commentInstant(c);
