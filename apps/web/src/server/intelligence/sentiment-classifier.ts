@@ -1,7 +1,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 import { commentClassifyModel, hasLLM } from "../ai/model-config";
-import { LOW_SIGNAL_REASON, isLowSignalCommentText, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
+import { commentDropReason, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
 import { Sentiment, Topic } from "@/domain/social-listening/types";
 
 export interface SentimentAnalysisResult {
@@ -126,13 +126,14 @@ function neutralFallback(topic: Topic, confidence = 0.7): SentimentAnalysisResul
 
 /** Keyword and emoji pass. Ambiguous comments are the only ones that should call a model. */
 export function classifyCommentByKeyword(text: string): KeywordSentiment {
-  if (isLowSignalCommentText(text)) {
+  const dropReason = commentDropReason(text);
+  if (dropReason) {
     return {
       ambiguous: false,
       sentiment: "neutral",
       confidence: 0.2,
       target: "Utah City",
-      reason: LOW_SIGNAL_REASON,
+      reason: dropReason,
       primaryTopic: "other",
       secondaryTopics: [],
     };

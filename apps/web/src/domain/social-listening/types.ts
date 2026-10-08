@@ -1,4 +1,4 @@
-export type Platform = "tiktok" | "instagram" | "youtube" | "x" | "facebook" | "reddit" | "other";
+export type Platform = "tiktok" | "instagram" | "youtube" | "x" | "facebook" | "reddit" | "linkedin" | "other";
 
 export type SearchGroup =
   | "exact"
@@ -31,6 +31,11 @@ export type Topic =
   | "other";
 
 export type ActivityState = "NEW" | "GROWING" | "ACTIVE" | "DORMANT" | "RESURGENT";
+
+/** Time since last meaningful activity. Spec states. RESURGENCE is not stored; it sets HOT. */
+export type MonitoringState = "NEW" | "HOT" | "WARM" | "COOLING" | "QUIET" | "DORMANT" | "LONG_DORMANT";
+
+export type DropReason = "emoji_only" | "punctuation_only" | "filler_word" | "mention_only" | "link_promo";
 
 export type TermSuggestionStatus = "suggested" | "approved" | "rejected";
 
@@ -99,6 +104,23 @@ export interface Post {
   /** ISO timestamp of last full comment sync (stored in rawProviderData if DB column missing). */
   commentsFetchedAt?: string;
 
+  isOfficialSource?: boolean;
+  monitoringState?: MonitoringState;
+  nextCommentCheckAt?: string;
+  lastCommentCheckAt?: string;
+  lastPlatformCommentCount?: number;
+  lastNewCommentAt?: string;
+  lastActivityAt?: string;
+  newestCommentCreatedAt?: string;
+  newestCommentId?: string;
+  storedTotal?: number;
+  droppedLowSignalCount?: number;
+  transcriptProvider?: string;
+  transcriptFetchedAt?: string;
+  relevanceModel?: string;
+  relevanceCheckedAt?: string;
+  consecutiveUnchangedChecks?: number;
+
   rawProviderData?: Record<string, unknown>;
 }
 
@@ -127,6 +149,17 @@ export interface Comment {
 
   topic?: Topic;
   evidenceScore?: number; // Calculated score for representative evidence
+
+  intent?: string;
+  commentRelevance?: string;
+  signalScore?: number;
+  classificationVersion?: number;
+  classifiedAt?: string;
+  isLeadershipSignal?: boolean;
+  replyCountAtLastCheck?: number;
+  repliesCheckedAt?: string;
+  dropped?: boolean;
+  dropReason?: DropReason | string;
 
   rawProviderData?: Record<string, unknown>;
 }

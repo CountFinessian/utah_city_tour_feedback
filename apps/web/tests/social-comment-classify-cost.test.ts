@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateObject } from "ai";
-import { isLowSignalCommentText, LOW_SIGNAL_REASON } from "@/domain/social-listening/comment-signal";
+import { commentDropReason, isLowSignalCommentText, LOW_SIGNAL_REASON } from "@/domain/social-listening/comment-signal";
 import { Comment, Post } from "@/domain/social-listening/types";
 import { classifyComments } from "@/server/intelligence/sentiment-classifier";
 import { resolveCommentClassifyModelName } from "@/server/ai/model-config";
@@ -89,6 +89,14 @@ describe("comment classification cost", () => {
     expect(isLowSignalCommentText("vineyard is NOT walkable")).toBe(false);
     expect(isLowSignalCommentText("What the hell is Utah city")).toBe(false);
     expect(isLowSignalCommentText("no parking downtown")).toBe(false);
+    expect(commentDropReason("lol")).toBe("filler_word");
+    expect(commentDropReason("🔥")).toBe("emoji_only");
+    expect(commentDropReason("!!!")).toBe("punctuation_only");
+    expect(commentDropReason("@friend")).toBe("mention_only");
+    expect(commentDropReason("@maya lol")).toBe("mention_only");
+    expect(commentDropReason("https://spam.example/deal")).toBe("link_promo");
+    expect(commentDropReason("follow me for more")).toBe("link_promo");
+    expect(commentDropReason("Brilliant")).toBe("filler_word");
     for (const junk of ["lol", "wow", "🔥", "🥰🥰🥰", "@friend", "@maya lol", "https://spam.example/deal", "follow me for more"]) {
       expect(isLowSignalCommentText(junk)).toBe(true);
     }
@@ -109,7 +117,7 @@ describe("comment classification cost", () => {
     expect(prompt).toContain("What the hell is Utah city");
     expect(prompt).not.toContain("lol");
     expect(prompt).not.toContain("🔥");
-    expect(results[0]?.reason).toBe(LOW_SIGNAL_REASON);
+    expect(results[0]?.reason).toBe("filler_word");
     expect(results[0]?.sentiment).toBe("neutral");
     expect(results[3]?.primaryTopic).toBe("development");
     expect(results[4]?.primaryTopic).toBe("development");
@@ -140,7 +148,9 @@ describe("comment classification cost", () => {
 
     const stored = await repo.listComments({ postId: post.id });
     expect(stored).toHaveLength(3);
-    expect(stored.find((comment) => comment.text === "lol")?.sentimentReason).toBe(LOW_SIGNAL_REASON);
+    expect(stored.find((comment) => comment.text === "lol")?.sentimentReason).toBe("filler_word");
+    expect(stored.find((comment) => comment.text === "lol")?.dropped).toBe(true);
+    expect(stored.find((comment) => comment.text === "lol")?.dropReason).toBe("filler_word");
     expect(stored.filter((comment) => comment.text.toLowerCase().includes("utah city"))).toHaveLength(2);
 
     vi.mocked(generateObject).mockClear();

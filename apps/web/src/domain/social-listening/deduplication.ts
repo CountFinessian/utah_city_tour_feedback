@@ -29,7 +29,7 @@ export function parseAndNormalizePostIdentifier(rawUrlOrId: string, hintedPlatfo
 
   // Instagram detection
   // URLs: https://www.instagram.com/reel/DXFkWLriW4I/ or /p/DXFkWLriW4I/
-  const igMatch = input.match(/instagram\.com\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/i);
+  const igMatch = input.match(/instagram\.com\/(?:reels|reel|p|tv)\/([A-Za-z0-9_-]+)/i);
   if (igMatch) {
     const shortcode = igMatch[1];
     return {
@@ -100,6 +100,17 @@ export function parseAndNormalizePostIdentifier(rawUrlOrId: string, hintedPlatfo
     };
   }
 
+  const linkedinActivity = input.match(/urn:li:activity:(\d+)/i) || input.match(/activity-(\d+)/i);
+  if (/linkedin\.com/i.test(input) && linkedinActivity) {
+    const id = linkedinActivity[1];
+    return {
+      platform: "linkedin",
+      platformContentId: id,
+      canonicalId: `linkedin:${id}`,
+      normalizedUrl: `https://www.linkedin.com/feed/update/urn:li:activity:${id}`,
+    };
+  }
+
   // If input is purely an ID with a hinted platform
   if (hintedPlatform) {
     const cleanId = input.replace(/^[a-z]+:/i, "");
@@ -110,6 +121,7 @@ export function parseAndNormalizePostIdentifier(rawUrlOrId: string, hintedPlatfo
     if (hintedPlatform === "x") normalized = `https://x.com/i/status/${cleanId}`;
     if (hintedPlatform === "reddit") normalized = `https://www.reddit.com/comments/${cleanId}/`;
     if (hintedPlatform === "facebook") normalized = `https://www.facebook.com/posts/${cleanId}`;
+    if (hintedPlatform === "linkedin") normalized = `https://www.linkedin.com/feed/update/urn:li:activity:${cleanId}`;
 
     return {
       platform: hintedPlatform,
