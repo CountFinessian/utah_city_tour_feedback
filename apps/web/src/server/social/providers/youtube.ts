@@ -43,22 +43,30 @@ function youtubeNode(raw: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{6,}$/;
+
 export function parseYouTubeVideo(raw: Record<string, unknown>): TregSearchResultItem | null {
   const node = youtubeNode(raw);
   const idObj = asRecord(node.id);
   const id = str(node.video_id || node.videoId || (typeof node.id === "string" ? node.id : idObj?.videoId));
-  if (!id) return null;
+  if (!YOUTUBE_ID.test(id)) return null;
   const author = authorName(node);
   const handle = str(node.channel_handle).replace(/^@/, "");
   const channelId = str(node.channel_id || node.channelId);
   const authorString = typeof node.author === "string" ? str(node.author) : "";
   const channelTitle = str(node.channelTitle || node.channel_title);
-  const username = handle || authorString || channelTitle || (author.username !== "user" ? author.username : "") || "yt_creator";
+  const namedAuthor = handle || authorString || channelTitle || (author.username !== "user" ? author.username : "");
+  const username = namedAuthor || (channelId ? channelId : "yt_creator");
   const title = str(node.title);
   const description = str(node.description || node.shortDescription);
+  const rawUrl = str(node.url);
+  const url =
+    rawUrl.includes(`v=${id}`) || rawUrl.includes(`/shorts/${id}`) || rawUrl.includes(`youtu.be/${id}`)
+      ? rawUrl.split("&")[0]
+      : `https://www.youtube.com/watch?v=${id}`;
   return searchItem("youtube", raw, {
     contentId: id,
-    url: /youtu\.?be|\/watch|\/shorts\//i.test(str(node.url)) ? str(node.url) : `https://www.youtube.com/watch?v=${id}`,
+    url,
     authorUsername: username,
     authorDisplayName: channelTitle || (authorString && authorString !== username ? authorString : author.display),
     authorId: channelId || undefined,
@@ -72,6 +80,27 @@ export function parseYouTubeVideo(raw: Record<string, unknown>): TregSearchResul
     commentCount: countOf(node, "comment_count", "commentCount"),
     shareCount: 0,
   });
+}
+
+/** Prefer a detail that actually has a caption. An empty free-API shell must not hide the paid lookup. */
+export function selectYouTubeDetail(
+  freeItem: TregSearchResultItem | null,
+  paidItem: TregSearchResultItem | null
+): TregSearchResultItem | null {
+  const score = (item: TregSearchResultItem | null) => {
+    if (!item || !YOUTUBE_ID.test(item.contentId)) return -1;
+    const text = (item.caption || "").trim().length;
+    const author = item.authorUsername && !/^(yt_creator|user)$/i.test(item.authorUsername) ? 30 : 0;
+    const channel = item.channelId ? 30 : 0;
+    return text + author + channel;
+  };
+  const freeScore = score(freeItem);
+  const paidScore = score(paidItem);
+  if (freeScore < 0 && paidScore < 0) return null;
+  const freeText = (freeItem?.caption || "").trim().length;
+  if (freeText > 0 && freeScore >= paidScore) return freeItem;
+  if (paidScore >= 0) return paidItem;
+  return freeScore >= 0 ? freeItem : null;
 }
 
 export function parseYouTubeSearch(output: Record<string, unknown> | null): SearchPage {
@@ -134,25 +163,25 @@ export const youtubeProvider: SocialProvider = {
     return parseYouTubeSearch(res.output);
   },
   async detail(contentId) {
+    if (!YOUTUBE_ID.test(contentId)) return null;
     const free = await tregHttp.call({
       endpointId: DETAIL_FREE,
       method: "GET",
       queryParams: { id: contentId, part: "snippet,statistics" },
       maxCostUsd: 0.02,
     });
-    if (!free.error) {
-      const parsed = parseYouTubeSearch(free.output);
-      if (parsed.items[0]) return parsed.items[0];
-    }
+    const freeParsed = free.error ? null : parseYouTubeSearch(free.output).items[0] || null;
+    const freeReady = Boolean((freeParsed?.caption || "").trim() && freeParsed?.authorUsername && freeParsed.authorUsername !== "yt_creator");
+    if (freeReady) return freeParsed;
     const paid = await tregHttp.call({
       endpointId: DETAIL,
       method: "GET",
       queryParams: { video_id: contentId },
       maxCostUsd: 0.02,
     });
-    if (!paid.output) return null;
-    const rows = recordsOf(paid.output, ["videos", "items"]);
-    return rows[0] ? parseYouTubeVideo(rows[0]) : parseYouTubeVideo(paid.output);
+    const paidRows = paid.output ? recordsOf(paid.output, ["videos", "items"]) : [];
+    const paidParsed = paidRows[0] ? parseYouTubeVideo(paidRows[0]) : paid.output ? parseYouTubeVideo(paid.output) : null;
+    return selectYouTubeDetail(freeParsed, paidParsed);
   },
   async officialFeed(handle, cursor) {
     const clean = handle.replace(/^@/, "");

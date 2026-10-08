@@ -5,7 +5,8 @@ import { parseLinkedInPost } from "@/server/social/providers/linkedin";
 import { parseRedditSearch } from "@/server/social/providers/reddit";
 import { parseTikTokVideo } from "@/server/social/providers/tiktok";
 import { parseXPost } from "@/server/social/providers/x";
-import { parseYouTubeVideo } from "@/server/social/providers/youtube";
+import { parseYouTubeVideo, selectYouTubeDetail } from "@/server/social/providers/youtube";
+import { parseAndNormalizePostIdentifier } from "@/domain/social-listening/deduplication";
 
 describe("detail parsers", () => {
   it("reads TikTok itemStruct and aweme_detail", () => {
@@ -72,6 +73,33 @@ describe("detail parsers", () => {
     expect(video?.authorId).toBe("UCwNkAzWu_PJ0DEiVU5NVo9A");
   });
 
+  it("does not keep an empty YouTube shell over a captioned lookup", () => {
+    const shell = parseYouTubeVideo({
+      id: "DnQyX-UA7kY",
+      url: "https://www.youtube.com/watch?v=",
+    });
+    expect(shell?.authorUsername).toBe("yt_creator");
+    expect(shell?.caption).toBe("");
+    expect(shell?.url).toBe("https://www.youtube.com/watch?v=DnQyX-UA7kY");
+
+    const full = parseYouTubeVideo({
+      data: {
+        video_id: "DnQyX-UA7kY",
+        title: "Building the next great city, welcome to Utah City.",
+        description: "A master-planned community.",
+        author: "Utah City",
+        channel_handle: "@UtahCity",
+        channel_id: "UCwNkAzWu_PJ0DEiVU5NVo9A",
+        url: "https://www.youtube.com/watch?v=",
+      },
+    });
+    expect(selectYouTubeDetail(shell, full)?.authorUsername).toBe("UtahCity");
+    expect(selectYouTubeDetail(shell, full)?.caption).toContain("welcome to Utah City");
+    expect(selectYouTubeDetail(shell, full)?.url).toBe("https://www.youtube.com/watch?v=DnQyX-UA7kY");
+    expect(parseYouTubeVideo({ url: "https://www.youtube.com/watch?v=" })).toBeNull();
+    expect(parseAndNormalizePostIdentifier("youtube.com/watch?v=", "youtube")).toBeNull();
+  });
+
   it("reads X text from data and from GraphQL legacy", () => {
     const flat = parseXPost({
       data: {
@@ -98,6 +126,30 @@ describe("detail parsers", () => {
     expect(graph?.caption).toBe("they paid $500k for the logo");
     expect(graph?.authorUsername).toBe("Dacivisualz");
     expect(graph?.authorId).toBe("55");
+  });
+
+  it("reads Reddit app post details (postTitle and authorInfo)", () => {
+    const page = parseRedditSearch({
+      data: {
+        postsInfoByIds: [
+          {
+            __typename: "SubredditPost",
+            id: "t3_1sxqkyy",
+            postTitle: "Here's how the 'urban core' development, Utah City, is shaping up",
+            permalink: "/r/DevelopmentSLC/comments/1sxqkyy/heres_how_the_urban_core_development_utah_cit",
+            url: "https://www.ksl.com/article/51486539/heres-how-the-urban-core-development-utah-city",
+            content: null,
+            authorInfo: { id: "t2_1uxfest9fo", name: "slc-urbanite" },
+            subreddit: { name: "DevelopmentSLC", title: "Salt Lake City Urban Development" },
+          },
+        ],
+      },
+    });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]?.caption).toContain("Utah City");
+    expect(page.items[0]?.authorUsername).toBe("slc-urbanite");
+    expect(page.items[0]?.authorId).toBe("t2_1uxfest9fo");
+    expect(page.items[0]?.url).toContain("/r/DevelopmentSLC/comments/1sxqkyy/");
   });
 
   it("reads a Reddit listing title and author", () => {

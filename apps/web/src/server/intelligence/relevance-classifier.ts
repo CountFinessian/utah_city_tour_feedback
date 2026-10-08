@@ -4,6 +4,7 @@ import {
   applyUnverifiableGuard,
   decisionToStatus,
   hasDevelopmentAnchor,
+  hasProtectedUtahCitySignal,
   hasUtahCityPhrase,
   isContentRelevant,
   isHashtagOnlyCandidate,
@@ -165,7 +166,7 @@ async function callModel(caption: string, transcript?: string): Promise<{ decisi
   const prompt = `Decide if this public post is about Utah City, the master-planned development in Vineyard, Utah (former Geneva Steel site on Utah Lake, the Greenline, 120 Bend, 220 Bend, about $1.8 billion).
 
 relevant: the post is about that development, its downtown, streets, buildings, public reaction to it, or a business or place there (Fini Cafe at the Greenline, Bella's Market, Utah City Racquet Club). Vineyard, Orem, Lindon, Utah County, Geneva, and the Greenline count when the post is about that place.
-rejected_lookalike: Park City, Salt Lake City, SLC, or "best Utah city to live in", unless the text also references the Vineyard development or one of those places. A #utahcity hashtag alone is not enough.
+rejected_lookalike: Park City, Salt Lake City, SLC, or "best Utah city to live in", unless the text also references the Vineyard development or one of those places. Never choose rejected_lookalike when the caption contains Utah City, #utahcity, or utahcity. A thin #utahcity caption on a video is not a lookalike; the transcript decides.
 rejected_offtopic: something else, and only when the text clearly is not about Utah City or those nearby places.
 rejected_unverifiable: a specific claim about Utah City that is made up or cannot be checked, such as an invented price, a secret payment, or a logo that cost a large unpublished sum. The published $1.8 billion project figure is fine.
 unsure: the text is not enough to decide.
@@ -266,13 +267,15 @@ export async function classifyRelevance(
       events.push({ decision, reason, costMicro: 0, stage: "stage1_rule" });
     }
 
-    const localVideo =
-      isVideoPost(metadata?.platform, metadata?.url, metadata?.mediaKind) &&
-      (hasLocalPlaceSignal(caption) || /\butah\b/i.test(caption)) &&
-      !lookalikeHit(caption);
+    const video = isVideoPost(metadata?.platform, metadata?.url, metadata?.mediaKind);
+    const utahCitySignal = hasProtectedUtahCitySignal(caption);
+    const localVideo = video && (hasLocalPlaceSignal(caption) || /\butah\b/i.test(caption)) && !lookalikeHit(caption);
     const needsTranscript =
-      isVideoPost(metadata?.platform, metadata?.url, metadata?.mediaKind) &&
-      (decision === "relevant" || decision === "unsure" || (localVideo && decision === "rejected_offtopic")) &&
+      video &&
+      (decision === "relevant" ||
+        decision === "unsure" ||
+        (utahCitySignal && (decision === "rejected_lookalike" || decision === "rejected_offtopic")) ||
+        (localVideo && decision === "rejected_offtopic")) &&
       !transcript &&
       Boolean(metadata?.fetchTranscript);
 
@@ -314,6 +317,17 @@ export async function classifyRelevance(
     if (decision === "unsure") {
       decision = resolveBorderline("unsure", `${caption}\n${transcript || ""}`);
       reason = `${reason} Borderline resolved to ${decision}.`;
+      events.push({ decision, reason, costMicro: 0, stage });
+    }
+
+    if (decision === "rejected_lookalike" && (utahCitySignal || hasProtectedUtahCitySignal(`${caption}\n${transcript || ""}`))) {
+      if (video && !(transcript || "").trim()) {
+        decision = "needs_retry";
+        reason = `${reason} Utah City video needs a transcript before a lookalike reject.`;
+      } else {
+        decision = "relevant";
+        reason = `${reason} Utah City mention is not a lookalike.`;
+      }
       events.push({ decision, reason, costMicro: 0, stage });
     }
   }

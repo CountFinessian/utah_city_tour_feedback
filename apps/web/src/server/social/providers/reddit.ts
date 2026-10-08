@@ -28,30 +28,46 @@ function walkPosts(node: unknown, found: Record<string, unknown>[], seen: Set<st
   const id = str(record.id || record.name);
   const post = asRecord(record.post) || record;
   const postId = str(post.id || post.name || id);
-  if ((postId.startsWith("t3_") || record.__typename === "SubredditPost") && (post.title || post.permalink) && !seen.has(postId)) {
+  const postTitle = str(post.title || post.postTitle || post.post_title);
+  if ((postId.startsWith("t3_") || record.__typename === "SubredditPost") && (postTitle || post.permalink) && !seen.has(postId)) {
     seen.add(postId);
     found.push(post);
   }
   for (const value of Object.values(record)) walkPosts(value, found, seen);
 }
 
+function redditAuthor(raw: Record<string, unknown>): { username: string; id?: string } {
+  const info = asRecord(raw.authorInfo) || asRecord(raw.author);
+  const username =
+    str(typeof raw.author === "string" ? raw.author : info?.name || info?.username || raw.authorName) || "reddit_user";
+  const id = str(info?.id || raw.author_fullname) || undefined;
+  return { username, id };
+}
+
 export function parseRedditPost(input: Record<string, unknown>): TregSearchResultItem | null {
   const nested = asRecord(input.data);
-  const raw = nested && (nested.title || nested.name || nested.selftext) && !input.title ? nested : input;
+  const raw =
+    nested && (nested.title || nested.postTitle || nested.name || nested.selftext) && !input.title && !input.postTitle
+      ? nested
+      : input;
   const id = str(raw.id || raw.name).replace(/^t3_/, "");
   if (!id) return null;
   const permalink = str(raw.permalink);
-  const url = str(raw.url).includes("reddit.com")
-    ? str(raw.url)
+  const link = str(raw.url);
+  const url = link.includes("reddit.com")
+    ? link
     : permalink
       ? `https://www.reddit.com${permalink.startsWith("/") ? permalink : `/${permalink}`}`
       : `https://www.reddit.com/comments/${id}/`;
-  const title = str(raw.title);
-  const body = str(raw.selftext || raw.body);
+  const content = asRecord(raw.content);
+  const title = str(raw.title || raw.postTitle || raw.post_title);
+  const body = str(raw.selftext || raw.selfText || raw.body || content?.markdown || content?.preview || content?.html);
+  const author = redditAuthor(raw);
   return searchItem("reddit", raw, {
     contentId: id,
     url,
-    authorUsername: str(raw.author) || "reddit_user",
+    authorUsername: author.username,
+    authorId: author.id,
     caption: [title, body].filter(Boolean).join("\n\n"),
     title: title || undefined,
     description: body || undefined,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasProtectedUtahCitySignal,
   isOfficialAuthor,
   lookalikeHit,
   postCommentsInDashboard,
@@ -187,6 +188,12 @@ describe("relevance v2 rules", () => {
     const nowhere = await classifyRelevance("The downtown parking garage on Main was full all afternoon again.");
     expect(nowhere.decision).toBe("rejected_offtopic");
 
+    const thinHashtag = rulesPreGate("Any other ideas I’m missing?\n\n #utah #utahcity #utahcounty #relatable #trend");
+    expect(thinHashtag.candidate).toBe(true);
+    expect(thinHashtag.decision).not.toBe("rejected_lookalike");
+    expect(hasProtectedUtahCitySignal("Like what are we actually doing? #utah #utahcity #rant")).toBe(true);
+    expect(lookalikeHit("Like what are we actually doing? #utah #utahcity #rant")).toBeNull();
+
     const officialVideo = await classifyRelevance("", {
       platform: "youtube",
       author: "Some Channel",
@@ -195,5 +202,12 @@ describe("relevance v2 rules", () => {
       url: "https://www.youtube.com/watch?v=DnQyX-UA7kY",
     });
     expect(officialVideo.decision).toBe("official_comment_source");
+
+    const officialEmpty = await classifyRelevance("", {
+      platform: "youtube",
+      author: "UtahCity",
+      url: "https://www.youtube.com/watch?v=DnQyX-UA7kY",
+    });
+    expect(officialEmpty.decision).toBe("official_comment_source");
   });
 });

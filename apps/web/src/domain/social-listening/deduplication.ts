@@ -117,7 +117,10 @@ export function parseAndNormalizePostIdentifier(rawUrlOrId: string, hintedPlatfo
     let normalized = cleanId;
     if (hintedPlatform === "tiktok") normalized = `https://www.tiktok.com/@user/video/${cleanId}`;
     if (hintedPlatform === "instagram") normalized = `https://www.instagram.com/reel/${cleanId}/`;
-    if (hintedPlatform === "youtube") normalized = `https://www.youtube.com/watch?v=${cleanId}`;
+    if (hintedPlatform === "youtube") {
+      if (!/^[A-Za-z0-9_-]{6,}$/.test(cleanId)) return null;
+      normalized = `https://www.youtube.com/watch?v=${cleanId}`;
+    }
     if (hintedPlatform === "x") normalized = `https://x.com/i/status/${cleanId}`;
     if (hintedPlatform === "reddit") normalized = `https://www.reddit.com/comments/${cleanId}/`;
     if (hintedPlatform === "facebook") normalized = `https://www.facebook.com/posts/${cleanId}`;
