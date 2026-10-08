@@ -4,7 +4,124 @@ import {
   SocialPulseMetrics,
   Topic,
   CommentWithContext,
+  Sentiment,
 } from "@/domain/social-listening/types";
+
+export type PublicFeedbackKind =
+  | "wayfinding_and_access"
+  | "environment"
+  | "brand_operational"
+  | "generic_sentiment";
+
+export const ACTIONABLE_FEEDBACK_LIMIT = 6;
+export const MAX_GENERIC_FEEDBACK = 2;
+
+const FEEDBACK_KIND_RANK: Record<PublicFeedbackKind, number> = {
+  wayfinding_and_access: 0,
+  environment: 1,
+  brand_operational: 2,
+  generic_sentiment: 3,
+};
+
+export function classifyPublicFeedback(input: {
+  text?: string;
+  topic?: string;
+  sentiment?: Sentiment | string;
+}): PublicFeedbackKind | null {
+  const text = (input.text || "").toLowerCase();
+  const topic = input.topic;
+
+  const wayfinding =
+    topic === "wayfinding_and_access" ||
+    /google maps|\bmaps\b|\baddress\b|\bdirections?\b|\bparking\b|\bwhere is\b|\bwhere do\b|can't find|cant find|doesn't show up|doesnt show up|does not show up|\bgps\b|\bnavigation\b/.test(
+      text
+    );
+  if (wayfinding) return "wayfinding_and_access";
+
+  const environment =
+    topic === "environment" ||
+    /\blake\b|\balgae\b|\bshallow\b|\bsmell\b|\bscum\b|\bmosquito|\bwater\b/.test(text);
+  if (environment) return "environment";
+
+  const brandOperational =
+    topic === "traffic_and_infrastructure" ||
+    topic === "construction" ||
+    /\btraffic\b|\bbottleneck\b|\broads?\b|\bconstruction\b|\bclosed\b|\bhours\b|\bcancell?ed\b|\bstaff\b|\blisted as\b|\bwrong name\b|\bgreenline\b/.test(
+      text
+    );
+  if (brandOperational) return "brand_operational";
+
+  if (input.sentiment === "negative") return "generic_sentiment";
+  return null;
+}
+
+export function isHighSignalFeedback(input: {
+  text?: string;
+  topic?: string;
+  sentiment?: Sentiment | string;
+}): boolean {
+  const kind = classifyPublicFeedback(input);
+  return kind === "wayfinding_and_access" || kind === "environment" || kind === "brand_operational";
+}
+
+export function leadershipActionFor(kind: PublicFeedbackKind): string {
+  if (kind === "wayfinding_and_access") {
+    return "Marketing: fix the place name, map pin, and post location so visitors can find Utah City, then reply on the thread.";
+  }
+  if (kind === "environment") {
+    return "Leadership: this is public perception of Utah Lake or the site environment. Decide whether to respond with facts or a cleanup update.";
+  }
+  if (kind === "brand_operational") {
+    return "Operations: assign an owner this week for the friction named in the comment (access, event, traffic, or brand naming).";
+  }
+  return "Review this general sentiment only after specific wayfinding, environment, and operational comments are covered.";
+}
+
+export function selectActionableFeedback<
+  T extends {
+    text?: string;
+    topic?: Topic | string;
+    sentiment?: Sentiment | string;
+    createdAt?: string;
+    likeCount?: number;
+  },
+>(
+  comments: T[],
+  limit = ACTIONABLE_FEEDBACK_LIMIT,
+  maxGeneric = MAX_GENERIC_FEEDBACK
+): Array<T & { feedbackKind: PublicFeedbackKind }> {
+  const ranked = comments
+    .flatMap((comment) => {
+      const feedbackKind = classifyPublicFeedback(comment);
+      return feedbackKind ? [{ ...comment, feedbackKind }] : [];
+    })
+    .sort((a, b) => {
+      const byKind = FEEDBACK_KIND_RANK[a.feedbackKind] - FEEDBACK_KIND_RANK[b.feedbackKind];
+      if (byKind !== 0) return byKind;
+      const aTime = Date.parse(a.createdAt || "") || 0;
+      const bTime = Date.parse(b.createdAt || "") || 0;
+      if (aTime !== bTime) return bTime - aTime;
+      return (b.likeCount || 0) - (a.likeCount || 0);
+    });
+
+  const selected: Array<T & { feedbackKind: PublicFeedbackKind }> = [];
+  let genericCount = 0;
+  for (const comment of ranked) {
+    if (selected.length >= limit) break;
+    if (comment.feedbackKind === "generic_sentiment") {
+      if (genericCount >= maxGeneric) continue;
+      genericCount++;
+    }
+    selected.push(comment);
+  }
+  return selected;
+}
+
+function commentInstant(comment: Comment): Date {
+  const parsed = new Date(comment.createdAt || comment.firstSeenAt);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+  return new Date(comment.firstSeenAt);
+}
 
 const TOPIC_LABELS: Record<Topic, string> = {
   development: "Development & Growth",
@@ -77,11 +194,18 @@ export function calculateDeterministicSocialMetrics(params: {
   const engagementChange = calcChange(currentEngagement, prevEngagement);
   const uniqueCreatorsChange = calcChange(currentCreators, prevCreators);
 
-  // Comments for current relevant posts
-  const relPostIds = new Set(currentRelPosts.map((p) => p.id));
-  const currentComments = comments.filter((c) => relPostIds.has(c.postId));
-  const prevRelPostIds = new Set(prevRelPosts.map((p) => p.id));
-  const prevComments = comments.filter((c) => prevRelPostIds.has(c.postId));
+  // Comments are windowed by comment time, including fresh replies on older relevant posts.
+  const relevantById = new Map(posts.filter((p) => p.isRelevant).map((p) => [p.id, p]));
+  const currentComments = comments.filter((c) => {
+    if (!relevantById.has(c.postId)) return false;
+    const at = commentInstant(c);
+    return at >= currentCutoff && at <= now;
+  });
+  const prevComments = comments.filter((c) => {
+    if (!relevantById.has(c.postId)) return false;
+    const at = commentInstant(c);
+    return at >= previousCutoff && at < currentCutoff;
+  });
   const commentsChange = calcChange(currentComments.length, prevComments.length);
 
   // Comment-weighted sentiment
@@ -148,9 +272,7 @@ export function calculateDeterministicSocialMetrics(params: {
     .filter((t) => t.postCount > 0)
     .sort((a, b) => b.postCount - a.postCount);
 
-  // Representative comments selection
-  // Compute evidence score: combination of like engagement, uniqueness of author, and sentiment confidence
-  const postMap = new Map(currentRelPosts.map((p) => [p.id, p]));
+  // Representative comments stay engagement-ordered. Key Public Feedback does not.
   const positiveEv: CommentWithContext[] = [];
   const neutralEv: CommentWithContext[] = [];
   const negativeEv: CommentWithContext[] = [];
@@ -158,15 +280,18 @@ export function calculateDeterministicSocialMetrics(params: {
   const seenAuthors = new Set<string>();
   const sortedComments = [...currentComments].sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0));
 
-  for (const c of sortedComments) {
-    if (seenAuthors.has(c.authorUsername)) continue;
-    const parentPost = postMap.get(c.postId);
-
-    const enriched: CommentWithContext = {
+  const enrich = (c: Comment): CommentWithContext => {
+    const parentPost = relevantById.get(c.postId);
+    return {
       ...c,
       postUrl: parentPost?.url,
       postCaptionSnippet: parentPost?.caption?.slice(0, 80),
     };
+  };
+
+  for (const c of sortedComments) {
+    if (seenAuthors.has(c.authorUsername)) continue;
+    const enriched = enrich(c);
 
     if (c.sentiment === "positive" && positiveEv.length < 3) {
       positiveEv.push(enriched);
@@ -180,45 +305,13 @@ export function calculateDeterministicSocialMetrics(params: {
     }
   }
 
-  // Extract actionable leadership feedback (specific operational issues, navigation, lake critiques, parking)
-  const actionableFeedback: CommentWithContext[] = [];
-  const seenActionableIds = new Set<string>();
-
-  for (const c of sortedComments) {
-    if (seenActionableIds.has(c.id)) continue;
-    const parentPost = postMap.get(c.postId);
-    const enriched: CommentWithContext = {
-      ...c,
-      postUrl: parentPost?.url,
-      postCaptionSnippet: parentPost?.caption?.slice(0, 80),
-    };
-
-    const textLower = (c.text || "").toLowerCase();
-    const isWayfinding =
-      c.topic === "wayfinding_and_access" ||
-      textLower.includes("map") ||
-      textLower.includes("address") ||
-      textLower.includes("direction") ||
-      textLower.includes("parking") ||
-      textLower.includes("where is");
-    const isLakeEnvironment =
-      c.topic === "environment" ||
-      textLower.includes("lake") ||
-      textLower.includes("algae") ||
-      textLower.includes("water") ||
-      textLower.includes("shallow") ||
-      textLower.includes("smell");
-    const isInfrastructureCritique =
-      c.topic === "traffic_and_infrastructure" ||
-      textLower.includes("traffic") ||
-      textLower.includes("bottleneck") ||
-      textLower.includes("roads");
-
-    if ((isWayfinding || isLakeEnvironment || isInfrastructureCritique || c.sentiment === "negative") && actionableFeedback.length < 6) {
-      actionableFeedback.push(enriched);
-      seenActionableIds.add(c.id);
-    }
-  }
+  // Issue type, then recency, then likes. Generic sentiment cannot fill every slot.
+  const actionableFeedback: CommentWithContext[] = selectActionableFeedback(currentComments.map(enrich)).map(
+    (item) => ({
+      ...item,
+      leadershipAction: leadershipActionFor(item.feedbackKind),
+    })
+  );
 
   // Small-sample confidence evaluation
   let narrativeConfidence: "LOW" | "MEDIUM" | "HIGH" = "LOW";

@@ -92,6 +92,19 @@ function pickCursor(obj: Record<string, unknown> | null | undefined): string | u
   return undefined;
 }
 
+function accountHandle(query: string): string {
+  const trimmed = query.trim().replace(/^@/, "");
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      const pathName = new URL(trimmed).pathname.split("/").filter(Boolean)[0] || trimmed;
+      return pathName;
+    }
+  } catch {
+    // Keep the raw handle when the query is not a URL.
+  }
+  return trimmed.split(/[/?#]/)[0];
+}
+
 function useFixtures(): boolean {
   if (process.env.SOCIAL_LISTENING_USE_FIXTURES === "true") return true;
   if (process.env.SOCIAL_LISTENING_USE_FIXTURES === "false") return false;
@@ -134,7 +147,8 @@ export class TregClient {
     const { endpointId, method = "POST", data, queryParams, maxCostUsd = 0.05, timeoutMs = 45000 } =
       params;
 
-    if (!this.token) {
+    const token = process.env.TREG_TOKEN || this.token;
+    if (!token) {
       return {
         data: null,
         output: null,
@@ -155,7 +169,7 @@ export class TregClient {
       const response = await fetch(url, {
         method,
         headers: {
-          "X-Treg-Token": this.token,
+          "X-Treg-Token": token,
           "Content-Type": "application/json",
           Accept: "application/json",
           "X-Treg-Route-Max-Cost": String(maxCostUsd),
@@ -220,7 +234,15 @@ export class TregClient {
       strategy ||
       (query.startsWith("#") ? "hashtag" : query.startsWith("@") ? "account" : "keyword");
 
+    const handle = accountHandle(query);
+
     try {
+      if (inferred === "account") {
+        if (platform === "instagram") return await this.searchInstagramAccount(handle, limit);
+        if (platform === "facebook") return await this.searchFacebookAccount(handle, limit);
+        console.warn(`[TregClient] No account feed for ${platform}; not falling back to keyword search for "${query}"`);
+        return [];
+      }
       if (platform === "tiktok") {
         if (inferred === "hashtag") {
           return await this.searchTikTokHashtag(query.replace(/^#/, ""), limit);
@@ -328,6 +350,57 @@ export class TregClient {
     const out = res.output || {};
     const items = firstArray(out.posts, asRecord(out.data)?.posts, out.results);
     return items.map((v) => this.normalizeRedditPost(asRecord(v) || {}));
+  }
+
+  /** Utah City's own Instagram posts, not a keyword search for the handle. */
+  private async searchInstagramAccount(handle: string, limit: number): Promise<TregSearchResultItem[]> {
+    const res = await this.call<Record<string, unknown>>({
+      endpointId: "treg.instagram.user.posts",
+      method: "POST",
+      data: { username: handle, handle },
+      maxCostUsd: 0.05,
+    });
+    let items = firstArray(res.output?.posts, asRecord(res.output?.data)?.posts, res.output?.items);
+    if (!items.length) {
+      const direct = await this.call<Record<string, unknown>>({
+        endpointId: "scrapecreators.instagram.user.posts",
+        method: "GET",
+        queryParams: { handle, username: handle },
+        maxCostUsd: 0.05,
+      });
+      const out = direct.output || {};
+      items = firstArray(out.posts, out.items, asRecord(out.data)?.posts, asRecord(out.data)?.items);
+    }
+    return items
+      .map((item) => this.normalizeInstagramAccountPost(asRecord(item) || {}, handle))
+      .filter((item) => item.contentId)
+      .slice(0, limit);
+  }
+
+  /** Utah City's own Facebook page posts, not a keyword search. */
+  private async searchFacebookAccount(handle: string, limit: number): Promise<TregSearchResultItem[]> {
+    const url = `https://www.facebook.com/${handle}`;
+    const res = await this.call<Record<string, unknown>>({
+      endpointId: "treg.facebook.user.posts",
+      method: "POST",
+      data: { url, username: handle, page_url: url },
+      maxCostUsd: 0.05,
+    });
+    let items = firstArray(res.output?.posts, asRecord(res.output?.data)?.posts, res.output?.results);
+    if (!items.length) {
+      const direct = await this.call<Record<string, unknown>>({
+        endpointId: "scrapecreators.x.v1-facebook-profile-posts",
+        method: "GET",
+        queryParams: { url },
+        maxCostUsd: 0.05,
+      });
+      const out = direct.output || {};
+      items = firstArray(out.posts, asRecord(out.data)?.posts, out.results);
+    }
+    return items
+      .map((item) => this.normalizeFacebookAccountPost(asRecord(item) || {}, handle))
+      .filter((item) => item.contentId)
+      .slice(0, limit);
   }
 
   private async searchFacebookKeyword(query: string, _limit: number): Promise<TregSearchResultItem[]> {
@@ -935,6 +1008,30 @@ export class TregClient {
       commentCount: Number(v.comments || v.commentCount || 0),
       shareCount: Number(v.shares || v.shareCount || 0),
       raw: { ...v, _hashtag: hashtag },
+    };
+  }
+
+  private normalizeInstagramAccountPost(v: Record<string, unknown>, handle: string): TregSearchResultItem {
+    const permalink = typeof v.permalink === "string" ? v.permalink : typeof v.url === "string" ? v.url : "";
+    const base = this.normalizeInstagramReel(permalink ? { ...v, url: permalink } : v);
+    return {
+      ...base,
+      url: permalink || base.url,
+      authorUsername: handle,
+      authorDisplayName: base.authorDisplayName || "Utah City",
+    };
+  }
+
+  private normalizeFacebookAccountPost(v: Record<string, unknown>, handle: string): TregSearchResultItem {
+    const base = this.normalizeFacebookPost(v);
+    const url = base.url.includes("facebook.com")
+      ? base.url
+      : `https://www.facebook.com/${handle}/posts/${base.contentId}`;
+    return {
+      ...base,
+      url,
+      authorUsername: handle,
+      authorDisplayName: base.authorDisplayName || "Utah City",
     };
   }
 

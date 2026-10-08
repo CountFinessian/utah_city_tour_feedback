@@ -9,7 +9,7 @@ import {
   SearchRun,
   SearchTermSuggestion,
 } from "@/domain/social-listening/types";
-import { SocialListeningRepository } from "./social-repository";
+import { SocialListenerState, SocialListeningRepository } from "./social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 
 const DATA_DIR = process.env.DATA_DIR
@@ -25,6 +25,7 @@ interface StoragePayload {
   snapshots: PostMetricSnapshot[];
   runs: SearchRun[];
   suggestedTerms: SearchTermSuggestion[];
+  listenerState?: SocialListenerState;
 }
 
 const STORAGE_FILE = path.join(DATA_DIR, "social-listening.json");
@@ -46,6 +47,7 @@ async function readStorage(): Promise<StoragePayload> {
       snapshots: [],
       runs: [],
       suggestedTerms: [],
+      listenerState: {},
     };
     await writeStorage(initial);
     return initial;
@@ -245,6 +247,17 @@ export const fileSocialRepository: SocialListeningRepository = {
       term.reviewedAt = new Date().toISOString();
       await writeStorage(data);
     }
+  },
+
+  async getListenerState(): Promise<SocialListenerState> {
+    const data = await readStorage();
+    return { lastDigestAt: data.listenerState?.lastDigestAt };
+  },
+
+  async saveListenerState(state: SocialListenerState): Promise<void> {
+    const data = await readStorage();
+    data.listenerState = { ...data.listenerState, ...state };
+    await writeStorage(data);
   },
 };
 

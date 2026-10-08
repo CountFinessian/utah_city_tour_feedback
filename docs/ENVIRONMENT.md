@@ -54,6 +54,26 @@ The app uses a priority cascade — it tries providers in order and falls back g
 | `EMAIL_FROM` | No | `Utah City <onboarding@utahcity.app>` | Sender address for invitation/onboarding emails. |
 | `SUPPORT_FORWARD_EMAIL` | No | `jawoba004@gmail.com` | Inbox where inbound `support@utahcity.app` emails are forwarded. |
 | `SUPPORT_FROM_EMAIL` | No | `Utah City Support <support@utahcity.app>` | Sender identity for outbound support relay emails. |
+| `OPS_ALERT_EMAIL` | No | `jacob@utahcity.app` | Inbox for operational alert email, including Social Pulse when `SOCIAL_PULSE_ALERT_EMAIL` is unset. |
+| `ALERT_EMAIL` | No | — | Second fallback inbox for operational alerts. |
+
+---
+
+## Social Pulse listener
+
+Live listening uses the treg catalog (`utah-city-intelligence` team). Do not commit `TREG_TOKEN`.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `TREG_TOKEN` | Yes, for live listening | — | Treg API token. Without it, cron and admin cycles refuse to run. |
+| `CRON_SECRET` | No | Open when unset | Bearer secret for `POST /api/social-pulse/cron`. Also accepted as `?key=`. |
+| `SOCIAL_LISTENING_CYCLE_BUDGET_USD` | No | `0.5` | Per-cycle treg spend cap. Discovery and comment sync stop at this amount. |
+| `SOCIAL_LISTENING_MAX_QUERIES` | No | `8` | Searches per cycle, least-recently-run first, with a slot per platform and Utah City account feeds. |
+| `SOCIAL_LISTENING_MAX_COMMENT_POSTS` | No | `5` | Maximum posts whose comments are synced in one cycle. Brand-account posts are first in line. |
+| `SOCIAL_LISTENING_SYNC_COMMENTS` | No | off | When `true`, discover-mode cycles also sync comments. The comments cron mode syncs regardless. |
+| `SOCIAL_LISTENING_USE_FIXTURES` | No | fixtures outside production | `true` forces bundled fixtures. `false` forces live treg even in development. |
+| `SOCIAL_LISTENING_ALERTS` | No | on | Set `false` to skip immediate and daily Social Pulse email. |
+| `SOCIAL_PULSE_ALERT_EMAIL` | No | `OPS_ALERT_EMAIL` | Inbox for immediate high-signal alerts and the daily digest. Requires `RESEND_API_KEY`. |
 
 ---
 

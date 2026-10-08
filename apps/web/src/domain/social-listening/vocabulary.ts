@@ -95,6 +95,15 @@ export const INITIAL_VOCABULARY: VocabularyItem[] = [
     platforms: ["reddit", "facebook"],
     strategy: "keyword",
   },
+
+  // Own-page follows. Appended so existing seed ids stay stable in production.
+  {
+    query: "utahcityutah",
+    group: "exact",
+    priority: 1,
+    platforms: ["instagram", "facebook"],
+    strategy: "account",
+  },
 ];
 
 export function inferDiscoveryStrategy(query: string, explicit?: DiscoveryStrategy): DiscoveryStrategy {

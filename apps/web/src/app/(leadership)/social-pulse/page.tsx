@@ -228,10 +228,12 @@ export default function SocialPulsePage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {data.actionableFeedback.map((item, idx) => {
                   const textLower = (item.text || "").toLowerCase();
+                  const kind = item.feedbackKind as string | undefined;
                   let tag = "Public Feedback";
                   let tagColor = "bg-slate-500/10 text-slate-300 border-slate-500/20";
 
                   if (
+                    kind === "wayfinding_and_access" ||
                     item.topic === "wayfinding_and_access" ||
                     textLower.includes("map") ||
                     textLower.includes("address") ||
@@ -241,6 +243,7 @@ export default function SocialPulsePage() {
                     tag = "Wayfinding & Access";
                     tagColor = "bg-cyan-500/10 text-cyan-300 border-cyan-500/20";
                   } else if (
+                    kind === "environment" ||
                     item.topic === "environment" ||
                     textLower.includes("lake") ||
                     textLower.includes("algae") ||
@@ -249,6 +252,9 @@ export default function SocialPulsePage() {
                   ) {
                     tag = "Utah Lake Perception";
                     tagColor = "bg-teal-500/10 text-teal-300 border-teal-500/20";
+                  } else if (kind === "brand_operational") {
+                    tag = "Brand & Operations";
+                    tagColor = "bg-amber-500/10 text-amber-300 border-amber-500/20";
                   } else if (
                     item.topic === "traffic_and_infrastructure" ||
                     textLower.includes("traffic") ||
@@ -256,6 +262,9 @@ export default function SocialPulsePage() {
                   ) {
                     tag = "Traffic & Capacity";
                     tagColor = "bg-rose-500/10 text-rose-300 border-rose-500/20";
+                  } else if (kind === "generic_sentiment") {
+                    tag = "General sentiment";
+                    tagColor = "bg-slate-500/10 text-slate-300 border-slate-500/20";
                   }
 
                   return (
@@ -275,6 +284,9 @@ export default function SocialPulsePage() {
                         <p className="text-sm text-slate-100 font-medium leading-relaxed italic">
                           "{item.text}"
                         </p>
+                        {item.leadershipAction ? (
+                          <p className="text-xs text-slate-300 leading-relaxed not-italic">{item.leadershipAction}</p>
+                        ) : null}
                       </div>
 
                       <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">

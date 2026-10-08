@@ -219,12 +219,15 @@ export async function sendPasswordResetEmail({
 export async function sendOpsAlertEmail({
   subject,
   body,
+  to: toOverride,
 }: {
   subject: string;
   body: string;
+  to?: string;
 }): Promise<{ success: boolean; id?: string; error?: string }> {
   const apiKey = getResendApiKey();
   const to =
+    toOverride?.trim() ||
     process.env.OPS_ALERT_EMAIL?.trim() ||
     process.env.ALERT_EMAIL?.trim() ||
     "jacob@utahcity.app";

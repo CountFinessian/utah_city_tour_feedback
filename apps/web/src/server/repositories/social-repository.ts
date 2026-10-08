@@ -7,6 +7,10 @@ import {
   SearchTermSuggestion,
 } from "@/domain/social-listening/types";
 
+export interface SocialListenerState {
+  lastDigestAt?: string;
+}
+
 export interface SocialListeningRepository {
   // Search Queries
   listQueries(enabledOnly?: boolean): Promise<SearchQuery[]>;
@@ -49,5 +53,8 @@ export interface SocialListeningRepository {
   listSuggestedTerms(status?: string): Promise<SearchTermSuggestion[]>;
   upsertSuggestedTerm(suggestion: SearchTermSuggestion): Promise<SearchTermSuggestion>;
   updateSuggestedTermStatus(id: string, status: "suggested" | "approved" | "rejected"): Promise<void>;
+
+  getListenerState(): Promise<SocialListenerState>;
+  saveListenerState(state: SocialListenerState): Promise<void>;
 }
 
