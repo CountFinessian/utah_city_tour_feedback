@@ -66,6 +66,22 @@ describe("Social Listening Engine Tests", () => {
       expect(id1?.canonicalId).toBe("tiktok:7621280382356360462");
     });
 
+    it("normalizes Instagram /reels/ URLs to the same shortcode as /reel/", () => {
+      const plural = parseAndNormalizePostIdentifier("https://www.instagram.com/reels/DXFkWLriW4I/?igsh=abc");
+      const singular = parseAndNormalizePostIdentifier("https://www.instagram.com/reel/DXFkWLriW4I/");
+      expect(plural?.canonicalId).toBe("instagram:DXFkWLriW4I");
+      expect(plural?.canonicalId).toBe(singular?.canonicalId);
+    });
+
+    it("strips TikTok share parameters down to the video id", () => {
+      const parsed = parseAndNormalizePostIdentifier(
+        "https://www.tiktok.com/@utahcityutah/video/7621280382356360462?_r=1&u_code=abc"
+      );
+      expect(parsed?.canonicalId).toBe("tiktok:7621280382356360462");
+      expect(parsed?.normalizedUrl).toBe("https://www.tiktok.com/@user/video/7621280382356360462");
+      expect(parsed?.normalizedUrl).not.toContain("_r=");
+    });
+
     it("normalizes Instagram Reels shortcode correctly", () => {
       const url = "https://www.instagram.com/reel/DXFkWLriW4I/?igsh=MW...";
       const parsed = parseAndNormalizePostIdentifier(url);
@@ -448,7 +464,7 @@ describe("Social Listening Engine Tests", () => {
       );
 
       const instagram = await tregClient.searchPlatform("instagram", "@utahcityutah", 5, "account");
-      expect(calls.some((url) => url.includes("treg.instagram.user.posts"))).toBe(true);
+      expect(calls.some((url) => url.includes("tikhub.x.instagram-v2-fetch-user-posts"))).toBe(true);
       expect(calls.some((url) => url.includes("search.reels"))).toBe(false);
       expect(instagram[0]?.authorUsername).toBe("utahcityutah");
       expect(instagram[0]?.contentId).toBe("ABC123xyz");
@@ -456,7 +472,7 @@ describe("Social Listening Engine Tests", () => {
 
       calls.length = 0;
       const facebook = await tregClient.searchPlatform("facebook", "utahcityutah", 5, "account");
-      expect(calls.some((url) => url.includes("treg.facebook.user.posts"))).toBe(true);
+      expect(calls.some((url) => url.includes("anyapi.facebook.user.posts"))).toBe(true);
       expect(calls.some((url) => url.includes("facebook-search-post"))).toBe(false);
       expect(facebook[0]?.authorUsername).toBe("utahcityutah");
       expect(facebook[0]?.contentId).toBe("999");

@@ -1,5 +1,17 @@
-/** Stored on comments that never need a model call. Metrics skip these. */
+/** Legacy stored reason. New drops use an explicit DropReason. Metrics skip both. */
 export const LOW_SIGNAL_REASON = "low-signal";
+
+export const DROP_REASONS = [
+  "emoji_only",
+  "punctuation_only",
+  "filler_word",
+  "mention_only",
+  "link_promo",
+] as const;
+
+export type DropReason = (typeof DROP_REASONS)[number];
+
+const DROP_REASON_SET = new Set<string>(DROP_REASONS);
 
 const FILLER = new Set([
   "a", "an", "the", "and", "or", "but", "to", "of", "for", "it", "its", "it's", "that", "this",
@@ -45,33 +57,49 @@ export function normalizeCommentKey(text: string): string {
     .trim();
 }
 
-/**
- * Emoji-only, filler, mention-only, and promo comments. Short comments with real
- * wording ("vineyard is NOT walkable") stay eligible for classification.
- */
-export function isLowSignalCommentText(text: string): boolean {
-  const raw = (text || "").trim();
-  if (!raw) return true;
+export function isExplicitDropReason(reason: string | undefined): reason is DropReason {
+  return typeof reason === "string" && DROP_REASON_SET.has(reason);
+}
 
-  const stripped = raw
+/**
+ * Why a comment is dropped, or null when it should be classified.
+ * Short comments with real wording ("vineyard is NOT walkable", "no parking downtown") stay.
+ * A single content word ("Brilliant", "Yess") is filler_word.
+ */
+export function commentDropReason(text: string): DropReason | null {
+  const raw = (text || "").trim();
+  if (!raw) return "punctuation_only";
+
+  const withoutEmoji = raw.replace(/\p{Extended_Pictographic}/gu, "").replace(/[\u200d\ufe0f]/g, "").trim();
+  if (!withoutEmoji) return "emoji_only";
+
+  const mentions = withoutEmoji.match(/@[\w.]+/g) || [];
+  const withoutMentions = withoutEmoji.replace(/@[\w.]+/g, " ");
+  const stripped = withoutMentions
     .replace(/https?:\/\/\S+|www\.\S+/gi, " ")
-    .replace(/@[\w.]+/g, " ")
-    .replace(/\p{Extended_Pictographic}/gu, " ")
-    .replace(/[\u200d\ufe0f]/g, " ")
     .replace(/[^\p{L}\p{N}\s']/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-
   const tokens = stripped.split(" ").filter(Boolean);
   const content = tokens.filter((token) => !fillerToken(token));
+
+  if (mentions.length > 0 && content.length === 0) return "mention_only";
+
   const promo = SPAM.test(raw) || URL.test(raw);
-  if (promo && !LOCAL_SUBSTANCE.test(stripped)) return true;
-  if (tokens.length === 0 || content.length === 0) return true;
-  if (content.length === 1 && tokens.length === 1) return true;
-  return false;
+  if (promo && !LOCAL_SUBSTANCE.test(stripped)) return "link_promo";
+  if (!stripped) return "punctuation_only";
+
+  if (content.length === 0) return "filler_word";
+  if (content.length === 1 && tokens.length === 1) return "filler_word";
+  return null;
 }
 
-export function isLowSignalStoredComment(comment: { sentimentReason?: string }): boolean {
-  return comment.sentimentReason === LOW_SIGNAL_REASON;
+/** Emoji-only, filler, mention-only, and promo comments. */
+export function isLowSignalCommentText(text: string): boolean {
+  return commentDropReason(text) !== null;
+}
+
+export function isLowSignalStoredComment(comment: { sentimentReason?: string; dropReason?: string }): boolean {
+  return comment.sentimentReason === LOW_SIGNAL_REASON || isExplicitDropReason(comment.sentimentReason) || isExplicitDropReason(comment.dropReason);
 }

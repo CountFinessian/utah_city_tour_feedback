@@ -3,7 +3,7 @@ import type { TregCommentItem } from "./treg-client";
 import { getSocialRepository } from "../repositories/postgres-social-repository";
 import { classifyRelevance } from "../intelligence/relevance-classifier";
 import { analyzeSentimentAndTopic, classifyComments, type SentimentAnalysisResult } from "../intelligence/sentiment-classifier";
-import { LOW_SIGNAL_REASON, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
+import { isExplicitDropReason, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
 import {
   parseAndNormalizePostIdentifier,
   parseAndNormalizeCommentIdentifier,
@@ -167,7 +167,8 @@ export class DiscoveryPipelineService {
               canonicalId: parsed.canonicalId,
               platform: parsed.platform,
               platformContentId: parsed.platformContentId,
-              url: item.url || parsed.normalizedUrl,
+              url: parsed.platform === "tiktok" ? parsed.normalizedUrl : item.url || parsed.normalizedUrl,
+              isOfficialSource: strategy === "account",
               authorUsername: item.authorUsername,
               authorDisplayName: item.authorDisplayName,
               caption: item.caption,
@@ -297,7 +298,7 @@ export class DiscoveryPipelineService {
     const budget = options?.budgetUsd ?? resolveCycleBudgetUsd();
     const maxPages = options?.maxCommentPages ?? resolveMaxCommentPages();
     const maxReplyParents = options?.maxReplyParents ?? resolveMaxReplyParents();
-    const includeReplies = post.platform === "instagram";
+    const includeReplies = post.platform !== "other";
     const existing = readCommentSync(post);
     let state: CommentSyncState = !existing || existing.complete ? freshCommentSync() : existing;
     let added = 0;
@@ -362,6 +363,7 @@ export class DiscoveryPipelineService {
             return { added, stopCycle: false, complete: true };
           }
 
+          const meta = state.replyMeta?.[parentId];
           const page = await tregClient.getCommentPage({
             platform: post.platform,
             contentId: post.platformContentId,
@@ -369,6 +371,9 @@ export class DiscoveryPipelineService {
             cursor: state.replyCursor,
             phase: "replies",
             replyParentId: parentId,
+            feedbackId: meta?.feedbackId,
+            expansionToken: meta?.expansionToken,
+            replyContinuationToken: meta?.replyContinuationToken,
           });
           touched = true;
           added += await this.saveCommentPage(post, page.comments, known, priorByText, options?.deadlineAt);
@@ -394,10 +399,18 @@ export class DiscoveryPipelineService {
 
         if (includeReplies) {
           const parents = new Set(state.pendingReplyParents);
+          const replyMeta = { ...(state.replyMeta || {}) };
           for (const item of page.comments) {
-            if (item.replyCount > 0 && item.commentId && !item.parentCommentId) parents.add(item.commentId);
+            if (item.replyCount > 0 && item.commentId && !item.parentCommentId) {
+              parents.add(item.commentId);
+              replyMeta[item.commentId] = {
+                feedbackId: item.feedbackId,
+                expansionToken: item.expansionToken,
+                replyContinuationToken: item.replyContinuationToken,
+              };
+            }
           }
-          state = { ...state, pendingReplyParents: [...parents] };
+          state = { ...state, pendingReplyParents: [...parents], replyMeta };
         }
 
         state = {
@@ -468,6 +481,7 @@ export class DiscoveryPipelineService {
       priorByText.set(key, analysis);
     });
 
+    let droppedOnPage = 0;
     const comments: Comment[] = fresh.map((item, index) => {
       const { canonicalId, platformCommentId } = parseAndNormalizeCommentIdentifier(
         post.platform,
@@ -475,6 +489,8 @@ export class DiscoveryPipelineService {
         post.id
       );
       const sentAnalysis = analyses[index];
+      const dropReason = isExplicitDropReason(sentAnalysis?.reason) ? sentAnalysis.reason : undefined;
+      if (dropReason) droppedOnPage += 1;
       known.add(canonicalId);
       return {
         id: `comm_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 7)}`,
@@ -496,11 +512,15 @@ export class DiscoveryPipelineService {
         sentimentReason: sentAnalysis?.reason,
         sentimentTarget: sentAnalysis?.target,
         topic: sentAnalysis?.primaryTopic,
-        evidenceScore:
-          sentAnalysis?.reason === LOW_SIGNAL_REASON ? 0 : item.likeCount * 0.1 + (sentAnalysis?.confidence || 0),
+        evidenceScore: dropReason ? 0 : item.likeCount * 0.1 + (sentAnalysis?.confidence || 0),
+        dropped: Boolean(dropReason),
+        dropReason,
         rawProviderData: item.raw,
       };
     });
+    if (droppedOnPage > 0) {
+      post.droppedLowSignalCount = (post.droppedLowSignalCount || 0) + droppedOnPage;
+    }
 
     await this.repo.bulkUpsertComments(comments);
     return comments.length;

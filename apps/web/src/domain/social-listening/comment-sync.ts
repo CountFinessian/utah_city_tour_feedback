@@ -15,6 +15,8 @@ export interface CommentSyncState {
   pagesFetched: number;
   complete: boolean;
   updatedAt: string;
+  /** Tokens required to expand a parent (Facebook feedback_id, YouTube continuation, Reddit more.cursor). */
+  replyMeta?: Record<string, { feedbackId?: string; expansionToken?: string; replyContinuationToken?: string }>;
 }
 
 const DEFAULT_DEADLINE_MS = 240_000;
@@ -89,6 +91,10 @@ export function readCommentSync(post: Post): CommentSyncState | null {
     pagesFetched: typeof sync.pagesFetched === "number" && sync.pagesFetched >= 0 ? sync.pagesFetched : 0,
     complete: sync.complete === true,
     updatedAt: typeof sync.updatedAt === "string" ? sync.updatedAt : new Date(0).toISOString(),
+    replyMeta:
+      sync.replyMeta && typeof sync.replyMeta === "object" && !Array.isArray(sync.replyMeta)
+        ? sync.replyMeta
+        : undefined,
   };
 }
 

@@ -11,6 +11,7 @@ import {
 import { SocialListenerState, SocialListeningRepository } from "./social-repository";
 import { fileSocialRepository } from "./file-social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
+import { stage1Statements } from "@/server/db/migrations/stage1";
 
 function db() {
   const url = getPgUrl();
@@ -182,6 +183,14 @@ async function ensureSocialSchema(): Promise<void> {
           `;
         }
       }
+
+      const apply = sql as unknown as { query?: (text: string) => Promise<unknown> };
+      if (typeof apply.query !== "function") {
+        throw new Error("Postgres client cannot run the Social Pulse v2 migration");
+      }
+      for (const statement of stage1Statements()) {
+        await apply.query(statement);
+      }
     })().catch((err) => {
       schemaReady = null;
       throw err;
@@ -276,7 +285,12 @@ export const postgresSocialRepository: SocialListeningRepository = {
         share_count, last_comment_count, last_view_count, activity_state, relevance_score,
         relevance_status, relevance_reason, matched_entities, is_relevant, sentiment,
         sentiment_confidence, sentiment_reason, sentiment_target, primary_topic,
-        secondary_topics, discovery_query, discovery_group, raw_provider_data
+        secondary_topics, discovery_query, discovery_group, raw_provider_data,
+        is_official_source, relevance_model, relevance_checked_at, transcript_provider,
+        transcript_fetched_at, monitoring_state, next_comment_check_at, last_comment_check_at,
+        last_platform_comment_count, last_new_comment_at, last_activity_at, newest_comment_created_at,
+        newest_comment_id, comment_harvest_cursor, first_full_crawl_completed_at, stored_total,
+        dropped_low_signal_count, consecutive_unchanged_checks
       ) values (
         ${post.id}, ${post.canonicalId}, ${post.platform}, ${post.platformContentId}, ${post.url},
         ${post.authorId || null}, ${post.authorUsername}, ${post.authorDisplayName || null},
@@ -288,14 +302,20 @@ export const postgresSocialRepository: SocialListeningRepository = {
         ${post.isRelevant}, ${post.sentiment || null}, ${post.sentimentConfidence || null},
         ${post.sentimentReason || null}, ${post.sentimentTarget || null}, ${post.primaryTopic || null},
         ${JSON.stringify(post.secondaryTopics || [])}, ${post.discoveryQuery || null},
-        ${post.discoveryGroup || null}, ${JSON.stringify(post.rawProviderData || {})}
+        ${post.discoveryGroup || null}, ${JSON.stringify(post.rawProviderData || {})},
+        ${post.isOfficialSource || false}, ${post.relevanceModel || null}, ${post.relevanceCheckedAt || null},
+        ${post.transcriptProvider || null}, ${post.transcriptFetchedAt || null}, ${post.monitoringState || null},
+        ${post.nextCommentCheckAt || null}, ${post.lastCommentCheckAt || null}, ${post.lastPlatformCommentCount ?? null},
+        ${post.lastNewCommentAt || null}, ${post.lastActivityAt || null}, ${post.newestCommentCreatedAt || null},
+        ${post.newestCommentId || null}, ${null}, ${null}, ${post.storedTotal ?? null},
+        ${post.droppedLowSignalCount || 0}, ${post.consecutiveUnchangedChecks || 0}
       )
       on conflict (canonical_id) do update set
         url = excluded.url,
         caption = excluded.caption,
         title = excluded.title,
         description = excluded.description,
-        transcript = excluded.transcript,
+        transcript = coalesce(excluded.transcript, social_posts.transcript),
         last_seen_at = excluded.last_seen_at,
         last_checked_at = excluded.last_checked_at,
         view_count = excluded.view_count,
@@ -316,7 +336,23 @@ export const postgresSocialRepository: SocialListeningRepository = {
         sentiment_target = excluded.sentiment_target,
         primary_topic = excluded.primary_topic,
         secondary_topics = excluded.secondary_topics,
-        raw_provider_data = excluded.raw_provider_data
+        raw_provider_data = excluded.raw_provider_data,
+        is_official_source = social_posts.is_official_source or excluded.is_official_source,
+        relevance_model = coalesce(excluded.relevance_model, social_posts.relevance_model),
+        relevance_checked_at = coalesce(excluded.relevance_checked_at, social_posts.relevance_checked_at),
+        transcript_provider = coalesce(excluded.transcript_provider, social_posts.transcript_provider),
+        transcript_fetched_at = coalesce(excluded.transcript_fetched_at, social_posts.transcript_fetched_at),
+        monitoring_state = coalesce(excluded.monitoring_state, social_posts.monitoring_state),
+        next_comment_check_at = coalesce(excluded.next_comment_check_at, social_posts.next_comment_check_at),
+        last_comment_check_at = coalesce(excluded.last_comment_check_at, social_posts.last_comment_check_at),
+        last_platform_comment_count = coalesce(excluded.last_platform_comment_count, social_posts.last_platform_comment_count),
+        last_new_comment_at = coalesce(excluded.last_new_comment_at, social_posts.last_new_comment_at),
+        last_activity_at = coalesce(excluded.last_activity_at, social_posts.last_activity_at),
+        newest_comment_created_at = coalesce(excluded.newest_comment_created_at, social_posts.newest_comment_created_at),
+        newest_comment_id = coalesce(excluded.newest_comment_id, social_posts.newest_comment_id),
+        stored_total = coalesce(excluded.stored_total, social_posts.stored_total),
+        dropped_low_signal_count = greatest(social_posts.dropped_low_signal_count, coalesce(excluded.dropped_low_signal_count, 0)),
+        consecutive_unchanged_checks = coalesce(excluded.consecutive_unchanged_checks, social_posts.consecutive_unchanged_checks)
     `;
     return post;
   },
@@ -358,7 +394,9 @@ export const postgresSocialRepository: SocialListeningRepository = {
           id, canonical_id, platform, platform_comment_id, post_id, parent_comment_id,
           author_id, author_username, author_display_name, text, created_at, first_seen_at,
           last_seen_at, like_count, reply_count, sentiment, sentiment_confidence,
-          sentiment_reason, sentiment_target, topic, evidence_score, raw_provider_data
+          sentiment_reason, sentiment_target, topic, evidence_score, raw_provider_data,
+          intent, relevance, signal_score, classification_version, classified_at,
+          is_leadership_signal, reply_count_at_last_check, replies_checked_at, dropped, drop_reason
         ) values (
           ${c.id}, ${c.canonicalId}, ${c.platform}, ${c.platformCommentId}, ${c.postId},
           ${c.parentCommentId || null}, ${c.authorId || null}, ${c.authorUsername},
@@ -366,9 +404,14 @@ export const postgresSocialRepository: SocialListeningRepository = {
           ${c.lastSeenAt}, ${c.likeCount}, ${c.replyCount}, ${c.sentiment || null},
           ${c.sentimentConfidence || null}, ${c.sentimentReason || null},
           ${c.sentimentTarget || null}, ${c.topic || null}, ${c.evidenceScore || 0.0},
-          ${JSON.stringify(c.rawProviderData || {})}
+          ${JSON.stringify(c.rawProviderData || {})},
+          ${c.intent || null}, ${c.commentRelevance || null}, ${c.signalScore ?? null},
+          ${c.classificationVersion ?? null}, ${c.classifiedAt || null}, ${c.isLeadershipSignal || false},
+          ${c.replyCountAtLastCheck ?? null}, ${c.repliesCheckedAt || null}, ${c.dropped || false},
+          ${c.dropReason || null}
         )
         on conflict (canonical_id) do update set
+          parent_comment_id = coalesce(social_comments.parent_comment_id, excluded.parent_comment_id),
           like_count = excluded.like_count,
           reply_count = excluded.reply_count,
           last_seen_at = excluded.last_seen_at,
@@ -377,7 +420,17 @@ export const postgresSocialRepository: SocialListeningRepository = {
           sentiment_reason = excluded.sentiment_reason,
           sentiment_target = excluded.sentiment_target,
           topic = excluded.topic,
-          evidence_score = excluded.evidence_score
+          evidence_score = excluded.evidence_score,
+          intent = coalesce(excluded.intent, social_comments.intent),
+          relevance = coalesce(excluded.relevance, social_comments.relevance),
+          signal_score = coalesce(excluded.signal_score, social_comments.signal_score),
+          classification_version = coalesce(excluded.classification_version, social_comments.classification_version),
+          classified_at = coalesce(excluded.classified_at, social_comments.classified_at),
+          is_leadership_signal = social_comments.is_leadership_signal or excluded.is_leadership_signal,
+          reply_count_at_last_check = coalesce(excluded.reply_count_at_last_check, social_comments.reply_count_at_last_check),
+          replies_checked_at = coalesce(excluded.replies_checked_at, social_comments.replies_checked_at),
+          dropped = social_comments.dropped or excluded.dropped,
+          drop_reason = coalesce(excluded.drop_reason, social_comments.drop_reason)
       `;
     }
     return comments;
@@ -574,6 +627,22 @@ function mapPostRow(r: any): Post {
     secondaryTopics: typeof r.secondary_topics === "string" ? JSON.parse(r.secondary_topics) : (r.secondary_topics || []),
     discoveryQuery: r.discovery_query || undefined,
     discoveryGroup: r.discovery_group || undefined,
+    isOfficialSource: Boolean(r.is_official_source),
+    monitoringState: r.monitoring_state || undefined,
+    nextCommentCheckAt: r.next_comment_check_at ? new Date(r.next_comment_check_at).toISOString() : undefined,
+    lastCommentCheckAt: r.last_comment_check_at ? new Date(r.last_comment_check_at).toISOString() : undefined,
+    lastPlatformCommentCount: r.last_platform_comment_count == null ? undefined : Number(r.last_platform_comment_count),
+    lastNewCommentAt: r.last_new_comment_at ? new Date(r.last_new_comment_at).toISOString() : undefined,
+    lastActivityAt: r.last_activity_at ? new Date(r.last_activity_at).toISOString() : undefined,
+    newestCommentCreatedAt: r.newest_comment_created_at ? new Date(r.newest_comment_created_at).toISOString() : undefined,
+    newestCommentId: r.newest_comment_id || undefined,
+    storedTotal: r.stored_total == null ? undefined : Number(r.stored_total),
+    droppedLowSignalCount: Number(r.dropped_low_signal_count || 0),
+    transcriptProvider: r.transcript_provider || undefined,
+    transcriptFetchedAt: r.transcript_fetched_at ? new Date(r.transcript_fetched_at).toISOString() : undefined,
+    relevanceModel: r.relevance_model || undefined,
+    relevanceCheckedAt: r.relevance_checked_at ? new Date(r.relevance_checked_at).toISOString() : undefined,
+    consecutiveUnchangedChecks: Number(r.consecutive_unchanged_checks || 0),
     rawProviderData: typeof r.raw_provider_data === "string" ? JSON.parse(r.raw_provider_data) : (r.raw_provider_data || {}),
     commentsFetchedAt: (() => {
       const raw =
@@ -608,6 +677,16 @@ function mapCommentRow(r: any): Comment {
     sentimentTarget: r.sentiment_target || undefined,
     topic: r.topic || undefined,
     evidenceScore: r.evidence_score ? Number(r.evidence_score) : undefined,
+    intent: r.intent || undefined,
+    commentRelevance: r.relevance || undefined,
+    signalScore: r.signal_score == null ? undefined : Number(r.signal_score),
+    classificationVersion: r.classification_version == null ? undefined : Number(r.classification_version),
+    classifiedAt: r.classified_at ? new Date(r.classified_at).toISOString() : undefined,
+    isLeadershipSignal: Boolean(r.is_leadership_signal),
+    replyCountAtLastCheck: r.reply_count_at_last_check == null ? undefined : Number(r.reply_count_at_last_check),
+    repliesCheckedAt: r.replies_checked_at ? new Date(r.replies_checked_at).toISOString() : undefined,
+    dropped: Boolean(r.dropped),
+    dropReason: r.drop_reason || undefined,
     rawProviderData: typeof r.raw_provider_data === "string" ? JSON.parse(r.raw_provider_data) : (r.raw_provider_data || {}),
   };
 }
