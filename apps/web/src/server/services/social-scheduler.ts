@@ -1,9 +1,24 @@
+import { Post } from "@/domain/social-listening/types";
 import { getSocialRepository } from "../repositories/postgres-social-repository";
 import { discoveryPipelineService, shouldSyncComments } from "./discovery-pipeline";
 import { calculateDeterministicSocialMetrics } from "../analytics/social-metrics";
 import { generateNarrativeSummary } from "../intelligence/narrative-generator";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 import { tregClient } from "./treg-client";
+import { dispatchSocialPulseAlerts } from "./social-alerts";
+
+const BRAND_HANDLES = new Set(["utahcityutah", "utahcityfoodtruckrally"]);
+
+export function isBrandFollowPost(post: Post): boolean {
+  const strategy = String(post.rawProviderData?.discoveryStrategy || "");
+  const author = (post.authorUsername || "").toLowerCase().replace(/^@/, "");
+  return strategy === "account" || BRAND_HANDLES.has(author);
+}
+
+/** Brand-account posts sync first so comments on Utah City's own posts are not crowded out. */
+export function comparePostsForCommentSync(a: Post, b: Post): number {
+  return Number(isBrandFollowPost(b)) - Number(isBrandFollowPost(a));
+}
 
 export interface SyncCycleResult {
   cycleStartedAt: string;
@@ -63,14 +78,14 @@ export class SocialSchedulerService {
 
     const doDiscovery = options?.discovery !== false;
     const discoveryRes = doDiscovery
-      ? await discoveryPipelineService.runDiscovery({ maxQueries: 3 })
+      ? await discoveryPipelineService.runDiscovery()
       : { runs: [], newPostsCount: 0, relevantPostsCount: 0, costUsd: 0 };
 
     const syncComments =
       options?.syncComments === true ||
       (options?.syncComments !== false && process.env.SOCIAL_LISTENING_SYNC_COMMENTS === "true");
     const activePosts = syncComments
-      ? await this.repo.listPosts({ isRelevant: true, limit: 15 })
+      ? (await this.repo.listPosts({ isRelevant: true, limit: 200 })).sort(comparePostsForCommentSync)
       : [];
     if (!syncComments) {
       console.log("[Scheduler] Comment sync skipped this cycle");
@@ -110,8 +125,8 @@ export class SocialSchedulerService {
     const viewsVelocityDelta = currentViewsTotal - initialViewsTotal;
     const commentsVelocityDelta = currentCommentsTotal - initialCommentsTotal + newCommentsTotal;
 
-    const allPosts = await this.repo.listPosts();
-    const allComments = await this.repo.listComments();
+    const allPosts = await this.repo.listPosts({ limit: 2000 });
+    const allComments = await this.repo.listComments({ limit: 5000 });
     const metrics7d = calculateDeterministicSocialMetrics({
       posts: allPosts,
       comments: allComments,
@@ -119,6 +134,22 @@ export class SocialSchedulerService {
     });
 
     const narrative = await generateNarrativeSummary(metrics7d);
+
+    try {
+      const alertState = await this.repo.getListenerState();
+      const alerts = await dispatchSocialPulseAlerts({
+        comments: allComments,
+        posts: allPosts,
+        cycleStartedAt,
+        lastDigestAt: alertState.lastDigestAt,
+      });
+      if (alerts.lastDigestAt && alerts.lastDigestAt !== alertState.lastDigestAt) {
+        await this.repo.saveListenerState({ lastDigestAt: alerts.lastDigestAt });
+      }
+      console.log(`[Scheduler] alerts immediate=${alerts.immediateSent} digest=${alerts.digestSent}`);
+    } catch (err) {
+      console.error("[Scheduler] social alerts failed:", err);
+    }
 
     const cycleCompletedAt = new Date().toISOString();
     console.log(

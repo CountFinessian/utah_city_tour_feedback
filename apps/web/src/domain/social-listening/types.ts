@@ -216,5 +216,7 @@ export interface SocialPulseMetrics {
 export interface CommentWithContext extends Comment {
   postUrl?: string;
   postCaptionSnippet?: string;
+  feedbackKind?: "wayfinding_and_access" | "environment" | "brand_operational" | "generic_sentiment";
+  leadershipAction?: string;
 }
 

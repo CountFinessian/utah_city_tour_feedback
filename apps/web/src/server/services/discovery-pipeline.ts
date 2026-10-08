@@ -7,6 +7,7 @@ import {
   parseAndNormalizeCommentIdentifier,
 } from "@/domain/social-listening/deduplication";
 import { inferDiscoveryStrategy } from "@/domain/social-listening/vocabulary";
+import { resolveMaxQueriesPerCycle, selectQueriesForCycle } from "@/domain/social-listening/query-rotation";
 import { Post, Comment, SearchRun, ActivityState } from "@/domain/social-listening/types";
 
 const DEFAULT_CYCLE_BUDGET_USD = Number(process.env.SOCIAL_LISTENING_CYCLE_BUDGET_USD || "0.5");
@@ -72,10 +73,9 @@ export class DiscoveryPipelineService {
     const budget = options?.cycleBudgetUsd ?? DEFAULT_CYCLE_BUDGET_USD;
 
     const allQueries = await this.repo.listQueries(true);
-    const sorted = [...allQueries].sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
     const targetQueries = options?.queryId
-      ? sorted.filter((q) => q.id === options.queryId)
-      : sorted.slice(0, options?.maxQueries || 10);
+      ? allQueries.filter((q) => q.id === options.queryId)
+      : selectQueriesForCycle(allQueries, resolveMaxQueriesPerCycle(options?.maxQueries));
 
     const runs: SearchRun[] = [];
     let totalNew = 0;
@@ -113,12 +113,25 @@ export class DiscoveryPipelineService {
 
           if (!existing) {
             const combinedText = `${item.title || ""} ${item.caption} ${item.description || ""}`.trim();
-            const relVerdict = await classifyRelevance(combinedText, {
+            let relVerdict = await classifyRelevance(combinedText, {
               platform: item.platform,
               discoveryQuery: q.query,
               discoveryGroup: q.searchGroup,
               author: item.authorUsername,
             });
+            if (strategy === "account") {
+              relVerdict = {
+                ...relVerdict,
+                isRelevant: true,
+                confidence: Math.max(relVerdict.confidence, 0.99),
+                reason: relVerdict.isRelevant
+                  ? relVerdict.reason
+                  : `Brand account follow (${q.platform}:${q.query}).`,
+                matchedEntities: relVerdict.matchedEntities.length
+                  ? relVerdict.matchedEntities
+                  : [q.query.replace(/^@/, "")],
+              };
+            }
 
             let sentimentVerdict;
             if (relVerdict.isRelevant) {
@@ -239,6 +252,7 @@ export class DiscoveryPipelineService {
           error: err.message,
         };
         await this.repo.recordSearchRun(errorRun);
+        await this.repo.updateQueryLastRun(q.id, startedAt);
         runs.push(errorRun);
       }
     }

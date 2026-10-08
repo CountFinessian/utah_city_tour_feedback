@@ -4,6 +4,7 @@ import { discoveryPipelineService } from "@/server/services/discovery-pipeline";
 import { socialSchedulerService } from "@/server/services/social-scheduler";
 import { tregClient } from "@/server/services/treg-client";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
+import { resolveMaxQueriesPerCycle } from "@/domain/social-listening/query-rotation";
 
 export const maxDuration = 300;
 
@@ -27,6 +28,7 @@ export async function GET() {
         lastRunAt,
         cronSchedule: "every 3 hours (GitHub Actions) + daily Vercel backup",
         cycleBudgetUsd: Number(process.env.SOCIAL_LISTENING_CYCLE_BUDGET_USD || "0.5"),
+        maxQueriesPerCycle: resolveMaxQueriesPerCycle(),
       },
     });
   } catch (err: any) {
@@ -53,7 +55,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "run_discovery") {
-      const result = await discoveryPipelineService.runDiscovery({ queryId, maxQueries: 3 });
+      const result = await discoveryPipelineService.runDiscovery({ queryId });
       return NextResponse.json(result);
     }
 

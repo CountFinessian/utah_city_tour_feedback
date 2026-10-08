@@ -8,7 +8,7 @@ import {
   SearchRun,
   SearchTermSuggestion,
 } from "@/domain/social-listening/types";
-import { SocialListeningRepository } from "./social-repository";
+import { SocialListenerState, SocialListeningRepository } from "./social-repository";
 import { fileSocialRepository } from "./file-social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 
@@ -163,6 +163,13 @@ async function ensureSocialSchema(): Promise<void> {
       // Optional discovery strategy column (keyword | hashtag | account)
       await sql`alter table social_search_queries add column if not exists discovery_strategy text`;
 
+      await sql`
+        create table if not exists social_listener_state (
+          id text primary key,
+          last_digest_at timestamptz
+        );
+      `;
+
       // Seed queries if table empty
       const countRes = await sql`select count(*) as cnt from social_search_queries`;
       if (Number(countRes[0]?.cnt || 0) === 0) {
@@ -239,7 +246,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
         and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
         and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
       order by coalesce(published_at, first_seen_at) desc
-      limit ${filter?.limit || 100}
+      limit ${filter?.limit || 2000}
     `;
     return rows.map(mapPostRow);
   },
@@ -329,8 +336,8 @@ export const postgresSocialRepository: SocialListeningRepository = {
       where (${filter?.postId || null}::text is null or post_id = ${filter?.postId || null}::text)
         and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
         and (${filter?.topic || null}::text is null or topic = ${filter?.topic || null}::text)
-      order by like_count desc, created_at desc
-      limit ${filter?.limit || 100}
+      order by created_at desc
+      limit ${filter?.limit || 5000}
     `;
     return rows.map(mapCommentRow);
   },
@@ -492,6 +499,24 @@ export const postgresSocialRepository: SocialListeningRepository = {
       update social_suggested_terms
       set status = ${status}, reviewed_at = now()
       where id = ${id}
+    `;
+  },
+
+  async getListenerState(): Promise<SocialListenerState> {
+    await ensureSocialSchema();
+    const sql = db();
+    const rows = await sql`select last_digest_at from social_listener_state where id = 'default'`;
+    const raw = rows[0]?.last_digest_at;
+    return { lastDigestAt: raw ? new Date(raw).toISOString() : undefined };
+  },
+
+  async saveListenerState(state: SocialListenerState): Promise<void> {
+    await ensureSocialSchema();
+    const sql = db();
+    await sql`
+      insert into social_listener_state (id, last_digest_at)
+      values ('default', ${state.lastDigestAt || null})
+      on conflict (id) do update set last_digest_at = excluded.last_digest_at
     `;
   },
 };
