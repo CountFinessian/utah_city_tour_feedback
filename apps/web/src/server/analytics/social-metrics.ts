@@ -1,3 +1,4 @@
+import { isLowSignalStoredComment } from "@/domain/social-listening/comment-signal";
 import {
   Post,
   Comment,
@@ -207,19 +208,20 @@ export function calculateDeterministicSocialMetrics(params: {
     return at >= previousCutoff && at < currentCutoff;
   });
   const commentsChange = calcChange(currentComments.length, prevComments.length);
+  const signalComments = currentComments.filter((comment) => !isLowSignalStoredComment(comment));
 
-  // Comment-weighted sentiment
+  // Comment-weighted sentiment ignores emoji, filler, mentions, and promos.
   let posComments = 0;
   let neuComments = 0;
   let negComments = 0;
 
-  for (const c of currentComments) {
+  for (const c of signalComments) {
     if (c.sentiment === "positive") posComments++;
     else if (c.sentiment === "negative") negComments++;
     else neuComments++;
   }
 
-  const totalAnalyzedComments = currentComments.length;
+  const totalAnalyzedComments = signalComments.length;
   const commentPositivePct = totalAnalyzedComments ? Number((posComments / totalAnalyzedComments).toFixed(2)) : 0;
   const commentNeutralPct = totalAnalyzedComments ? Number((neuComments / totalAnalyzedComments).toFixed(2)) : 0;
   const commentNegativePct = totalAnalyzedComments ? Number((negComments / totalAnalyzedComments).toFixed(2)) : 0;
@@ -278,7 +280,7 @@ export function calculateDeterministicSocialMetrics(params: {
   const negativeEv: CommentWithContext[] = [];
 
   const seenAuthors = new Set<string>();
-  const sortedComments = [...currentComments].sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0));
+  const sortedComments = [...signalComments].sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0));
 
   const enrich = (c: Comment): CommentWithContext => {
     const parentPost = relevantById.get(c.postId);
@@ -306,7 +308,7 @@ export function calculateDeterministicSocialMetrics(params: {
   }
 
   // Issue type, then recency, then likes. Generic sentiment cannot fill every slot.
-  const actionableFeedback: CommentWithContext[] = selectActionableFeedback(currentComments.map(enrich)).map(
+  const actionableFeedback: CommentWithContext[] = selectActionableFeedback(signalComments.map(enrich)).map(
     (item) => ({
       ...item,
       leadershipAction: leadershipActionFor(item.feedbackKind),

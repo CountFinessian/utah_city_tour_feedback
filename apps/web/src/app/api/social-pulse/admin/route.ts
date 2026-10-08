@@ -11,6 +11,7 @@ import {
   resolveMaxCommentPages,
   resolveMaxReplyParents,
 } from "@/domain/social-listening/comment-sync";
+import { resolveCommentClassifyModelName } from "@/server/ai/model-config";
 
 export const maxDuration = 300;
 
@@ -38,6 +39,7 @@ export async function GET() {
         maxCommentPages: resolveMaxCommentPages(),
         maxReplyParents: resolveMaxReplyParents(),
         cycleDeadlineMs: resolveCycleDeadlineMs(),
+        commentClassifyModel: resolveCommentClassifyModelName(),
       },
     });
   } catch (err: any) {

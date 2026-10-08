@@ -2,7 +2,8 @@ import { tregClient } from "./treg-client";
 import type { TregCommentItem } from "./treg-client";
 import { getSocialRepository } from "../repositories/postgres-social-repository";
 import { classifyRelevance } from "../intelligence/relevance-classifier";
-import { analyzeSentimentAndTopic, classifyComments } from "../intelligence/sentiment-classifier";
+import { analyzeSentimentAndTopic, classifyComments, type SentimentAnalysisResult } from "../intelligence/sentiment-classifier";
+import { LOW_SIGNAL_REASON, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
 import {
   parseAndNormalizePostIdentifier,
   parseAndNormalizeCommentIdentifier,
@@ -302,9 +303,22 @@ export class DiscoveryPipelineService {
     let added = 0;
     let touched = false;
 
-    const known = new Set(
-      (await this.repo.listComments({ postId: post.id, limit: 20000 })).map((comment) => comment.canonicalId)
-    );
+    const existingComments = await this.repo.listComments({ postId: post.id, limit: 20000 });
+    const known = new Set(existingComments.map((comment) => comment.canonicalId));
+    const priorByText = new Map<string, SentimentAnalysisResult>();
+    for (const comment of existingComments) {
+      if (!comment.sentiment || !comment.text) continue;
+      const key = normalizeCommentKey(comment.text);
+      if (!key || priorByText.has(key)) continue;
+      priorByText.set(key, {
+        sentiment: comment.sentiment,
+        confidence: comment.sentimentConfidence ?? 0.5,
+        target: comment.sentimentTarget || "Utah City",
+        reason: comment.sentimentReason || "Previously classified.",
+        primaryTopic: comment.topic || "general_opinion",
+        secondaryTopics: [],
+      });
+    }
 
     const stopForTime = () => typeof options?.deadlineAt === "number" && Date.now() >= options.deadlineAt;
     const stopForBudget = () => tregClient.getCycleCostUsd() >= budget;
@@ -357,7 +371,7 @@ export class DiscoveryPipelineService {
             replyParentId: parentId,
           });
           touched = true;
-          added += await this.saveCommentPage(post, page.comments, known, options?.deadlineAt);
+          added += await this.saveCommentPage(post, page.comments, known, priorByText, options?.deadlineAt);
           if (page.done || !page.nextCursor) {
             state = { ...state, replyParentIndex: state.replyParentIndex + 1, replyCursor: undefined };
           } else {
@@ -376,7 +390,7 @@ export class DiscoveryPipelineService {
           provider: state.provider,
         });
         touched = true;
-        added += await this.saveCommentPage(post, page.comments, known, options?.deadlineAt);
+        added += await this.saveCommentPage(post, page.comments, known, priorByText, options?.deadlineAt);
 
         if (includeReplies) {
           const parents = new Set(state.pendingReplyParents);
@@ -424,6 +438,7 @@ export class DiscoveryPipelineService {
     post: Post,
     items: TregCommentItem[],
     known: Set<string>,
+    priorByText: Map<string, SentimentAnalysisResult>,
     deadlineAt?: number
   ): Promise<number> {
     const fresh = items.filter((item) => {
@@ -441,9 +456,17 @@ export class DiscoveryPipelineService {
         parentPostSnippet: (post.caption || "").slice(0, 100),
         concurrency: resolveClassifyConcurrency(),
         batchSize: resolveClassifyBatchSize(),
+        priorByText,
         skipLlm: () => typeof deadlineAt === "number" && Date.now() >= deadlineAt - LLM_SKIP_BEFORE_DEADLINE_MS,
       }
     );
+
+    fresh.forEach((item, index) => {
+      const key = normalizeCommentKey(item.text);
+      const analysis = analyses[index];
+      if (!key || !analysis || priorByText.has(key)) return;
+      priorByText.set(key, analysis);
+    });
 
     const comments: Comment[] = fresh.map((item, index) => {
       const { canonicalId, platformCommentId } = parseAndNormalizeCommentIdentifier(
@@ -473,7 +496,8 @@ export class DiscoveryPipelineService {
         sentimentReason: sentAnalysis?.reason,
         sentimentTarget: sentAnalysis?.target,
         topic: sentAnalysis?.primaryTopic,
-        evidenceScore: item.likeCount * 0.1 + (sentAnalysis?.confidence || 0),
+        evidenceScore:
+          sentAnalysis?.reason === LOW_SIGNAL_REASON ? 0 : item.likeCount * 0.1 + (sentAnalysis?.confidence || 0),
         rawProviderData: item.raw,
       };
     });
