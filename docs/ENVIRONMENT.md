@@ -22,7 +22,7 @@ The app uses a priority cascade — it tries providers in order and falls back g
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `GEMINI_API_KEY` | No | — | Google Gemini API key. Primary LLM provider for extraction, narrative generation, and analyst. Also checks `GOOGLE_GENERATIVE_AI_API_KEY`. |
-| `GOOGLE_MODEL` | No | `gemini-3.8-flash` | Gemini model identifier. |
+| `GOOGLE_MODEL` | No | `gemini-3.8-flash` | Gemini model for leadership summaries, extraction, and other non-comment calls. |
 | `ANTHROPIC_API_KEY` | No | — | Anthropic Claude API key. Used as secondary LLM provider if no Google key. |
 | `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Anthropic model identifier. |
 | `AI_GATEWAY_API_KEY` | No | — | Vercel AI Gateway credentials. Also checks `VERCEL_OIDC_TOKEN`. |
@@ -74,7 +74,8 @@ Live listening uses the treg catalog (`utah-city-intelligence` team). Do not com
 | `SOCIAL_LISTENING_MAX_REPLY_PARENTS` | No | `0` | Instagram reply parents to walk. `0` walks every parent seen on harvested pages, still bounded by the deadline and spend cap. |
 | `SOCIAL_LISTENING_CYCLE_DEADLINE_MS` | No | `240000` | Stop the cycle this long after it starts and persist the comment cursor. Clamped to `270000` so a run ends before the 300s function limit. |
 | `SOCIAL_LISTENING_CLASSIFY_CONCURRENCY` | No | `4` | How many ambiguous-comment model batches run at once (max 8). |
-| `SOCIAL_LISTENING_CLASSIFY_BATCH_SIZE` | No | `20` | Ambiguous comments per model call (max 40). Keyword matches skip the model. |
+| `SOCIAL_LISTENING_CLASSIFY_BATCH_SIZE` | No | `20` | Ambiguous comments per model call (max 40). Keyword matches, junk, and already-classified wording skip the model. |
+| `SOCIAL_LISTENING_CLASSIFY_MODEL` | No | `gemini-2.5-flash-lite` | Gemini model for comment sentiment and topic. Lowest-cost current Flash model with structured output ($0.10 / $0.40 per 1M tokens). Does not change the leadership summary model. |
 | `SOCIAL_LISTENING_SYNC_COMMENTS` | No | off | When `true`, discover-mode cycles also sync comments. The comments cron mode syncs regardless. |
 | `SOCIAL_LISTENING_USE_FIXTURES` | No | fixtures outside production | `true` forces bundled fixtures. `false` forces live treg even in development. |
 | `SOCIAL_LISTENING_ALERTS` | No | on | Set `false` to skip immediate and daily Social Pulse email. |

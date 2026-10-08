@@ -5,6 +5,8 @@ import { hasAnthropicKey, hasGoogleKey } from "./env-flags";
 export { hasAnthropicKey, hasASR, hasGoogleKey } from "./env-flags";
 
 const GOOGLE_MODEL = process.env.GOOGLE_MODEL ?? "gemini-3.8-flash";
+/** Cheapest current Flash model with structured output. Leadership summary stays on GOOGLE_MODEL. */
+export const DEFAULT_COMMENT_CLASSIFY_MODEL = "gemini-2.5-flash-lite";
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 const GATEWAY_MODEL = process.env.EXTRACTION_MODEL ?? "anthropic/claude-sonnet-4-6";
 
@@ -63,4 +65,16 @@ export function llmLabel(): string | null {
   if (hasAnthropicKey()) return `anthropic:${ANTHROPIC_MODEL}`;
   if (hasGateway()) return `gateway:${GATEWAY_MODEL}`;
   return null;
+}
+
+export function resolveCommentClassifyModelName(): string {
+  const configured = process.env.SOCIAL_LISTENING_CLASSIFY_MODEL?.trim();
+  return configured || DEFAULT_COMMENT_CLASSIFY_MODEL;
+}
+
+/** Comment sentiment/topic only. Narrative and other leadership calls keep llmModel(). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function commentClassifyModel(): any {
+  if (hasGoogleKey()) return getGoogleModel(resolveCommentClassifyModelName());
+  return llmModel();
 }

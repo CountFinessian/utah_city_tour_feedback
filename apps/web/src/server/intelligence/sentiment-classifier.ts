@@ -1,6 +1,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
-import { llmModel, hasLLM } from "../ai/model-config";
+import { commentClassifyModel, hasLLM } from "../ai/model-config";
+import { LOW_SIGNAL_REASON, isLowSignalCommentText, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
 import { Sentiment, Topic } from "@/domain/social-listening/types";
 
 export interface SentimentAnalysisResult {
@@ -125,6 +126,18 @@ function neutralFallback(topic: Topic, confidence = 0.7): SentimentAnalysisResul
 
 /** Keyword and emoji pass. Ambiguous comments are the only ones that should call a model. */
 export function classifyCommentByKeyword(text: string): KeywordSentiment {
+  if (isLowSignalCommentText(text)) {
+    return {
+      ambiguous: false,
+      sentiment: "neutral",
+      confidence: 0.2,
+      target: "Utah City",
+      reason: LOW_SIGNAL_REASON,
+      primaryTopic: "other",
+      secondaryTopics: [],
+    };
+  }
+
   const normalized = (text || "").toLowerCase();
   const heuristicTopic = heuristicTopicFor(normalized);
   const hasPos =
@@ -224,6 +237,8 @@ export interface ClassifyCommentsOptions {
   batchSize?: number;
   /** When this returns true, remaining ambiguous comments stay on the keyword fallback. */
   skipLlm?: () => boolean;
+  /** Normalized comment text -> classification already stored. Those rows are not sent again. */
+  priorByText?: ReadonlyMap<string, SentimentAnalysisResult>;
 }
 
 /**
@@ -236,12 +251,45 @@ export async function classifyComments(
 ): Promise<SentimentAnalysisResult[]> {
   const keywords = texts.map((text) => classifyCommentByKeyword(text));
   const results: SentimentAnalysisResult[] = keywords.map(({ ambiguous: _ambiguous, ...rest }) => rest);
-  if (!hasLLM()) return results;
+  const duplicateOf = new Map<number, number>();
+  const firstIndexByKey = new Map<string, number>();
+
+  texts.forEach((text, index) => {
+    const key = normalizeCommentKey(text);
+    const prior = key ? options?.priorByText?.get(key) : undefined;
+    if (prior) {
+      results[index] = prior;
+      keywords[index] = { ...prior, ambiguous: false };
+      return;
+    }
+    if (!key) return;
+    const first = firstIndexByKey.get(key);
+    if (first === undefined) {
+      firstIndexByKey.set(key, index);
+      return;
+    }
+    duplicateOf.set(index, first);
+    keywords[index] = { ...keywords[index], ambiguous: false };
+  });
+
+  const copyDuplicates = () => {
+    for (const [index, first] of duplicateOf) {
+      results[index] = results[first];
+    }
+  };
+
+  if (!hasLLM()) {
+    copyDuplicates();
+    return results;
+  }
 
   const ambiguousIndexes = keywords
     .map((item, index) => (item.ambiguous ? index : -1))
     .filter((index) => index >= 0);
-  if (ambiguousIndexes.length === 0) return results;
+  if (ambiguousIndexes.length === 0) {
+    copyDuplicates();
+    return results;
+  }
 
   const batchSize = Math.max(1, options?.batchSize ?? 20);
   const chunks: number[][] = [];
@@ -256,7 +304,7 @@ export async function classifyComments(
       .join("\n");
     try {
       const res = await generateObject({
-        model: llmModel(),
+        model: commentClassifyModel(),
         schema: z.object({
           results: z.array(
             sentimentSchema.extend({
@@ -280,6 +328,7 @@ ${listed}`,
     }
   });
 
+  copyDuplicates();
   return results;
 }
 
@@ -298,7 +347,7 @@ export async function analyzeSentimentAndTopic(
 
   try {
     const res = await generateObject({
-      model: llmModel(),
+      model: commentClassifyModel(),
       schema: sentimentSchema,
       prompt: sentimentPrompt(text, context),
     });
