@@ -5,7 +5,9 @@ import {
   PostMetricSnapshot,
   SearchRun,
   SearchTermSuggestion,
+  SocialPipelineEvent,
 } from "@/domain/social-listening/types";
+import type { OfficialAccountRef } from "@/domain/social-listening/relevance";
 
 export interface SocialListenerState {
   lastDigestAt?: string;
@@ -21,11 +23,17 @@ export interface SocialListeningRepository {
   // Posts
   listPosts(filter?: {
     isRelevant?: boolean;
+    /** Dashboard content cards: relevance_status = relevant. */
+    contentOnly?: boolean;
+    /** Comment harvest: relevant posts and official comment sources. */
+    commentHarvest?: boolean;
     platform?: string;
     startDate?: string;
     endDate?: string;
     limit?: number;
   }): Promise<Post[]>;
+  listOfficialAccounts(): Promise<OfficialAccountRef[]>;
+  recordPipelineEvent(event: SocialPipelineEvent): Promise<void>;
   getPost(id: string): Promise<Post | null>;
   getPostByCanonicalId(canonicalId: string): Promise<Post | null>;
   upsertPost(post: Post): Promise<Post>;

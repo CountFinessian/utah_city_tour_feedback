@@ -1,4 +1,5 @@
 import { Comment, CommentWithContext, Post } from "@/domain/social-listening/types";
+import { postCommentsInDashboard } from "@/domain/social-listening/relevance";
 import {
   isHighSignalFeedback,
   leadershipActionFor,
@@ -32,8 +33,8 @@ function observedAt(comment: Comment): number {
 }
 
 function withContext(comments: Comment[], posts: Post[]): CommentWithContext[] {
-  const postById = new Map(posts.map((post) => [post.id, post]));
-  return comments.map((comment) => {
+  const postById = new Map(posts.filter((post) => postCommentsInDashboard(post)).map((post) => [post.id, post]));
+  return comments.filter((comment) => postById.has(comment.postId)).map((comment) => {
     const post = postById.get(comment.postId);
     return {
       ...comment,

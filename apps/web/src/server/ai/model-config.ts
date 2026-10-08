@@ -7,6 +7,8 @@ export { hasAnthropicKey, hasASR, hasGoogleKey } from "./env-flags";
 const GOOGLE_MODEL = process.env.GOOGLE_MODEL ?? "gemini-3.8-flash";
 /** Cheapest current Flash model with structured output. Leadership summary stays on GOOGLE_MODEL. */
 export const DEFAULT_COMMENT_CLASSIFY_MODEL = "gemini-2.5-flash-lite";
+/** Relevance v2. Separate from the leadership summary model. */
+export const DEFAULT_RELEVANCE_MODEL = "gemini-2.5-flash-lite";
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 const GATEWAY_MODEL = process.env.EXTRACTION_MODEL ?? "anthropic/claude-sonnet-4-6";
 
@@ -77,4 +79,27 @@ export function resolveCommentClassifyModelName(): string {
 export function commentClassifyModel(): any {
   if (hasGoogleKey()) return getGoogleModel(resolveCommentClassifyModelName());
   return llmModel();
+}
+
+export function resolveRelevanceModelName(): string {
+  const configured = process.env.RELEVANCE_MODEL?.trim();
+  return configured || DEFAULT_RELEVANCE_MODEL;
+}
+
+export function hasRelevanceModel(): boolean {
+  return hasGoogleKey();
+}
+
+/** Relevance only. Does not fall through to the leadership model. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function relevanceModel(): any {
+  if (!hasGoogleKey()) {
+    throw new Error("Relevance requires GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY");
+  }
+  return getGoogleModel(resolveRelevanceModelName());
+}
+
+/** gemini-2.5-flash-lite list price: $0.10 / 1M input, $0.40 / 1M output. Result is micro-USD. */
+export function geminiFlashLiteCostMicro(inputTokens: number, outputTokens: number): number {
+  return Math.round(inputTokens * 0.1 + outputTokens * 0.4);
 }

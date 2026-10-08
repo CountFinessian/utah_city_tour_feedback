@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
+import { isRejectedRelevance } from "@/domain/social-listening/relevance";
 
 export async function GET(
   request: Request,
@@ -10,7 +11,7 @@ export async function GET(
     const repo = getSocialRepository();
     const post = await repo.getPost(id);
 
-    if (!post) {
+    if (!post || isRejectedRelevance(post.relevanceStatus)) {
       return NextResponse.json({ error: "Post not found" }, { status: 404 });
     }
 

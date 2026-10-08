@@ -11,7 +11,15 @@ export type SearchGroup =
   | "positive_opinion"
   | "negative_opinion";
 
-export type RelevanceStatus = "unclassified" | "relevant" | "irrelevant" | "needs_review";
+export type RelevanceStatus =
+  | "unclassified"
+  | "relevant"
+  | "irrelevant"
+  | "needs_review"
+  | "official_comment_source"
+  | "rejected_lookalike"
+  | "rejected_offtopic"
+  | "rejected_unverifiable";
 
 export type Sentiment = "positive" | "neutral" | "negative";
 
@@ -122,6 +130,19 @@ export interface Post {
   consecutiveUnchangedChecks?: number;
 
   rawProviderData?: Record<string, unknown>;
+}
+
+export interface SocialPipelineEvent {
+  id: string;
+  postId?: string;
+  platform?: string;
+  platformContentId?: string;
+  stage: string;
+  decision: string;
+  reason?: string;
+  costMicro: number;
+  at: string;
+  detail?: Record<string, unknown>;
 }
 
 export interface Comment {

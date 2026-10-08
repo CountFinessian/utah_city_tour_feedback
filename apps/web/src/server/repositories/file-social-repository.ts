@@ -8,7 +8,9 @@ import {
   PostMetricSnapshot,
   SearchRun,
   SearchTermSuggestion,
+  SocialPipelineEvent,
 } from "@/domain/social-listening/types";
+import { postCommentsInDashboard, postShownAsContent, SEEDED_OFFICIAL_ACCOUNTS } from "@/domain/social-listening/relevance";
 import { SocialListenerState, SocialListeningRepository } from "./social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 
@@ -26,6 +28,7 @@ interface StoragePayload {
   runs: SearchRun[];
   suggestedTerms: SearchTermSuggestion[];
   listenerState?: SocialListenerState;
+  pipelineEvents?: SocialPipelineEvent[];
 }
 
 const STORAGE_FILE = path.join(DATA_DIR, "social-listening.json");
@@ -100,6 +103,12 @@ export const fileSocialRepository: SocialListeningRepository = {
     let res = [...data.posts];
     if (filter?.isRelevant !== undefined) {
       res = res.filter((p) => p.isRelevant === filter.isRelevant);
+    }
+    if (filter?.contentOnly) {
+      res = res.filter((p) => postShownAsContent(p));
+    }
+    if (filter?.commentHarvest) {
+      res = res.filter((p) => postCommentsInDashboard(p));
     }
     if (filter?.platform) {
       res = res.filter((p) => p.platform === filter.platform);
@@ -247,6 +256,17 @@ export const fileSocialRepository: SocialListeningRepository = {
       term.reviewedAt = new Date().toISOString();
       await writeStorage(data);
     }
+  },
+
+  async listOfficialAccounts() {
+    return SEEDED_OFFICIAL_ACCOUNTS;
+  },
+
+  async recordPipelineEvent(event: SocialPipelineEvent): Promise<void> {
+    const data = await readStorage();
+    data.pipelineEvents = data.pipelineEvents || [];
+    data.pipelineEvents.push(event);
+    await writeStorage(data);
   },
 
   async getListenerState(): Promise<SocialListenerState> {
