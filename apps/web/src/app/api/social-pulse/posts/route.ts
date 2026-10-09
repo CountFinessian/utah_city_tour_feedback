@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
 import { parseAndNormalizePostIdentifier } from "@/domain/social-listening/deduplication";
+import { RELEVANCE_VERSION } from "@/domain/social-listening/relevance";
 import { classifyRelevance } from "@/server/intelligence/relevance-classifier";
 import { analyzeSentimentAndTopic } from "@/server/intelligence/sentiment-classifier";
 import { Post } from "@/domain/social-listening/types";
@@ -77,6 +78,7 @@ export async function POST(request: Request) {
       isOfficialSource: relVerdict.decision === "official_comment_source",
       relevanceModel: relVerdict.model,
       relevanceCheckedAt: now,
+      relevanceVersion: RELEVANCE_VERSION,
       transcript: relVerdict.transcript,
       sentiment: sentVerdict?.sentiment,
       sentimentConfidence: sentVerdict?.confidence,

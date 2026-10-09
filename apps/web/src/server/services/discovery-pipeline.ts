@@ -3,7 +3,7 @@ import type { TregCommentItem } from "./treg-client";
 import { getSocialRepository } from "../repositories/postgres-social-repository";
 import { classifyRelevance } from "../intelligence/relevance-classifier";
 import { providerFor } from "../social/providers";
-import { postEligibleForCommentHarvest } from "@/domain/social-listening/relevance";
+import { RELEVANCE_VERSION, postEligibleForCommentHarvest } from "@/domain/social-listening/relevance";
 import { analyzeSentimentAndTopic, classifyComments, type SentimentAnalysisResult } from "../intelligence/sentiment-classifier";
 import { isExplicitDropReason, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
 import {
@@ -181,6 +181,7 @@ export class DiscoveryPipelineService {
               transcriptFetchedAt: relVerdict.transcript ? now : undefined,
               relevanceModel: relVerdict.model,
               relevanceCheckedAt: now,
+              relevanceVersion: RELEVANCE_VERSION,
               publishedAt: item.publishedAt,
               firstSeenAt: now,
               lastSeenAt: now,

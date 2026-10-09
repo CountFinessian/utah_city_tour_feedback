@@ -128,6 +128,8 @@ export interface Post {
   transcriptFetchedAt?: string;
   relevanceModel?: string;
   relevanceCheckedAt?: string;
+  /** Classifier generation. Reeval selects posts whose version is missing or lower. */
+  relevanceVersion?: number;
   consecutiveUnchangedChecks?: number;
 
   rawProviderData?: Record<string, unknown>;

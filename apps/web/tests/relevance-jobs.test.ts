@@ -1,7 +1,12 @@
 import { readFileSync } from "fs";
 import path from "path";
 import { describe, expect, it, vi } from "vitest";
-import { postNeedsRelevanceRecheck, RELEVANCE_V2_VERSION } from "@/domain/social-listening/relevance";
+import {
+  RELEVANCE_VERSION,
+  postNeedsRelevanceRecheck,
+  youtubeRepairContentId,
+  youtubeRowNeedsRepair,
+} from "@/domain/social-listening/relevance";
 import { Post, SocialPipelineEvent } from "@/domain/social-listening/types";
 import { classifyRelevance, relevanceGeminiBudgetMicro } from "@/server/intelligence/relevance-classifier";
 import { responseKeyStructure, runLookupDebug, runReferenceEval, runRelevanceReeval } from "@/server/services/relevance-jobs";
@@ -136,13 +141,20 @@ describe("production relevance jobs", () => {
     expect(record).not.toHaveBeenCalled();
   });
 
-  it("re-evaluates only stale posts, hides rejects, and resumes on the next call", async () => {
+  it("re-evaluates posts below the current relevance version and skips a second pass", async () => {
+    const cutoffStamp = "2026-10-08T20:00:00.000Z";
     const stored = [
-      post({ id: "stale", caption: "the best day in park city, utah" }),
+      post({
+        id: "stale",
+        caption: "the best day in park city, utah",
+        relevanceCheckedAt: cutoffStamp,
+        relevanceStatus: "rejected_lookalike",
+      }),
       post({
         id: "current",
         caption: "Utah City is finally opening its new downtown!",
-        relevanceCheckedAt: "2026-10-09T00:00:00.000Z",
+        relevanceCheckedAt: cutoffStamp,
+        relevanceVersion: RELEVANCE_VERSION,
       }),
     ];
     const events: SocialPipelineEvent[] = [];
@@ -152,8 +164,10 @@ describe("production relevance jobs", () => {
       deadlineAt: Date.now() + 10_000,
       tregSpentUsd: () => 0,
       listOfficialAccounts: async () => [],
-      listPosts: async (filter) =>
-        stored.filter((item) => !item.relevanceCheckedAt || item.relevanceCheckedAt < (filter.staleRelevanceBefore || "")),
+      listPosts: async (filter) => {
+        expect(filter.relevanceVersionBelow).toBe(RELEVANCE_VERSION);
+        return stored.filter((item) => postNeedsRelevanceRecheck(item, filter.relevanceVersionBelow));
+      },
       upsertPost: async (item) => {
         upserts.push(item);
         return item;
@@ -164,6 +178,7 @@ describe("production relevance jobs", () => {
       fetchTranscript: async () => null,
     });
 
+    expect(result.version).toBe(RELEVANCE_VERSION);
     expect(result.processed).toBe(1);
     expect(result.remaining).toBe(0);
     expect(result.rejected).toBe(1);
@@ -172,8 +187,9 @@ describe("production relevance jobs", () => {
     expect(upserts[0].id).toBe("stale");
     expect(upserts[0].relevanceStatus).toBe("rejected_lookalike");
     expect(upserts[0].isRelevant).toBe(false);
-    expect(upserts[0].relevanceCheckedAt! >= RELEVANCE_V2_VERSION).toBe(true);
+    expect(upserts[0].relevanceVersion).toBe(RELEVANCE_VERSION);
     expect(events.every((event) => event.stage === "relevance" && event.postId === "stale")).toBe(true);
+    expect(events[0].detail).toMatchObject({ version: RELEVANCE_VERSION });
 
     stored[0] = upserts[0];
     const second = await runRelevanceReeval({
@@ -182,7 +198,7 @@ describe("production relevance jobs", () => {
       tregSpentUsd: () => 0,
       listOfficialAccounts: async () => [],
       listPosts: async (filter) =>
-        stored.filter((item) => !item.relevanceCheckedAt || item.relevanceCheckedAt < (filter.staleRelevanceBefore || "")),
+        stored.filter((item) => postNeedsRelevanceRecheck(item, filter.relevanceVersionBelow)),
       upsertPost: async (item) => item,
       fetchTranscript: async () => null,
     });
@@ -206,13 +222,32 @@ describe("production relevance jobs", () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
-  it("re-judges legacy irrelevant posts even when their check timestamp is current", async () => {
+  it("selects a missing or older relevance version and skips the current one", () => {
+    const cutoffStamp = "2026-10-08T20:00:00.000Z";
+    const collided = post({
+      id: "collided",
+      caption: "Like what are we actually doing? #utahcity",
+      relevanceCheckedAt: cutoffStamp,
+      relevanceStatus: "rejected_lookalike",
+    });
+    expect(postNeedsRelevanceRecheck(collided)).toBe(true);
+    expect(postNeedsRelevanceRecheck({ ...collided, relevanceVersion: 2 })).toBe(true);
+    expect(postNeedsRelevanceRecheck({ ...collided, relevanceVersion: RELEVANCE_VERSION })).toBe(false);
+    const currentIrrelevant = {
+      ...collided,
+      relevanceStatus: "irrelevant" as const,
+      relevanceVersion: RELEVANCE_VERSION,
+    };
+    expect(postNeedsRelevanceRecheck(currentIrrelevant)).toBe(false);
+  });
+
+  it("re-judges posts with no relevance version, including legacy irrelevant rows", async () => {
     const legacy = post({
       id: "old-rules",
       caption: "Utah City is finally opening its new downtown!",
       relevanceStatus: "irrelevant",
       relevanceReason: "Old rules: no utah city token.",
-      relevanceCheckedAt: "2026-10-09T00:00:00.000Z",
+      relevanceCheckedAt: "2026-10-08T20:00:00.000Z",
       isRelevant: false,
     });
     expect(postNeedsRelevanceRecheck(legacy)).toBe(true);
@@ -232,7 +267,126 @@ describe("production relevance jobs", () => {
     expect(result.processed).toBe(1);
     expect(result.kept).toBe(1);
     expect(upserts[0].relevanceStatus).toBe("relevant");
+    expect(upserts[0].relevanceVersion).toBe(RELEVANCE_VERSION);
     expect(upserts[0].relevanceReason).not.toContain("Old rules");
+  });
+
+  it("marks a broken YouTube shell needs_retry instead of relevant", async () => {
+    const shell = post({
+      id: "yt-shell",
+      platform: "youtube",
+      platformContentId: "",
+      url: "https://www.youtube.com/watch?v=",
+      authorUsername: "yt_creator",
+      caption: "Utah City downtown is open",
+      relevanceStatus: "relevant",
+      isRelevant: true,
+    });
+    expect(youtubeRowNeedsRepair(shell)).toBe(true);
+    expect(youtubeRepairContentId(shell)).toBeNull();
+    const fetchDetail = vi.fn();
+    const classify = vi.fn(async () => {
+      throw new Error("broken youtube shell must not be classified");
+    });
+    const upserts: Post[] = [];
+    const result = await runRelevanceReeval({
+      classify,
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: async () => [shell],
+      upsertPost: async (item) => {
+        upserts.push(item);
+        return item;
+      },
+      fetchDetail,
+      fetchTranscript: async () => null,
+    });
+    expect(fetchDetail).not.toHaveBeenCalled();
+    expect(classify).not.toHaveBeenCalled();
+    expect(result.processed).toBe(1);
+    expect(result.kept).toBe(0);
+    expect(upserts[0].relevanceStatus).toBe("needs_retry");
+    expect(upserts[0].isRelevant).toBe(false);
+    expect(upserts[0].relevanceVersion).toBe(RELEVANCE_VERSION);
+    expect(upserts[0].relevanceReason).toMatch(/no video id/i);
+  });
+
+  it("repairs a broken YouTube row from a fresh lookup before classifying", async () => {
+    const shell = post({
+      id: "yt-repair",
+      platform: "youtube",
+      platformContentId: "DnQyX-UA7kY",
+      url: "https://www.youtube.com/watch?v=",
+      authorUsername: "yt_creator",
+      caption: "",
+      relevanceStatus: "relevant",
+      isRelevant: true,
+    });
+    const upserts: Post[] = [];
+    const result = await runRelevanceReeval({
+      classify: classifyRelevance,
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: async () => [shell],
+      upsertPost: async (item) => {
+        upserts.push(item);
+        return item;
+      },
+      fetchDetail: async (contentId) =>
+        detail({
+          platform: "youtube",
+          contentId,
+          url: `https://www.youtube.com/watch?v=${contentId}`,
+          authorUsername: "UtahCity",
+          authorId: "UCwNkAzWu_PJ0DEiVU5NVo9A",
+          channelId: "UCwNkAzWu_PJ0DEiVU5NVo9A",
+          caption: "Welcome to Utah City.",
+        }),
+      fetchTranscript: async () => null,
+    });
+    expect(result.processed).toBe(1);
+    expect(result.official).toBe(1);
+    expect(upserts[0].url).toBe("https://www.youtube.com/watch?v=DnQyX-UA7kY");
+    expect(upserts[0].authorUsername).toBe("UtahCity");
+    expect(upserts[0].relevanceStatus).toBe("official_comment_source");
+    expect(upserts[0].isRelevant).toBe(false);
+    expect(upserts[0].relevanceVersion).toBe(RELEVANCE_VERSION);
+  });
+
+  it("marks a YouTube shell needs_retry when the fresh lookup is empty", async () => {
+    const shell = post({
+      id: "yt-empty-lookup",
+      platform: "youtube",
+      platformContentId: "DnQyX-UA7kY",
+      url: "https://www.youtube.com/watch?v=",
+      authorUsername: "yt_creator",
+      caption: "Utah City downtown is open",
+      relevanceStatus: "relevant",
+      isRelevant: true,
+    });
+    const upserts: Post[] = [];
+    const result = await runRelevanceReeval({
+      classify: async () => {
+        throw new Error("empty youtube lookup must not be classified as the stored shell");
+      },
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: async () => [shell],
+      upsertPost: async (item) => {
+        upserts.push(item);
+        return item;
+      },
+      fetchDetail: async () => null,
+      fetchTranscript: async () => null,
+    });
+    expect(result.processed).toBe(1);
+    expect(result.kept).toBe(0);
+    expect(upserts[0].relevanceStatus).toBe("needs_retry");
+    expect(upserts[0].isRelevant).toBe(false);
+    expect(upserts[0].relevanceVersion).toBe(RELEVANCE_VERSION);
   });
 
   it("does not score an empty lookup as a no-mention reject", async () => {
