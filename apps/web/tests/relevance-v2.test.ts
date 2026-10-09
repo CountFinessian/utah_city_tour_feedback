@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasNamedUtahCitySubject,
   hasProtectedUtahCitySignal,
   isOfficialAuthor,
   lookalikeHit,
@@ -282,16 +283,48 @@ describe("relevance false positives", () => {
     expect(finisSpelling.isRelevant).toBe(true);
   });
 
-  it("does not keep a #utahcity video whose transcript is not the development", async () => {
-    const result = await classifyRelevance("10 more minutes!!! #utah #vineyard #utahcity @Utah City ", {
+  it("keeps a written Fini mention when the transcript garbles the name", async () => {
+    expect(
+      hasNamedUtahCitySubject(
+        "Fini Pizza just opened a brand new location in Vineyard, Utah",
+        "Finny Pizza just opened and the line is already out the door."
+      )
+    ).toBe(true);
+    expect(hasNamedUtahCitySubject("This place was soooo good!!! @Fini Pizza", "Phineas Cafe was packed tonight.")).toBe(
+      true
+    );
+    expect(hasNamedUtahCitySubject("loved it", "we sat outside at Finis", "Fini's Cafe @ UT City")).toBe(true);
+
+    const opened = await classifyRelevance("Fini Pizza just opened a brand new location in Vineyard, Utah", {
       platform: "tiktok",
-      url: "https://www.tiktok.com/@jaimeyaime/video/7572995760069872909",
+      transcript: "Finny Pizza just opened and the line is already out the door.",
+    });
+    expect(opened.isRelevant).toBe(true);
+    expect(opened.reason).not.toMatch(/neither Utah City nor a known venue/);
+
+    const cafe = await classifyRelevance("Fini's Cafe @ UT City", {
+      platform: "instagram",
+      transcript: "Stopped at Phineas Cafe on the way home.",
+    });
+    expect(cafe.isRelevant).toBe(true);
+    expect(cafe.reason).not.toMatch(/neither Utah City nor a known venue/);
+
+    const mention = await classifyRelevance("This place was soooo good!!! @Fini Pizza", {
+      platform: "tiktok",
+      transcript: "Oh my gosh the crust was perfect and we will be back tomorrow.",
+    });
+    expect(mention.isRelevant).toBe(true);
+    expect(mention.reason).not.toMatch(/neither Utah City nor a known venue/);
+  });
+
+  it("does not keep a transcript that names neither the development nor a venue", async () => {
+    const result = await classifyRelevance("Lunch in Orem today, the new patio is packed and everyone is outside.", {
+      platform: "tiktok",
       transcript:
         "Okay, update. We got our ticket for our bags. It's hella crowded. Everyone is trying to get through the airport.",
     });
     expect(result.isRelevant).toBe(false);
     expect(result.decision).not.toBe("relevant");
-    expect(result.reason).not.toMatch(/not a lookalike/);
     expect(result.reason).toMatch(/Transcript does not name Utah City or a known venue/);
   });
 
@@ -314,9 +347,9 @@ describe("relevance false positives", () => {
   });
 
   it("bumps the relevance version and hides rejected comments without deleting them", () => {
-    expect(RELEVANCE_VERSION).toBe(6);
-    expect(postNeedsRelevanceRecheck({ relevanceVersion: 5 })).toBe(true);
-    expect(postNeedsRelevanceRecheck({ relevanceVersion: 6 })).toBe(false);
+    expect(RELEVANCE_VERSION).toBe(7);
+    expect(postNeedsRelevanceRecheck({ relevanceVersion: 6 })).toBe(true);
+    expect(postNeedsRelevanceRecheck({ relevanceVersion: 7 })).toBe(false);
 
     const kept = post({ id: "kept", caption: "Utah City downtown", relevanceVersion: 4 });
     const rejected = post({
