@@ -36,7 +36,7 @@ export default async function CommandPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/" className="btn btn-primary px-4 py-2 text-sm">
+            <Link href="/?surface=capture" className="btn btn-primary px-4 py-2 text-sm">
               Mobile capture
             </Link>
             <Link href="/analyst" className="command-action-button px-4 py-2">

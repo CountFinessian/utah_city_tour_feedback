@@ -120,6 +120,18 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/", req.url));
   }
 
+  // Desktop/PC users in leadership role default to Command view instead of mobile capture
+  if (
+    pathname === "/" &&
+    !isMobile &&
+    session.role === "leader" &&
+    !req.nextUrl.searchParams.has("surface") &&
+    !req.nextUrl.searchParams.has("capture") &&
+    !req.nextUrl.searchParams.has("mode")
+  ) {
+    return NextResponse.redirect(new URL("/command", req.url));
+  }
+
   if (session.role !== "leader") {
     if (isLeadershipRoute) {
       const captureUrl = new URL("/", req.url);

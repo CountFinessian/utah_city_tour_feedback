@@ -145,7 +145,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="text-[#e8eef7]">Utah City</span>
             </Link>
             <div className="flex items-center gap-2">
-              <Link href="/" className="btn btn-primary px-3 py-2 text-xs">
+              <Link href="/?surface=capture" className="btn btn-primary px-3 py-2 text-xs">
                 Capture
               </Link>
               <button

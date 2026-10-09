@@ -92,7 +92,7 @@ function LoginForm() {
         return;
       }
 
-      const destination = from && !(data.user.role === "host" && from !== "/") ? from : data.redirectTo;
+      const destination = from && from !== "/" && !(data.user.role === "host" && from !== "/") ? from : data.redirectTo;
       window.location.href = destination;
     } catch {
       setError("Network error. Please try again.");
