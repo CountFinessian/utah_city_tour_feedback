@@ -261,10 +261,8 @@ export const postgresSocialRepository: SocialListeningRepository = {
         and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
         and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
         and (
-          ${filter?.staleRelevanceBefore || null}::timestamptz is null
-          or relevance_checked_at is null
-          or relevance_checked_at < ${filter?.staleRelevanceBefore || null}::timestamptz
-          or relevance_status in ('irrelevant', 'needs_review', 'needs_retry')
+          ${filter?.relevanceVersionBelow ?? null}::int is null
+          or coalesce(relevance_version, 0) < ${filter?.relevanceVersionBelow ?? null}::int
         )
       order by coalesce(published_at, first_seen_at) desc
       limit ${filter?.limit || 2000}
@@ -320,7 +318,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
         relevance_status, relevance_reason, matched_entities, is_relevant, sentiment,
         sentiment_confidence, sentiment_reason, sentiment_target, primary_topic,
         secondary_topics, discovery_query, discovery_group, raw_provider_data,
-        is_official_source, relevance_model, relevance_checked_at, transcript_provider,
+        is_official_source, relevance_model, relevance_checked_at, relevance_version, transcript_provider,
         transcript_fetched_at, monitoring_state, next_comment_check_at, last_comment_check_at,
         last_platform_comment_count, last_new_comment_at, last_activity_at, newest_comment_created_at,
         newest_comment_id, comment_harvest_cursor, first_full_crawl_completed_at, stored_total,
@@ -338,6 +336,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
         ${JSON.stringify(post.secondaryTopics || [])}, ${post.discoveryQuery || null},
         ${post.discoveryGroup || null}, ${JSON.stringify(post.rawProviderData || {})},
         ${post.isOfficialSource || false}, ${post.relevanceModel || null}, ${post.relevanceCheckedAt || null},
+        ${post.relevanceVersion ?? null},
         ${post.transcriptProvider || null}, ${post.transcriptFetchedAt || null}, ${post.monitoringState || null},
         ${post.nextCommentCheckAt || null}, ${post.lastCommentCheckAt || null}, ${post.lastPlatformCommentCount ?? null},
         ${post.lastNewCommentAt || null}, ${post.lastActivityAt || null}, ${post.newestCommentCreatedAt || null},
@@ -345,7 +344,11 @@ export const postgresSocialRepository: SocialListeningRepository = {
         ${post.droppedLowSignalCount || 0}, ${post.consecutiveUnchangedChecks || 0}
       )
       on conflict (canonical_id) do update set
+        platform_content_id = excluded.platform_content_id,
         url = excluded.url,
+        author_id = coalesce(excluded.author_id, social_posts.author_id),
+        author_username = excluded.author_username,
+        author_display_name = coalesce(excluded.author_display_name, social_posts.author_display_name),
         caption = excluded.caption,
         title = excluded.title,
         description = excluded.description,
@@ -374,6 +377,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
         is_official_source = social_posts.is_official_source or excluded.is_official_source,
         relevance_model = coalesce(excluded.relevance_model, social_posts.relevance_model),
         relevance_checked_at = coalesce(excluded.relevance_checked_at, social_posts.relevance_checked_at),
+        relevance_version = coalesce(excluded.relevance_version, social_posts.relevance_version),
         transcript_provider = coalesce(excluded.transcript_provider, social_posts.transcript_provider),
         transcript_fetched_at = coalesce(excluded.transcript_fetched_at, social_posts.transcript_fetched_at),
         monitoring_state = coalesce(excluded.monitoring_state, social_posts.monitoring_state),
@@ -676,6 +680,7 @@ function mapPostRow(r: any): Post {
     transcriptFetchedAt: r.transcript_fetched_at ? new Date(r.transcript_fetched_at).toISOString() : undefined,
     relevanceModel: r.relevance_model || undefined,
     relevanceCheckedAt: r.relevance_checked_at ? new Date(r.relevance_checked_at).toISOString() : undefined,
+    relevanceVersion: r.relevance_version == null ? undefined : Number(r.relevance_version),
     consecutiveUnchangedChecks: Number(r.consecutive_unchanged_checks || 0),
     rawProviderData: typeof r.raw_provider_data === "string" ? JSON.parse(r.raw_provider_data) : (r.raw_provider_data || {}),
     commentsFetchedAt: (() => {

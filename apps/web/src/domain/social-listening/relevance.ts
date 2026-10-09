@@ -1,32 +1,54 @@
 import type { Platform, RelevanceStatus } from "./types";
 
 /**
- * Posts checked before this instant still need the v2 gate.
- * Bump it to send every stored post through relevance again.
+ * Classifier generation stored on each post as relevance_version.
+ * Reeval selects a post only when its stored version is missing or strictly lower.
+ * Bump this integer to send every stored post through the current classifier again.
+ *
+ * 1 — first v2 gate.
+ * 2 — timestamp cutoff 2026-10-08T20:00:00.000Z. Runs before that instant were
+ *     stamped with the cutoff itself, so `checked_at >= cutoff` selected nothing.
+ * 3 — stage 2d. Explicit per-post version. Equality is already current.
  */
-export const RELEVANCE_V2_VERSION = "2026-10-08T20:00:00.000Z";
+export const RELEVANCE_VERSION = 3;
 
-export function relevanceCheckIsCurrent(checkedAt: string | undefined, version = RELEVANCE_V2_VERSION): boolean {
-  if (!checkedAt) return false;
-  const checked = Date.parse(checkedAt);
-  const cutoff = Date.parse(version);
-  return Number.isFinite(checked) && Number.isFinite(cutoff) && checked >= cutoff;
-}
+const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{6,}$/;
 
-/** A check is current only when it used this rules version. Legacy irrelevant rows are always due. */
+/** A check is due when the stored generation is missing or older than `version`. */
 export function postNeedsRelevanceRecheck(
-  post: { relevanceCheckedAt?: string; relevanceStatus?: string },
-  version = RELEVANCE_V2_VERSION
+  post: { relevanceVersion?: number | null },
+  version = RELEVANCE_VERSION
 ): boolean {
-  if (post.relevanceStatus === "irrelevant" || post.relevanceStatus === "needs_review" || post.relevanceStatus === "needs_retry") {
-    return true;
-  }
-  return !relevanceCheckIsCurrent(post.relevanceCheckedAt, version);
+  return (post.relevanceVersion ?? 0) < version;
 }
 
-/** Stamp at or after the version so a check is not immediately stale again. */
-export function relevanceCheckedStamp(now = new Date().toISOString(), version = RELEVANCE_V2_VERSION): string {
-  return now >= version ? now : version;
+export function youtubeVideoIdFromUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  const match = url.match(/(?:[?&]v=|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{6,})/);
+  const id = match?.[1] || "";
+  return YOUTUBE_VIDEO_ID.test(id) ? id : null;
+}
+
+export function isPlaceholderYouTubeAuthor(author: string | undefined): boolean {
+  const name = (author || "").trim();
+  return !name || /^(yt_creator|user)$/i.test(name);
+}
+
+/** Empty YouTube shell: the URL has no video id, or the author is the lookup placeholder. */
+export function youtubeRowNeedsRepair(post: {
+  platform?: string;
+  url?: string;
+  authorUsername?: string;
+}): boolean {
+  if (post.platform !== "youtube") return false;
+  return !youtubeVideoIdFromUrl(post.url) || isPlaceholderYouTubeAuthor(post.authorUsername);
+}
+
+/** Content id worth a fresh detail call. The placeholder author is not a video id. */
+export function youtubeRepairContentId(post: { platformContentId?: string; url?: string }): string | null {
+  const stored = (post.platformContentId || "").trim();
+  if (YOUTUBE_VIDEO_ID.test(stored) && !isPlaceholderYouTubeAuthor(stored)) return stored;
+  return youtubeVideoIdFromUrl(post.url);
 }
 
 /** Stored outcomes. `unsure` is an intermediate model answer and is never persisted. */

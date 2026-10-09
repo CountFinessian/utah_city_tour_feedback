@@ -1,9 +1,12 @@
 import { parseAndNormalizePostIdentifier } from "@/domain/social-listening/deduplication";
 import {
-  RELEVANCE_V2_VERSION,
+  RELEVANCE_VERSION,
+  isPlaceholderYouTubeAuthor,
   isVideoPost,
   postNeedsRelevanceRecheck,
-  relevanceCheckedStamp,
+  youtubeRepairContentId,
+  youtubeRowNeedsRepair,
+  youtubeVideoIdFromUrl,
   type OfficialAccountRef,
 } from "@/domain/social-listening/relevance";
 import type { Post, SocialPipelineEvent } from "@/domain/social-listening/types";
@@ -60,7 +63,7 @@ export interface RelevanceEvalResult {
 
 export interface RelevanceReevalResult {
   task: "relevance-reeval";
-  version: string;
+  version: number;
   processed: number;
   remaining: number;
   kept: number;
@@ -77,7 +80,7 @@ interface JobOptions {
   tregBudgetUsd?: number;
   geminiBudgetMicro?: number;
   classify?: typeof classifyRelevance;
-  listPosts?: (filter: { staleRelevanceBefore?: string; limit?: number }) => Promise<Post[]>;
+  listPosts?: (filter: { relevanceVersionBelow?: number; limit?: number }) => Promise<Post[]>;
   upsertPost?: (post: Post) => Promise<Post>;
   recordPipelineEvent?: (event: SocialPipelineEvent) => Promise<void>;
   listOfficialAccounts?: () => Promise<OfficialAccountRef[]>;
@@ -306,6 +309,41 @@ function referenceEvent(
   };
 }
 
+function repairedYouTubePost(post: Post, item: TregSearchResultItem): Post | null {
+  const id = (item.contentId || "").trim();
+  if (!/^[A-Za-z0-9_-]{6,}$/.test(id) || isPlaceholderYouTubeAuthor(id)) return null;
+  const caption = [item.caption, item.title, item.description].filter(Boolean).join("\n").trim();
+  const authorOk = Boolean(item.authorUsername) && !isPlaceholderYouTubeAuthor(item.authorUsername);
+  if (!authorOk && !caption) return null;
+  const url = youtubeVideoIdFromUrl(item.url) ? item.url.split("&")[0] : `https://www.youtube.com/watch?v=${id}`;
+  return {
+    ...post,
+    platformContentId: id,
+    url,
+    authorUsername: authorOk ? item.authorUsername : post.authorUsername,
+    authorDisplayName: item.authorDisplayName || post.authorDisplayName,
+    authorId: item.authorId || item.channelId || post.authorId,
+    caption: caption || post.caption,
+    title: item.title || post.title,
+    description: item.description || post.description,
+  };
+}
+
+async function repairYouTubeRow(
+  post: Post,
+  fetchDetail: NonNullable<JobOptions["fetchDetail"]>
+): Promise<{ post: Post; unrepairable?: string }> {
+  if (!youtubeRowNeedsRepair(post)) return { post };
+  const id = youtubeRepairContentId(post);
+  const lookedUp = id ? await fetchDetail(id, post.url, "youtube") : null;
+  const repaired = lookedUp ? repairedYouTubePost(post, lookedUp) : null;
+  if (repaired) return { post: repaired };
+  const reason = id
+    ? "YouTube URL has no video id. A fresh lookup did not return a caption or channel, so this row is not relevant."
+    : "YouTube URL has no video id and there is no content id to look up again.";
+  return { post, unrepairable: reason };
+}
+
 export async function runRelevanceReeval(options: JobOptions = {}): Promise<RelevanceReevalResult> {
   if (!options.classify && !hasRelevanceModel()) {
     throw new Error("GEMINI_API_KEY is not configured");
@@ -317,9 +355,10 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
   const record = options.recordPipelineEvent ?? ((event) => repo.recordPipelineEvent(event));
   const listOfficialAccounts = options.listOfficialAccounts ?? (() => repo.listOfficialAccounts());
   const fetchTranscript = options.fetchTranscript ?? defaultFetchTranscript;
+  const fetchDetail = options.fetchDetail ?? defaultFetchDetail;
   const officialAccounts = await listOfficialAccounts();
-  const posts = (await listPosts({ staleRelevanceBefore: RELEVANCE_V2_VERSION, limit: 5000 })).filter((post) =>
-    postNeedsRelevanceRecheck(post, RELEVANCE_V2_VERSION)
+  const posts = (await listPosts({ relevanceVersionBelow: RELEVANCE_VERSION, limit: 5000 })).filter((post) =>
+    postNeedsRelevanceRecheck(post, RELEVANCE_VERSION)
   );
   posts.sort((a, b) => {
     const rank = (item: Post) => (item.relevanceStatus === "needs_retry" ? 1 : 0);
@@ -344,7 +383,39 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
         stopped = limit;
         break;
       }
-      const post = posts[index];
+      const stored = posts[index];
+      const now = new Date().toISOString();
+      const repaired = await repairYouTubeRow(stored, fetchDetail);
+      if (repaired.unrepairable) {
+        await record({
+          id: eventId(),
+          postId: stored.id,
+          platform: stored.platform,
+          platformContentId: stored.platformContentId,
+          stage: "relevance",
+          decision: "needs_retry",
+          reason: repaired.unrepairable,
+          costMicro: 0,
+          at: now,
+          detail: {
+            url: stored.url,
+            reeval: true,
+            version: RELEVANCE_VERSION,
+            youtubeRepair: "failed",
+          },
+        });
+        await upsertPost({
+          ...stored,
+          relevanceStatus: "needs_retry",
+          relevanceReason: repaired.unrepairable,
+          isRelevant: false,
+          relevanceCheckedAt: now,
+          relevanceVersion: RELEVANCE_VERSION,
+        });
+        processed += 1;
+        continue;
+      }
+      const post = repaired.post;
       const verdict = await classify([post.title, post.caption, post.description, post.transcript].filter(Boolean).join("\n"), {
         platform: post.platform,
         author: post.authorUsername,
@@ -358,7 +429,6 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
           ? undefined
           : async () => fetchTranscript(post.platformContentId, post.url, post.platform),
       });
-      const now = new Date().toISOString();
       for (const event of verdict.events) {
         await record({
           id: eventId(),
@@ -375,7 +445,7 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
             classifierStage: event.stage,
             transcriptUsed: verdict.transcriptUsed,
             reeval: true,
-            version: RELEVANCE_V2_VERSION,
+            version: RELEVANCE_VERSION,
           },
         });
       }
@@ -392,7 +462,8 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
           isRelevant: false,
           relevanceScore: verdict.confidence,
           relevanceModel: verdict.model || post.relevanceModel,
-          relevanceCheckedAt: relevanceCheckedStamp(now),
+          relevanceCheckedAt: now,
+          relevanceVersion: RELEVANCE_VERSION,
         });
         processed += 1;
         continue;
@@ -410,7 +481,8 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
         matchedEntities: verdict.matchedEntities,
         isRelevant: verdict.isRelevant,
         relevanceModel: verdict.model || post.relevanceModel,
-        relevanceCheckedAt: relevanceCheckedStamp(now),
+        relevanceCheckedAt: now,
+        relevanceVersion: RELEVANCE_VERSION,
       });
       processed += 1;
       const bucket = byPlatform[post.platform] || { kept: 0, official: 0, rejected: 0 };
@@ -429,7 +501,7 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
 
     return {
       task: "relevance-reeval" as const,
-      version: RELEVANCE_V2_VERSION,
+      version: RELEVANCE_VERSION,
       processed,
       remaining: posts.length - processed,
       kept,

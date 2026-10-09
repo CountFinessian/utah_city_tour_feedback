@@ -125,8 +125,8 @@ export const fileSocialRepository: SocialListeningRepository = {
     if (filter?.endDate) {
       res = res.filter((p) => (p.publishedAt || p.firstSeenAt) <= filter.endDate!);
     }
-    if (filter?.staleRelevanceBefore) {
-      res = res.filter((p) => postNeedsRelevanceRecheck(p, filter.staleRelevanceBefore));
+    if (filter?.relevanceVersionBelow != null) {
+      res = res.filter((p) => postNeedsRelevanceRecheck(p, filter.relevanceVersionBelow));
     }
     res.sort((a, b) => (b.publishedAt || b.firstSeenAt).localeCompare(a.publishedAt || a.firstSeenAt));
     if (filter?.limit) {

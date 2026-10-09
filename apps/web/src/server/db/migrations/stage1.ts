@@ -26,6 +26,7 @@ where id in (select id from ranked where rn > 1);
 alter table social_posts add column if not exists is_official_source boolean not null default false;
 alter table social_posts add column if not exists relevance_model text;
 alter table social_posts add column if not exists relevance_checked_at timestamptz;
+alter table social_posts add column if not exists relevance_version integer;
 alter table social_posts add column if not exists transcript_provider text;
 alter table social_posts add column if not exists transcript_fetched_at timestamptz;
 alter table social_posts add column if not exists monitoring_state text;
