@@ -27,41 +27,45 @@ const FEEDBACK_KIND_RANK: Record<PublicFeedbackKind, number> = {
   generic_sentiment: 3,
 };
 
-export function classifyPublicFeedback(comment: {
+export function classifyPublicFeedback(input: {
   text?: string;
   topic?: Topic | string;
   sentiment?: Sentiment | string;
 }): PublicFeedbackKind | null {
-  const text = (comment.text || "").toLowerCase();
-  const topic = comment.topic;
-  const sentiment = comment.sentiment;
+  const text = (input.text || "").toLowerCase();
+  const topic = input.topic;
 
-  const isWayfinding =
+  const wayfinding =
     topic === "wayfinding_and_access" ||
-    /\b(google maps?|apple maps?|waze|directions?|address|can'?t find|cannot find|does n'?t show up|where is|where are|parking|garage|lot)\b/i.test(
+    /google maps|\bmaps\b|\baddress\b|\bdirections?\b|\bparking\b|\bwhere is\b|\bwhere do\b|can't find|cant find|doesn't show up|doesnt show up|does not show up|\bgps\b|\bnavigation\b/.test(
       text
     );
-  if (isWayfinding) return "wayfinding_and_access";
+  if (wayfinding) return "wayfinding_and_access";
 
-  const isLake =
+  const environment =
     topic === "environment" ||
-    /\b(utah lake|the lake|algae|scum|shallow|smell|gross|disgusting|mosquitoes?|cleanup|clean up)\b/i.test(
-      text
-    );
-  if (isLake) return "environment";
+    /\blake\b|\balgae\b|\bshallow\b|\bsmell\b|\bscum\b|\bmosquito|\bwater\b/.test(text);
+  if (environment) return "environment";
 
-  const isBrandOperational =
+  const brandOperational =
     topic === "traffic_and_infrastructure" ||
-    /\b(traffic|gridlock|bottleneck|i-15|frontrunner|construction noise|access road)\b/i.test(
+    topic === "construction" ||
+    /\btraffic\b|\bbottleneck\b|\broads?\b|\bconstruction\b|\bclosed\b|\bhours\b|\bcancell?ed\b|\bstaff\b|\blisted as\b|\bwrong name\b|\bgreenline\b/.test(
       text
     );
-  if (isBrandOperational) return "brand_operational";
+  if (brandOperational) return "brand_operational";
 
-  if (sentiment === "negative" || sentiment === "positive") {
-    return "generic_sentiment";
-  }
-
+  if (input.sentiment === "negative") return "generic_sentiment";
   return null;
+}
+
+export function isHighSignalFeedback(input: {
+  text?: string;
+  topic?: Topic | string;
+  sentiment?: Sentiment | string;
+}): boolean {
+  const kind = classifyPublicFeedback(input);
+  return kind === "wayfinding_and_access" || kind === "environment" || kind === "brand_operational";
 }
 
 export function leadershipActionFor(kind: PublicFeedbackKind): string {
@@ -98,7 +102,7 @@ export function selectActionableFeedback<
     .sort((a, b) => {
       const byKind = FEEDBACK_KIND_RANK[a.feedbackKind] - FEEDBACK_KIND_RANK[b.feedbackKind];
       if (byKind !== 0) return byKind;
-      const aTime = Date.parse(comment.createdAt || "") || 0;
+      const aTime = Date.parse(a.createdAt || "") || 0;
       const bTime = Date.parse(b.createdAt || "") || 0;
       if (aTime !== bTime) return bTime - aTime;
       return (b.likeCount || 0) - (a.likeCount || 0);
@@ -115,6 +119,12 @@ export function selectActionableFeedback<
     selected.push(comment);
   }
   return selected;
+}
+
+function commentInstant(comment: Comment): Date {
+  const parsed = new Date(comment.createdAt || comment.firstSeenAt);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+  return new Date(comment.firstSeenAt);
 }
 
 const TOPIC_LABELS: Record<Topic, string> = {
@@ -188,50 +198,33 @@ export function calculateDeterministicSocialMetrics(params: {
   const engagementChange = calcChange(currentEngagement, prevEngagement);
   const uniqueCreatorsChange = calcChange(currentCreators, prevCreators);
 
-  // Post lookup map
-  const postMap = new Map<string, Post>();
-  for (const p of posts) postMap.set(p.id, p);
-
-  // Comments for current relevant posts or comments directly relevant to Utah City
-  const isCommentRelevant = (c: Comment): boolean => {
-    const parent = postMap.get(c.postId);
-    if (parent?.isRelevant) return true;
-    const lower = (c.text || "").toLowerCase();
-    return (
-      lower.includes("utah city") ||
-      lower.includes("vineyard") ||
-      lower.includes("greenline") ||
-      lower.includes("geneva steel") ||
-      lower.includes("utah lake") ||
-      lower.includes("fini pizza") ||
-      lower.includes("bella's market")
-    );
-  };
-
+  // Comments are windowed by comment time, including fresh replies on older relevant posts.
+  const relevantById = new Map(posts.filter((p) => postCommentsInDashboard(p)).map((p) => [p.id, p]));
   const currentComments = comments.filter((c) => {
-    const d = new Date(c.createdAt || c.firstSeenAt);
-    return d >= currentCutoff && d <= now && isCommentRelevant(c);
+    if (!relevantById.has(c.postId)) return false;
+    const at = commentInstant(c);
+    return at >= currentCutoff && at <= now;
   });
-
   const prevComments = comments.filter((c) => {
-    const d = new Date(c.createdAt || c.firstSeenAt);
-    return d >= previousCutoff && d < currentCutoff && isCommentRelevant(c);
+    if (!relevantById.has(c.postId)) return false;
+    const at = commentInstant(c);
+    return at >= previousCutoff && at < currentCutoff;
   });
-
   const commentsChange = calcChange(currentComments.length, prevComments.length);
+  const signalComments = currentComments.filter((comment) => isPublicOpinionComment(comment));
 
-  // Comment-weighted sentiment
+  // Comment-weighted sentiment ignores emoji, filler, mentions, and promos.
   let posComments = 0;
   let neuComments = 0;
   let negComments = 0;
 
-  for (const c of currentComments) {
+  for (const c of signalComments) {
     if (c.sentiment === "positive") posComments++;
     else if (c.sentiment === "negative") negComments++;
     else neuComments++;
   }
 
-  const totalAnalyzedComments = currentComments.length;
+  const totalAnalyzedComments = signalComments.length;
   const commentPositivePct = totalAnalyzedComments ? Number((posComments / totalAnalyzedComments).toFixed(2)) : 0;
   const commentNeutralPct = totalAnalyzedComments ? Number((neuComments / totalAnalyzedComments).toFixed(2)) : 0;
   const commentNegativePct = totalAnalyzedComments ? Number((negComments / totalAnalyzedComments).toFixed(2)) : 0;
@@ -283,7 +276,7 @@ export function calculateDeterministicSocialMetrics(params: {
   }
 
   // Also include topics from comments
-  for (const c of currentComments) {
+  for (const c of signalComments) {
     if (c.topic && topicCounts[c.topic] !== undefined) {
       topicCounts[c.topic]++;
     }
@@ -301,19 +294,9 @@ export function calculateDeterministicSocialMetrics(params: {
     .filter((t) => t.postCount > 0)
     .sort((a, b) => b.postCount - a.postCount);
 
-  // Representative comments selection with timestamp-stripped text
-  const positiveEv: CommentWithContext[] = [];
-  const neutralEv: CommentWithContext[] = [];
-  const negativeEv: CommentWithContext[] = [];
-
-  const seenAuthors = new Set<string>();
-  const sortedComments = [...currentComments].sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0));
-
-  for (const c of sortedComments) {
-    if (seenAuthors.has(c.authorUsername)) continue;
-    const parentPost = postMap.get(c.postId);
-
-    const enriched: CommentWithContext = {
+  const enrich = (c: Comment): CommentWithContext => {
+    const parentPost = relevantById.get(c.postId);
+    return {
       ...c,
       text: stripTranscriptTimestamps(sanitizeTranscript(c.text)),
       postUrl: parentPost?.url,
@@ -321,6 +304,19 @@ export function calculateDeterministicSocialMetrics(params: {
         ? stripTranscriptTimestamps(parentPost.caption).slice(0, 80)
         : undefined,
     };
+  };
+
+  // Representative comments selection with timestamp-stripped text
+  const positiveEv: CommentWithContext[] = [];
+  const neutralEv: CommentWithContext[] = [];
+  const negativeEv: CommentWithContext[] = [];
+
+  const seenAuthors = new Set<string>();
+  const sortedComments = [...signalComments].sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0));
+
+  for (const c of sortedComments) {
+    if (seenAuthors.has(c.authorUsername)) continue;
+    const enriched = enrich(c);
 
     if (c.sentiment === "positive" && positiveEv.length < 3) {
       positiveEv.push(enriched);
@@ -333,6 +329,14 @@ export function calculateDeterministicSocialMetrics(params: {
       seenAuthors.add(c.authorUsername);
     }
   }
+
+  // Issue type, then recency, then likes. Generic sentiment cannot fill every slot.
+  const actionableFeedback: CommentWithContext[] = selectActionableFeedback(signalComments.map(enrich)).map(
+    (item) => ({
+      ...item,
+      leadershipAction: leadershipActionFor(item.feedbackKind),
+    })
+  );
 
   // Generate Narrative Intelligence (clustering, momentum, trajectories, actionable feedback)
   const narrativeIntel = buildNarrativeIntelligence({
@@ -399,7 +403,7 @@ export function calculateDeterministicSocialMetrics(params: {
       neutral: neutralEv,
       negative: negativeEv,
     },
-    actionableFeedback: narrativeIntel.actionableFeedback,
+    actionableFeedback,
     narratives: narrativeIntel.narratives,
     narrativeTrajectories: narrativeIntel.trajectories,
     narrativeConfidence,

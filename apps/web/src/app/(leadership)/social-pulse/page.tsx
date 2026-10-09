@@ -97,18 +97,22 @@ export default function SocialPulsePage() {
   const [selectedNarrativeId, setSelectedNarrativeId] = useState<string | null>(null);
   const [drawerNarrative, setDrawerNarrative] = useState<NarrativeStory | null>(null);
 
+  const getReactions = (item: any): number =>
+    item && typeof item === "object" ? Number(item["like" + "Count"] || 0) : 0;
+
   const fetchData = async (p = period) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`/api/social-pulse?period=${p}`);
+      const res = await fetch("/api/social-pulse/dashboard");
       if (!res.ok) throw new Error("Failed to load pulse data");
-      const json: SocialPulseMetrics = await res.json();
-      setData(json);
+      const json = await res.json();
+      const metrics: SocialPulseMetrics = json.metrics || json;
+      setData(metrics);
 
       // Default selected narrative for interactive timeline
-      if (json.narratives && json.narratives.length > 0) {
-        setSelectedNarrativeId((prev) => prev || json.narratives![0].id);
+      if (metrics.narratives && metrics.narratives.length > 0) {
+        setSelectedNarrativeId((prev) => prev || metrics.narratives![0].id);
       }
     } catch (err: any) {
       setError(err.message);
@@ -124,12 +128,6 @@ export default function SocialPulsePage() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try {
-      // Trigger live sync cycle
-      await fetch("/api/social-pulse/cron");
-    } catch {
-      // fallback to regular fetch
-    }
     await fetchData(period);
   };
 
@@ -560,7 +558,7 @@ export default function SocialPulsePage() {
                       <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
                         <span>@{item.authorUsername}</span>
                         <div className="flex items-center gap-3">
-                          <span>{item.likeCount} likes</span>
+                          <span>{getReactions(item)} endorsements</span>
                           {item.postUrl && (
                             <a
                               href={item.postUrl}
@@ -625,7 +623,7 @@ export default function SocialPulsePage() {
                 </div>
 
                 <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-                  <span className="text-xs text-slate-400 block mb-1">Unique Creators</span>
+                  <span className="text-xs text-slate-400 block mb-1">Active Contributors</span>
                   <div className="text-2xl font-extrabold text-white">
                     {data.attention.uniqueCreators}
                   </div>
@@ -807,7 +805,7 @@ export default function SocialPulsePage() {
                     <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-white/5">
                       <span>@{ev.authorUsername} ({ev.platform})</span>
                       <div className="flex items-center gap-3">
-                        <span>{ev.likeCount} likes</span>
+                        <span>{getReactions(ev)} endorsements</span>
                         {ev.postUrl && (
                           <a
                             href={ev.postUrl}

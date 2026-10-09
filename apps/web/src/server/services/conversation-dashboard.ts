@@ -1,16 +1,18 @@
 import type { CommentFilter, ConversationDashboard } from "@/domain/social-listening/conversation-dashboard";
 import { buildConversationDashboard, selectDashboardComments } from "@/domain/social-listening/conversation-dashboard";
-import type { Comment, Post } from "@/domain/social-listening/types";
+import type { Comment, Post, SocialPulseMetrics } from "@/domain/social-listening/types";
 import type { ConversationNarrative, NarrativeCacheStore, NarrativeWriter } from "@/server/intelligence/conversation-narrative";
 import { resolveConversationNarrative } from "@/server/intelligence/conversation-narrative";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
 import { narrativeCacheStore } from "@/server/services/dashboard-narrative-cache";
+import { calculateDeterministicSocialMetrics } from "@/server/analytics/social-metrics";
 
 const POST_LIMIT = 20000;
 const COMMENT_LIMIT = 100000;
 
 export interface ConversationDashboardResponse extends ConversationDashboard {
   narrative: ConversationNarrative;
+  metrics?: SocialPulseMetrics;
 }
 
 async function loadCorpus(overrides?: {
@@ -35,6 +37,7 @@ export async function loadConversationDashboard(options?: {
   listComments?: () => Promise<Comment[]>;
   cache?: NarrativeCacheStore;
   generate?: NarrativeWriter | null;
+  periodDays?: number;
 }): Promise<ConversationDashboardResponse> {
   const now = options?.now || new Date();
   const { posts, comments } = await loadCorpus(options);
@@ -44,7 +47,13 @@ export async function loadConversationDashboard(options?: {
     cache: options?.cache || narrativeCacheStore(),
     generate: options?.generate,
   });
-  return { ...dashboard, claims: narrative.claims, narrative };
+  const metrics = calculateDeterministicSocialMetrics({
+    posts,
+    comments,
+    periodDays: options?.periodDays || 30,
+    now,
+  });
+  return { ...dashboard, claims: narrative.claims, narrative, metrics };
 }
 
 export async function loadDashboardComments(filter: CommentFilter, options?: {

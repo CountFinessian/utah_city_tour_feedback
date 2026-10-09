@@ -1,5 +1,6 @@
 import { isOfficialStoredComment, isPublicOpinionComment } from "@/domain/social-listening/comment-signal";
 import { isOfficialAuthor, postCommentsInDashboard, postShownAsContent, SEEDED_OFFICIAL_ACCOUNTS } from "@/domain/social-listening/relevance";
+import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type { Comment, Post, Sentiment, Topic } from "@/domain/social-listening/types";
 
 /** First month of the public conversation. The announcement landed August 29, 2023. */
@@ -277,7 +278,7 @@ function topTopic(counts: Map<Topic, number>, total: number): { topic: Topic; la
 }
 
 function quoteFrom(transcript: string): string {
-  const clean = transcript.replace(/\s+/g, " ").trim();
+  const clean = stripTranscriptTimestamps(transcript).replace(/\s+/g, " ").trim();
   const sentence = clean.split(/(?<=[.!?])\s+/)[0] || clean;
   if (sentence.length <= 220) return sentence;
   return `${sentence.slice(0, 217).trim()}…`;
