@@ -10,6 +10,7 @@ import {
   RELEVANCE_VERSION,
   rulesPreGate,
   SEEDED_OFFICIAL_ACCOUNTS,
+  storedPostUrlRejection,
 } from "@/domain/social-listening/relevance";
 import { classifyRelevance } from "@/server/intelligence/relevance-classifier";
 import { calculateDeterministicSocialMetrics } from "@/server/analytics/social-metrics";
@@ -282,9 +283,9 @@ describe("relevance false positives", () => {
   });
 
   it("bumps the relevance version and hides rejected comments without deleting them", () => {
-    expect(RELEVANCE_VERSION).toBe(4);
-    expect(postNeedsRelevanceRecheck({ relevanceVersion: 3 })).toBe(true);
-    expect(postNeedsRelevanceRecheck({ relevanceVersion: 4 })).toBe(false);
+    expect(RELEVANCE_VERSION).toBe(5);
+    expect(postNeedsRelevanceRecheck({ relevanceVersion: 4 })).toBe(true);
+    expect(postNeedsRelevanceRecheck({ relevanceVersion: 5 })).toBe(false);
 
     const kept = post({ id: "kept", caption: "Utah City downtown", relevanceVersion: 4 });
     const rejected = post({
@@ -307,5 +308,55 @@ describe("relevance false positives", () => {
     expect(metrics.attention.commentsCount).toBe(1);
     expect(rows).toHaveLength(2);
     expect(rows[1]?.id).toBe("c-fp");
+  });
+
+  it("rejects stored rows whose URL host does not match the platform", () => {
+    const junk = [
+      "https://utahcity.com/live",
+      "https://utah.city/",
+      "https://www.ksl.com/article/utah-city",
+      "https://www.apartments.com/vineyard-ut/",
+      "https://apps.apple.com/us/app/utah-city/id1",
+      "https://www.instagram.com/popular/what-is-utah-city-utah/",
+    ];
+    for (const url of junk) {
+      expect(storedPostUrlRejection({ platform: "facebook", url, publishedAt: "2024-01-01T00:00:00.000Z" })).toMatch(
+        /does not match platform facebook/
+      );
+    }
+    expect(
+      storedPostUrlRejection({
+        platform: "instagram",
+        url: "https://www.instagram.com/popular/utahcity/",
+        publishedAt: "2024-01-01T00:00:00.000Z",
+      })
+    ).toMatch(/\/popular\//);
+    expect(
+      storedPostUrlRejection({
+        platform: "facebook",
+        url: "https://www.facebook.com/utahcityutah/posts/1",
+      })
+    ).toMatch(/no publish date/);
+    expect(
+      storedPostUrlRejection({
+        platform: "facebook",
+        url: "https://www.facebook.com/utahcityutah/posts/9",
+        isOfficialSource: true,
+      })
+    ).toBeNull();
+    expect(
+      storedPostUrlRejection({
+        platform: "facebook",
+        url: "https://www.facebook.com/utahcityutah/posts/222",
+        publishedAt: "2024-06-01T00:00:00.000Z",
+      })
+    ).toBeNull();
+    expect(
+      storedPostUrlRejection({
+        platform: "tiktok",
+        url: "https://www.tiktok.com/@user/video/1",
+        publishedAt: "2024-06-01T00:00:00.000Z",
+      })
+    ).toBeNull();
   });
 });

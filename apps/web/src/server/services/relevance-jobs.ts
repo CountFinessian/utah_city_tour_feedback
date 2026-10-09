@@ -4,6 +4,7 @@ import {
   isPlaceholderYouTubeAuthor,
   isVideoPost,
   postNeedsRelevanceRecheck,
+  storedPostUrlRejection,
   youtubeRepairContentId,
   youtubeRowNeedsRepair,
   youtubeVideoIdFromUrl,
@@ -385,6 +386,36 @@ export async function runRelevanceReeval(options: JobOptions = {}): Promise<Rele
       }
       const stored = posts[index];
       const now = new Date().toISOString();
+      const urlReject = storedPostUrlRejection(stored);
+      if (urlReject) {
+        console.warn(`[relevance] ${urlReject} ${stored.url || stored.id}`);
+        await record({
+          id: eventId(),
+          postId: stored.id,
+          platform: stored.platform,
+          platformContentId: stored.platformContentId,
+          stage: "relevance",
+          decision: "rejected_offtopic",
+          reason: urlReject,
+          costMicro: 0,
+          at: now,
+          detail: { url: stored.url, reeval: true, version: RELEVANCE_VERSION, urlReject: true },
+        });
+        await upsertPost({
+          ...stored,
+          relevanceStatus: "rejected_offtopic",
+          relevanceReason: urlReject,
+          isRelevant: false,
+          relevanceCheckedAt: now,
+          relevanceVersion: RELEVANCE_VERSION,
+        });
+        processed += 1;
+        rejected += 1;
+        const bucket = byPlatform[stored.platform] || { kept: 0, official: 0, rejected: 0 };
+        bucket.rejected += 1;
+        byPlatform[stored.platform] = bucket;
+        continue;
+      }
       const repaired = await repairYouTubeRow(stored, fetchDetail);
       if (repaired.unrepairable) {
         await record({

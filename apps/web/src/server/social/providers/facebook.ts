@@ -2,6 +2,7 @@ import type { CommentQuery, ProviderQuery, SearchPage, SocialProvider, TregComme
 import { tregHttp } from "./http";
 import { commentItem, commentPage, countOf, emptyComments, publishedFrom, searchItem, searchPage } from "./map";
 import { parseAndNormalizePostIdentifier } from "@/domain/social-listening/deduplication";
+import { isFacebookContentUrl } from "@/domain/social-listening/relevance";
 import { asRecord, payloadOf, recencyOf, recordsOf, str } from "./util";
 
 export const FACEBOOK_COMMENT_ORDERING = "relevance" as const;
@@ -17,16 +18,7 @@ const REPLIES = "scrapecreators.x.v1-facebook-post-comment-replies";
 
 const TBS: Record<string, string> = { hour: "qdr:h", day: "qdr:d", week: "qdr:w", month: "qdr:m", year: "qdr:y" };
 
-/** facebook.com and fb.watch, including m. and www. hosts. Other sites are not posts. */
-export function isFacebookContentUrl(url: string | undefined): boolean {
-  if (!url) return false;
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host === "facebook.com" || host.endsWith(".facebook.com") || host === "fb.watch" || host.endsWith(".fb.watch");
-  } catch {
-    return false;
-  }
-}
+export { isFacebookContentUrl } from "@/domain/social-listening/relevance";
 
 /** Keyword search misses: a non-Facebook URL, or a Facebook URL with no publish date. */
 export function facebookSearchMissReason(item: { url?: string; publishedAt?: string }): string | null {

@@ -7,7 +7,8 @@ import {
   youtubeRepairContentId,
   youtubeRowNeedsRepair,
 } from "@/domain/social-listening/relevance";
-import { Post, SocialPipelineEvent } from "@/domain/social-listening/types";
+import { Comment, Post, SocialPipelineEvent } from "@/domain/social-listening/types";
+import { calculateDeterministicSocialMetrics } from "@/server/analytics/social-metrics";
 import { classifyRelevance, relevanceGeminiBudgetMicro } from "@/server/intelligence/relevance-classifier";
 import { responseKeyStructure, runLookupDebug, runReferenceEval, runRelevanceReeval } from "@/server/services/relevance-jobs";
 import { REFERENCE_EVAL_POSTS } from "@/server/social/reference-posts";
@@ -206,6 +207,94 @@ describe("production relevance jobs", () => {
     });
     expect(second.processed).toBe(0);
     expect(second.remaining).toBe(0);
+  });
+
+  it("rejects stored web pages on reeval and leaves their comments in place", async () => {
+    const stored = [
+      post({
+        id: "page",
+        platform: "facebook",
+        url: "https://utahcity.com/live",
+        caption: "Utah City",
+        publishedAt: "2024-01-01T00:00:00.000Z",
+        relevanceVersion: 4,
+        commentCount: 3,
+      }),
+      post({
+        id: "popular",
+        platform: "instagram",
+        url: "https://www.instagram.com/popular/what-is-utah-city-utah/",
+        caption: "What Is Utah City Utah",
+        relevanceVersion: 4,
+      }),
+      post({
+        id: "undated",
+        platform: "facebook",
+        url: "https://www.facebook.com/some/posts/1",
+        caption: "Utah City downtown",
+        publishedAt: undefined,
+        relevanceVersion: 4,
+      }),
+      post({
+        id: "real",
+        caption: "Utah City is finally opening its new downtown!",
+        relevanceVersion: 4,
+      }),
+    ];
+    let classifications = 0;
+    const upserts: Post[] = [];
+    const result = await runRelevanceReeval({
+      classify: async (text, metadata) => {
+        classifications += 1;
+        return classifyRelevance(text, metadata);
+      },
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: async (filter) => stored.filter((item) => postNeedsRelevanceRecheck(item, filter.relevanceVersionBelow)),
+      upsertPost: async (item) => {
+        upserts.push(item);
+        return item;
+      },
+      recordPipelineEvent: async () => {},
+      fetchTranscript: async () => null,
+    });
+
+    expect(classifications).toBe(1);
+    expect(result.version).toBe(5);
+    expect(result.processed).toBe(4);
+    expect(result.rejected).toBe(3);
+    expect(result.kept).toBe(1);
+    const rejected = upserts.filter((item) => item.id !== "real");
+    expect(rejected).toHaveLength(3);
+    expect(rejected.every((item) => item.relevanceStatus === "rejected_offtopic" && item.isRelevant === false)).toBe(true);
+    expect(rejected.every((item) => item.relevanceVersion === 5)).toBe(true);
+    expect(upserts.find((item) => item.id === "real")?.isRelevant).toBe(true);
+
+    const comments: Comment[] = [
+      {
+        id: "c-page",
+        canonicalId: "c-page",
+        postId: "page",
+        platform: "facebook",
+        platformCommentId: "c-page",
+        authorUsername: "fan",
+        text: "still stored",
+        createdAt: "2026-09-02T00:00:00.000Z",
+        firstSeenAt: "2026-09-02T00:00:00.000Z",
+        lastSeenAt: "2026-09-02T00:00:00.000Z",
+        likeCount: 0,
+        replyCount: 0,
+      },
+    ];
+    const metrics = calculateDeterministicSocialMetrics({
+      posts: upserts,
+      comments,
+      periodDays: 365,
+      now: new Date("2026-09-10T00:00:00Z"),
+    });
+    expect(metrics.attention.commentsCount).toBe(0);
+    expect(comments).toHaveLength(1);
   });
 
   it("leaves stale posts in place when the deadline has already passed", async () => {
