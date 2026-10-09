@@ -653,6 +653,38 @@ describe("first-crawl comment harvest", () => {
     expect(store.comments.filter((comment) => comment.parentCommentId)).toHaveLength(2);
   });
 
+  it("probes Instagram replies when the provider reports reply_count 0", async () => {
+    const store = memory();
+    store.posts.push(post({ id: "ig0", platform: "instagram", platformContentId: "ig0", commentCount: 1 }));
+    const calls: string[] = [];
+    await runHarvestFirstCrawl({
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: (filter) => store.listPosts(filter),
+      upsertPost: (item) => store.upsertPost(item),
+      listComments: (postId) => store.listComments(postId),
+      bulkUpsertComments: (batch) => store.bulkUpsertComments(batch),
+      fetchPage: async (query) => {
+        calls.push(`${query.phase}:${query.replyParentId || "-"}`);
+        if (query.phase !== "replies") {
+          return {
+            phase: "comments",
+            done: true,
+            comments: [item({ commentId: "ig-zero", text: "Utah City instagram parent", replyCount: 0 })],
+          };
+        }
+        return {
+          phase: "replies",
+          done: true,
+          comments: [item({ commentId: "ig-zero-r", text: "Hidden instagram reply" })],
+        };
+      },
+    });
+    expect(calls).toEqual(["comments:-", "replies:ig-zero"]);
+    expect(store.comments.filter((comment) => comment.parentCommentId === "ig-zero")).toHaveLength(1);
+  });
+
   it("reopens short reply parents on a completed post and does not page top-level comments again", async () => {
     const store = memory();
     store.posts.push(

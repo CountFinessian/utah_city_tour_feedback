@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: relevance, first-crawl harvest, or the TikTok acceptance crawl
+        description: relevance, first-crawl, Instagram reply backfill, or legacy reclassify
         type: choice
         required: true
         default: relevance-eval
@@ -15,6 +15,8 @@ on:
           - lookup-debug
           - harvest-first-crawl
           - acceptance-test
+          - ig-replies-backfill
+          - reclassify-legacy
 
 jobs:
   run-task:

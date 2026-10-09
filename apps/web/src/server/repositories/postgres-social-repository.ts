@@ -10,7 +10,7 @@ import {
   SocialPipelineEvent,
 } from "@/domain/social-listening/types";
 import { SEEDED_OFFICIAL_ACCOUNTS, withSeededExternalIds } from "@/domain/social-listening/relevance";
-import { SocialListenerState, SocialListeningRepository } from "./social-repository";
+import { SocialListenerState, SocialListeningRepository, type IgReplyBackfillCursor } from "./social-repository";
 import { fileSocialRepository } from "./file-social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 import { stage1Statements } from "@/server/db/migrations/stage1";
@@ -172,6 +172,7 @@ async function ensureSocialSchema(): Promise<void> {
           last_digest_at timestamptz
         );
       `;
+      await sql`alter table social_listener_state add column if not exists cursors jsonb not null default '{}'::jsonb`;
 
       // Seed queries if table empty
       const countRes = await sql`select count(*) as cnt from social_search_queries`;
@@ -422,6 +423,13 @@ export const postgresSocialRepository: SocialListeningRepository = {
       where (${filter?.postId || null}::text is null or post_id = ${filter?.postId || null}::text)
         and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
         and (${filter?.topic || null}::text is null or topic = ${filter?.topic || null}::text)
+        and (
+          ${filter?.classificationVersionBelow ?? null}::int is null
+          or (
+            dropped = false
+            and coalesce(classification_version, 0) < ${filter?.classificationVersionBelow ?? null}::int
+          )
+        )
       order by created_at desc
       limit ${filter?.limit || 5000}
     `;
@@ -494,10 +502,11 @@ export const postgresSocialRepository: SocialListeningRepository = {
     const sql = db();
     await sql`
       insert into social_metric_snapshots (
-        id, post_id, captured_at, view_count, like_count, comment_count, share_count
+        id, post_id, captured_at, view_count, like_count, comment_count, share_count, source
       ) values (
         ${snapshot.id}, ${snapshot.postId}, ${snapshot.capturedAt},
-        ${snapshot.viewCount}, ${snapshot.likeCount}, ${snapshot.commentCount}, ${snapshot.shareCount}
+        ${snapshot.viewCount}, ${snapshot.likeCount}, ${snapshot.commentCount}, ${snapshot.shareCount},
+        ${snapshot.source || null}
       )
       on conflict (id) do nothing
     `;
@@ -520,6 +529,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
       likeCount: Number(r.like_count),
       commentCount: Number(r.comment_count),
       shareCount: Number(r.share_count),
+      source: r.source || undefined,
     }));
   },
 
@@ -611,21 +621,60 @@ export const postgresSocialRepository: SocialListeningRepository = {
   async getListenerState(): Promise<SocialListenerState> {
     await ensureSocialSchema();
     const sql = db();
-    const rows = await sql`select last_digest_at from social_listener_state where id = 'default'`;
-    const raw = rows[0]?.last_digest_at;
-    return { lastDigestAt: raw ? new Date(raw).toISOString() : undefined };
+    const rows = await sql`select last_digest_at, cursors from social_listener_state where id = 'default'`;
+    const row = rows[0];
+    return {
+      lastDigestAt: row?.last_digest_at ? new Date(row.last_digest_at).toISOString() : undefined,
+      cursors: parseListenerCursors(row?.cursors),
+    };
   },
 
   async saveListenerState(state: SocialListenerState): Promise<void> {
     await ensureSocialSchema();
+    const current = await this.getListenerState();
+    const cursors = {
+      ...(current.cursors || {}),
+      ...(state.cursors || {}),
+    };
     const sql = db();
     await sql`
-      insert into social_listener_state (id, last_digest_at)
-      values ('default', ${state.lastDigestAt || null})
-      on conflict (id) do update set last_digest_at = excluded.last_digest_at
+      insert into social_listener_state (id, last_digest_at, cursors)
+      values (
+        'default',
+        ${state.lastDigestAt ?? current.lastDigestAt ?? null},
+        ${JSON.stringify(cursors)}
+      )
+      on conflict (id) do update set
+        last_digest_at = excluded.last_digest_at,
+        cursors = excluded.cursors
     `;
   },
 };
+
+function parseListenerCursors(value: unknown): SocialListenerState["cursors"] {
+  try {
+    if (!value) return undefined;
+    const raw = typeof value === "string" ? JSON.parse(value) : value;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const record = raw as Record<string, unknown>;
+    const backfillRaw = record.igReplyBackfill;
+    let igReplyBackfill: IgReplyBackfillCursor | undefined;
+    if (backfillRaw && typeof backfillRaw === "object" && !Array.isArray(backfillRaw)) {
+      const item = backfillRaw as Record<string, unknown>;
+      igReplyBackfill = {
+        donePostIds: Array.isArray(item.donePostIds) ? item.donePostIds.filter((id): id is string => typeof id === "string") : [],
+        postId: typeof item.postId === "string" ? item.postId : undefined,
+        commentIndex: Number(item.commentIndex) || 0,
+      };
+    }
+    return {
+      lastMonitorAt: typeof record.lastMonitorAt === "string" ? record.lastMonitorAt : undefined,
+      igReplyBackfill,
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 function mapQueryRow(r: any): SearchQuery {
   return {
