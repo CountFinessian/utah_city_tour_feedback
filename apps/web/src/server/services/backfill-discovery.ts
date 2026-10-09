@@ -10,12 +10,17 @@ import {
   backfillQueryPlan,
   backfillSearchText,
   backfillWindowCounts,
+  emptyBackfillRotation,
   historicalMonitorFields,
+  hydrateWindowStats,
   mergeBackfillCursors,
+  nextBackfillQuery,
   predatesCutoff,
   quarterlyWindows,
-  shouldSkipForLookalikes,
+  shouldAbandonWindow,
+  skipCurrentWindow,
   type BackfillQuerySpec,
+  type BackfillRotation,
   type HistoricalBackfillQueryCursor,
   type QuarterWindow,
 } from "@/domain/social-listening/backfill";
@@ -142,7 +147,8 @@ export async function runBackfillDiscovery(deps: BackfillDeps = {}): Promise<Bac
 
   const balanceUsd = await readBalance();
   const listener = await getListenerState();
-  const queries = mergeBackfillCursors(listener.cursors?.historicalBackfill?.queries, plan);
+  const queries = mergeBackfillCursors(listener.cursors?.historicalBackfill?.queries, plan).map((query) => hydrateWindowStats(query));
+  let rotation: BackfillRotation = listener.cursors?.historicalBackfill?.rotation || emptyBackfillRotation();
   const specById = new Map(plan.map((spec) => [spec.id, spec]));
   const calls: BackfillSpendCall[] = [];
   const rejectedByReason: Record<string, number> = {};
@@ -183,7 +189,7 @@ export async function runBackfillDiscovery(deps: BackfillDeps = {}): Promise<Bac
       ...current,
       cursors: {
         ...(current.cursors || {}),
-        historicalBackfill: { queries },
+        historicalBackfill: { queries, rotation },
       },
     });
   };
@@ -206,8 +212,14 @@ export async function runBackfillDiscovery(deps: BackfillDeps = {}): Promise<Bac
     return null;
   };
 
+  for (let index = 0; index < queries.length; index += 1) {
+    if (!queries[index].done && shouldAbandonWindow(queries[index])) {
+      queries[index] = skipCurrentWindow(queries[index], windows.length);
+    }
+  }
   await persist();
 
+  const usedThisRun = new Set<string>();
   while (searchUnits < maxSearchUnits) {
     const blocked = limitHit();
     if (blocked) {
@@ -218,11 +230,16 @@ export async function runBackfillDiscovery(deps: BackfillDeps = {}): Promise<Bac
       stopped = queries.every((query) => query.done) ? "done" : "deadline";
       break;
     }
-    const cursor = queries.find((query) => !query.done);
-    if (!cursor) {
-      stopped = "done";
+    const choice = nextBackfillQuery(queries, rotation, usedThisRun);
+    if (!choice) {
+      stopped = queries.every((query) => query.done) ? "done" : "deadline";
       break;
     }
+    rotation = choice.rotation;
+    const picked = queries.find((query) => query.id === choice.cursor.id) || choice.cursor;
+    const cursorIndex = queries.findIndex((query) => query.id === picked.id);
+    const cursor = cursorIndex >= 0 ? queries[cursorIndex] : picked;
+    usedThisRun.add(cursor.id);
     const spec = specById.get(cursor.id) || specFromCursor(cursor);
     const dateWindow = cursor.mode === "dated" ? windows[cursor.windowIndex] : undefined;
     if (cursor.mode === "dated" && !dateWindow) {
@@ -288,10 +305,12 @@ export async function runBackfillDiscovery(deps: BackfillDeps = {}): Promise<Bac
       }
       candidates += 1;
       cursor.candidates += 1;
+      cursor.windowCandidates = (cursor.windowCandidates || 0) + 1;
       geminiMicro += outcome.costMicro;
       if (KEPT.has(outcome.decision)) {
         kept += 1;
         cursor.kept += 1;
+        cursor.windowKept = (cursor.windowKept || 0) + 1;
       } else {
         bump(rejectedByReason, outcome.decision);
         bump(cursor.rejected, outcome.decision);
@@ -309,17 +328,16 @@ export async function runBackfillDiscovery(deps: BackfillDeps = {}): Promise<Bac
       break;
     }
 
-    const advanced = advanceAfterPage(
-      cursor,
-      { nextCursor: page.nextCursor, done: page.done, publishedAts: page.items.map((item) => item.publishedAt) },
-      { windowCount: windows.length, windowSince: dateWindow?.since }
-    );
+    cursor.windowPages = (cursor.windowPages || 0) + 1;
+    const advanced = shouldAbandonWindow(cursor)
+      ? skipCurrentWindow(cursor, windows.length)
+      : advanceAfterPage(
+          cursor,
+          { nextCursor: page.nextCursor, done: page.done, publishedAts: page.items.map((item) => item.publishedAt) },
+          { windowCount: windows.length, windowSince: dateWindow?.since }
+        );
     Object.assign(cursor, advanced);
-    if (shouldSkipForLookalikes(cursor)) {
-      cursor.skipped = true;
-      cursor.done = true;
-      cursor.cursor = undefined;
-    }
+    if (cursorIndex >= 0) queries[cursorIndex] = cursor;
     await persist();
     if (limitHit()) {
       stopped = limitHit() || stopped;
