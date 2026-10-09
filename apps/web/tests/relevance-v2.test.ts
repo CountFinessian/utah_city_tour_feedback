@@ -249,6 +249,37 @@ describe("relevance false positives", () => {
     expect(hasProtectedUtahCitySignal("What Is Utah City Utah")).toBe(false);
     expect(hasProtectedUtahCitySignal("best Utah city to live in")).toBe(false);
     expect(hasProtectedUtahCitySignal("Utah City is finally opening its new downtown!")).toBe(true);
+
+    const idiom = await classifyRelevance("What is the best Utah city to live in this year?", {
+      platform: "youtube",
+      url: "https://www.youtube.com/watch?v=go-3aKQUpiU",
+    });
+    expect(idiom.decision).toBe("rejected_lookalike");
+    expect(idiom.isRelevant).toBe(false);
+  });
+
+  it("keeps Fini venues, @Utah City, UT City, and contextual lowercase Utah city", async () => {
+    const pizza = await classifyRelevance("Fini Pizza just opened a brand new location in Vineyard, Utah");
+    expect(pizza.isRelevant).toBe(true);
+
+    const mention = await classifyRelevance("Have you tried @Fini Pizza in Vineyard UT yet??");
+    expect(mention.isRelevant).toBe(true);
+
+    const handles = await classifyRelevance("New pies at @finipizza and coffee from @fini_cafe");
+    expect(handles.isRelevant).toBe(true);
+
+    const afternoon = await classifyRelevance("Spend the afternoon @Utah City grab a coffee… at Fini Pizza");
+    expect(afternoon.isRelevant).toBe(true);
+
+    const shaping = await classifyRelevance("Utah city is really shaping up to be such a cute place!!");
+    expect(shaping.isRelevant).toBe(true);
+    expect(shaping.decision).not.toBe("rejected_lookalike");
+
+    const finis = await classifyRelevance("Fini's Cafe @ UT City");
+    expect(finis.isRelevant).toBe(true);
+
+    const finisSpelling = await classifyRelevance("Finis cafe on the Greenline is open");
+    expect(finisSpelling.isRelevant).toBe(true);
   });
 
   it("does not keep a #utahcity video whose transcript is not the development", async () => {
@@ -283,9 +314,9 @@ describe("relevance false positives", () => {
   });
 
   it("bumps the relevance version and hides rejected comments without deleting them", () => {
-    expect(RELEVANCE_VERSION).toBe(5);
-    expect(postNeedsRelevanceRecheck({ relevanceVersion: 4 })).toBe(true);
-    expect(postNeedsRelevanceRecheck({ relevanceVersion: 5 })).toBe(false);
+    expect(RELEVANCE_VERSION).toBe(6);
+    expect(postNeedsRelevanceRecheck({ relevanceVersion: 5 })).toBe(true);
+    expect(postNeedsRelevanceRecheck({ relevanceVersion: 6 })).toBe(false);
 
     const kept = post({ id: "kept", caption: "Utah City downtown", relevanceVersion: 4 });
     const rejected = post({

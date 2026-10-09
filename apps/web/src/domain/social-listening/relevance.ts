@@ -15,8 +15,11 @@ import type { Platform, RelevanceStatus } from "./types";
  * 5 — reeval rejects a stored row whose URL host does not match its platform,
  *     a Facebook row that is not facebook.com or fb.watch, an undated
  *     non-official Facebook row, or an instagram.com/popular page.
+ * 6 — Fini Pizza and Fini cafe spellings, @Utah City, and "UT City" name the
+ *     development. Lowercase "Utah city" with place context goes to the
+ *     classifier instead of a hard generic reject.
  */
-export const RELEVANCE_VERSION = 5;
+export const RELEVANCE_VERSION = 6;
 
 const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{6,}$/;
 
@@ -212,36 +215,66 @@ export function isOfficialAuthor(
  * Nearby places that can be the Vineyard development. Bare "Vineyard" is not one of them.
  * Martha's Vineyard is not one of them.
  */
+/** Fini Cafe / Fini's Cafe / Finis cafe / Fini Pizza, plus @finipizza and @fini_cafe. */
+const FINI_VENUE =
+  /\bfini(?:['’]?s)?\s*caf[eé]\b|\bfini(?:['’]?s)?\s*pizza\b|@fini_?pizza\b|@fini_?caf[eé]\b|(?:^|[^a-z0-9])fini(?:cafe|pizza)(?![a-z0-9])/i;
+
 const LOCAL_PLACE =
-  /\borem\b|\blindon\b|\butah\s+county\b|\bgeneva\b|\bgreenline\b|\bfini\s*caf[eé]\b|(^|[^a-z0-9])finicafe(?![a-z0-9])|\bbella'?s?\s+market\b|\bracquet\s+club\b|\bbuilt\s+for\s+becoming\b|\b120\s*bend\b|\b220\s*bend\b/i;
+  /\borem\b|\blindon\b|\butah\s+county\b|\bgeneva\b|\bgreenline\b|\bbella'?s?\s+market\b|\bracquet\s+club\b|\bbuilt\s+for\s+becoming\b|\b120\s*bend\b|\b220\s*bend\b/i;
 
 /** Tenants and places inside the development. "Vineyard" by itself is not a venue. */
 const KNOWN_VENUE =
-  /\bgreenline\b|\bfini\s*caf[eé]\b|(^|[^a-z0-9])finicafe(?![a-z0-9])|\bbella'?s?\s+market\b|\bracquet\s+club\b|\b120\s*bend\b|\b220\s*bend\b/i;
+  /\bgreenline\b|\bbella'?s?\s+market\b|\bracquet\s+club\b|\b120\s*bend\b|\b220\s*bend\b/i;
 
-const GENERIC_UTAH_CITY =
-  /\b(?:best|worst|every|each|any|another|this|a|one)\s+utah\s+city\b|\bwhat\s+is\s+utah\s+city(?:\s+utah)?\b|\butah\s+cities\b/i;
+/** Rankings, plurals, and "best Utah city to live in". Not a lowercase place mention. */
+const HARD_GENERIC_UTAH_CITY =
+  /\b(?:best|worst|every|each|any|another|this|a|one)\s+utah\s+city\b|\bwhat\s+is\s+utah\s+city(?:\s+utah)?\b|\butah\s+cities\b|\bbest\s+utah\s+city\s+to\s+live\b/i;
+
+/** Place cues that make lowercase "Utah city" the Vineyard development, not a generic city. */
+const UTAH_CITY_PLACE_CONTEXT =
+  /\bvineyard\b|\bshaping\s+up\b|\btrails?\b|\bgreenline\b|\bdowntown\b|\bdevelopment\b|\bpark\b/i;
 
 const UTAH_CITY_HASHTAG = /#utahcity(?:utah)?\b/i;
 const UTAH_CITY_DOMAIN = /utahcity\.com|\butah\.city\b/i;
 
 export function hasKnownVenue(text: string): boolean {
-  return KNOWN_VENUE.test(text || "");
+  const raw = text || "";
+  return KNOWN_VENUE.test(raw) || FINI_VENUE.test(raw);
 }
 
 export function hasLocalPlaceSignal(text: string): boolean {
-  return LOCAL_PLACE.test(text || "");
+  const raw = text || "";
+  return LOCAL_PLACE.test(raw) || FINI_VENUE.test(raw);
 }
 
-/** Case-sensitive "Utah City" left after generic frames and @mentions are removed. */
+/** "@Utah City" and title-case "Utah City" name the development. Generic frames do not. */
 export function hasProperUtahCityPlace(text: string): boolean {
   const stripped = (text || "")
-    .replace(/@+\s*Utah\s+City\b/g, " ")
-    .replace(/@utahcity(?:utah)?\b/gi, " ")
-    .replace(new RegExp(GENERIC_UTAH_CITY.source, "gi"), " ")
+    .replace(new RegExp(HARD_GENERIC_UTAH_CITY.source, "gi"), " ")
     .replace(/\bUTAH\s+CITY\b/g, " ")
     .replace(/\butah\s+city\b/gi, (match) => (match === "Utah City" ? match : " "));
   return /\bUtah City\b/.test(stripped);
+}
+
+/** "UT City" / "@UT City" is the development, including the short tag. */
+export function hasUtCity(text: string): boolean {
+  return /\bUT\s+City\b/.test(text || "") || /@\s*UT\s+City\b/.test(text || "");
+}
+
+export function isHardGenericUtahCity(text: string): boolean {
+  return HARD_GENERIC_UTAH_CITY.test(text || "");
+}
+
+/**
+ * Lowercase "Utah city" plus Vineyard, shaping up, trails, Greenline, a venue,
+ * downtown, park, or development. The classifier decides these. Hard generics stay out.
+ */
+export function hasContextualUtahCity(text: string): boolean {
+  const raw = text || "";
+  if (isHardGenericUtahCity(raw)) return false;
+  if (!/\b[Uu]tah\s+city\b/.test(raw)) return false;
+  const withoutParkCity = raw.replace(/\bpark\s+city\b/gi, " ");
+  return UTAH_CITY_PLACE_CONTEXT.test(withoutParkCity) || hasKnownVenue(raw);
 }
 
 export function hasUtahCityBrandMark(text: string): boolean {
@@ -254,38 +287,37 @@ export function hasUtahCityDomain(text: string): boolean {
 }
 
 /**
- * Generic "Utah city/cities", rankings, and all-caps "UTAH CITY".
- * A remaining proper-noun "Utah City", #utahcity, or utahcity.com/utah.city is not generic.
+ * Hard generics: "best Utah city to live in", "Utah cities", rankings, "what is Utah City",
+ * and all-caps "UTAH CITY" with no place cue. Lowercase "Utah city" plus place context is not generic.
  */
 export function isGenericUtahCityPhrasing(text: string): boolean {
   const raw = text || "";
-  if (hasProperUtahCityPlace(raw) || hasUtahCityBrandMark(raw)) return false;
-  if (GENERIC_UTAH_CITY.test(raw) || /\bUTAH\s+CITY\b/.test(raw)) return true;
+  if (hasUtCity(raw) || hasProperUtahCityPlace(raw) || hasUtahCityBrandMark(raw) || hasContextualUtahCity(raw)) {
+    return false;
+  }
+  if (isHardGenericUtahCity(raw) || /\bUTAH\s+CITY\b/.test(raw)) return true;
   return /\butah\s+city\b/i.test(raw) && !/\bUtah City\b/.test(raw);
+}
+
+function textNamesDevelopment(text: string): boolean {
+  return (
+    hasProperUtahCityPlace(text) ||
+    hasUtCity(text) ||
+    hasUtahCityDomain(text) ||
+    hasDevelopmentAnchor(text) ||
+    hasKnownVenue(text) ||
+    hasContextualUtahCity(text)
+  );
 }
 
 /**
  * The caption or transcript names the development or a tenant.
- * A hashtag or @mention does not count once a transcript shows some other subject.
+ * @Utah City and "UT City" count. A transcript that names something else does not.
  */
 export function hasNamedUtahCitySubject(caption: string, transcript?: string): boolean {
-  const written = caption || "";
   const spoken = (transcript || "").trim();
-  const writtenNames =
-    hasProperUtahCityPlace(written) ||
-    hasUtahCityDomain(written) ||
-    hasDevelopmentAnchor(written) ||
-    hasKnownVenue(written);
-  if (writtenNames) return true;
-  if (spoken) {
-    return (
-      hasProperUtahCityPlace(spoken) ||
-      hasUtahCityDomain(spoken) ||
-      hasDevelopmentAnchor(spoken) ||
-      hasKnownVenue(spoken)
-    );
-  }
-  return hasUtahCityBrandMark(written);
+  if (spoken) return textNamesDevelopment(spoken);
+  return textNamesDevelopment(caption || "") || hasUtahCityBrandMark(caption || "");
 }
 
 /** Enough words that a "no mention" reject is about the post, not a failed lookup. */
@@ -297,8 +329,7 @@ export function hasSubstantialText(text: string): boolean {
 }
 
 export function hasDevelopmentAnchor(text: string): boolean {
-  const raw = (text || "").replace(/@+\s*Utah\s+City\b/g, " ").replace(/@utahcity(?:utah)?\b/gi, " ");
-  return DEVELOPMENT_ANCHOR.test(raw);
+  return DEVELOPMENT_ANCHOR.test(text || "");
 }
 
 export function hasUtahCityPhrase(text: string): boolean {
@@ -306,12 +337,12 @@ export function hasUtahCityPhrase(text: string): boolean {
 }
 
 /**
- * Proper-noun development only: case-sensitive "Utah City", #utahcity, or utahcity.com/utah.city.
- * Generic "Utah city/cities", "every Utah City", and all-caps "UTAH CITY" do not qualify.
+ * Proper-noun development: "Utah City", @Utah City, "UT City", #utahcity, or utahcity.com/utah.city.
+ * "best Utah city to live in" and "Utah cities" do not qualify.
  * A hit blocks a pre-model lookalike reject. It does not force a keep after the classifier disagrees.
  */
 export function hasProtectedUtahCitySignal(text: string): boolean {
-  return hasProperUtahCityPlace(text) || hasUtahCityBrandMark(text);
+  return hasProperUtahCityPlace(text) || hasUtCity(text) || hasUtahCityBrandMark(text) || hasContextualUtahCity(text);
 }
 
 /** A hashtag (or the official @) with no other words is a candidate, not a relevant post. */
@@ -333,7 +364,9 @@ export function lookalikeHit(text: string): string | null {
   const raw = text || "";
   if (
     hasProperUtahCityPlace(raw) ||
+    hasUtCity(raw) ||
     hasUtahCityBrandMark(raw) ||
+    hasContextualUtahCity(raw) ||
     hasDevelopmentAnchor(raw) ||
     hasKnownVenue(raw) ||
     hasLocalPlaceSignal(raw)
@@ -379,7 +412,9 @@ export interface RulesGate {
 export function rulesPreGate(text: string): RulesGate {
   const raw = text || "";
   const entities: string[] = [];
-  if (hasProperUtahCityPlace(raw) || hasUtahCityBrandMark(raw)) entities.push("utah city");
+  if (hasProperUtahCityPlace(raw) || hasUtCity(raw) || hasUtahCityBrandMark(raw) || hasContextualUtahCity(raw)) {
+    entities.push("utah city");
+  }
   if (hasDevelopmentAnchor(raw)) entities.push("vineyard development");
   if (hasKnownVenue(raw) || hasLocalPlaceSignal(raw)) entities.push("local place");
 
@@ -430,10 +465,10 @@ export function rulesPreGate(text: string): RulesGate {
     };
   }
 
-  if (hasProtectedUtahCitySignal(raw)) {
+  if (hasProtectedUtahCitySignal(raw) || hasContextualUtahCity(raw)) {
     return {
       decision: null,
-      reason: "Utah City proper name or brand mark. Sending to the relevance model.",
+      reason: "Utah City name or place context. Sending to the relevance model.",
       matchedEntities: entities.length ? entities : ["utah city"],
       candidate: true,
     };
@@ -469,7 +504,14 @@ export function rulesPreGate(text: string): RulesGate {
 export function resolveBorderline(decision: RelevanceDecision, text: string): RelevanceDecision {
   if (decision !== "unsure") return decision;
   if (looksUnverifiableClaim(text)) return "rejected_unverifiable";
-  if (hasDevelopmentAnchor(text) || hasKnownVenue(text) || hasProperUtahCityPlace(text) || hasUtahCityDomain(text)) {
+  if (
+    hasDevelopmentAnchor(text) ||
+    hasKnownVenue(text) ||
+    hasProperUtahCityPlace(text) ||
+    hasUtCity(text) ||
+    hasContextualUtahCity(text) ||
+    hasUtahCityDomain(text)
+  ) {
     return "relevant";
   }
   if (lookalikeHit(text) || isGenericUtahCityPhrasing(text)) return "rejected_lookalike";
