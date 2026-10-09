@@ -66,6 +66,8 @@ Live listening uses the treg catalog (`utah-city-intelligence` team). Do not com
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `TREG_TOKEN` | Yes, for live listening | — | Treg API token. Without it, cron and admin cycles refuse to run. |
+| `TREG_ORG_ID` | No | Resolved from `GET /orgs` | Treg org id for the balance check (`GET /orgs/{id}/balance`). Set it to skip the org lookup. |
+| `TREG_ORG` | No | `utah-city-intelligence` | Team slug or name used to pick the org when the token sees more than one. |
 | `CRON_SECRET` | No | Open when unset | Bearer secret for `POST /api/social-pulse/cron`. Also accepted as `?key=`. `mode=monitor`, `ig-replies-backfill`, `reclassify-legacy`, `relevance-eval`, and `relevance-reeval` refuse to run when this secret is missing. The leadership refresh button does not send this secret. |
 | `SOCIAL_LISTENING_CYCLE_BUDGET_USD` | No | `0.5` | Per-cycle treg spend cap. Discovery and comment sync stop at this amount. |
 | `SOCIAL_LISTENING_MAX_QUERIES` | No | `8` | Searches per cycle, least-recently-run first, with a slot per platform and Utah City account feeds. |
