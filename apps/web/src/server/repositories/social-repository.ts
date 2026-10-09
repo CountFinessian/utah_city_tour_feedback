@@ -55,6 +55,8 @@ export interface SocialListeningRepository {
     /** relevant and official posts that have not finished a first comment crawl. */
     needsFirstCrawl?: boolean;
     limit?: number;
+    /** If true, fetch raw_provider_data JSONB. Defaults to false to minimize network transfer. */
+    includeRaw?: boolean;
   }): Promise<Post[]>;
   listOfficialAccounts(): Promise<OfficialAccountRef[]>;
   recordPipelineEvent(event: SocialPipelineEvent): Promise<void>;
@@ -77,7 +79,10 @@ export interface SocialListeningRepository {
     limit?: number;
     /** Comments still on an older classifier generation. Dropped rows stay out. */
     classificationVersionBelow?: number;
+    /** If true, fetch raw_provider_data JSONB. Defaults to false to minimize network transfer. */
+    includeRaw?: boolean;
   }): Promise<Comment[]>;
+  listCommentCanonicalIds(postId: string): Promise<string[]>;
   getCommentByCanonicalId(canonicalId: string): Promise<Comment | null>;
   bulkUpsertComments(comments: Comment[]): Promise<Comment[]>;
 

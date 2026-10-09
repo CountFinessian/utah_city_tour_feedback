@@ -676,10 +676,11 @@ export async function runIgRepliesBackfill(deps: MonitorDeps = {}): Promise<IgBa
         cursor.postId = post.id;
         cursor.commentIndex = 0;
       }
-    const comments = (await d.listComments(post.id))
+    const allPostComments = await d.listComments(post.id);
+    const comments = allPostComments
       .filter((comment) => !comment.parentCommentId && (comment.threadDepth || 0) === 0)
       .sort((a, b) => a.platformCommentId.localeCompare(b.platformCommentId));
-    const known = new Set((await d.listComments(post.id)).map((comment) => comment.canonicalId));
+    const known = new Set(allPostComments.map((comment) => comment.canonicalId));
     result.postsTouched += 1;
     for (let index = cursor.commentIndex; index < comments.length; index += 1) {
       if (Date.now() >= d.deadlineAt) {

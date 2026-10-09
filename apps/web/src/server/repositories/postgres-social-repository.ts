@@ -257,28 +257,65 @@ export const postgresSocialRepository: SocialListeningRepository = {
     const sql = db();
     const contentOnly = filter?.contentOnly === true;
     const commentHarvest = filter?.commentHarvest === true;
-    const rows = await sql`
-      select * from social_posts
-      where (${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean is null or is_relevant = ${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean)
-        and (${contentOnly}::boolean = false or relevance_status = 'relevant')
-        and (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
-        and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
-        and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
-        and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
-        and (
-          ${filter?.relevanceVersionBelow ?? null}::int is null
-          or coalesce(relevance_version, 0) < ${filter?.relevanceVersionBelow ?? null}::int
-        )
-        and (
-          ${filter?.needsFirstCrawl === true}::boolean = false
-          or (
-            relevance_status in ('relevant', 'official_comment_source')
-            and first_full_crawl_completed_at is null
-          )
-        )
-      order by coalesce(published_at, first_seen_at) desc
-      limit ${filter?.limit || 2000}
-    `;
+    const rows = filter?.includeRaw
+      ? await sql`
+          select * from social_posts
+          where (${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean is null or is_relevant = ${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean)
+            and (${contentOnly}::boolean = false or relevance_status = 'relevant')
+            and (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
+            and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
+            and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
+            and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
+            and (
+              ${filter?.relevanceVersionBelow ?? null}::int is null
+              or coalesce(relevance_version, 0) < ${filter?.relevanceVersionBelow ?? null}::int
+            )
+            and (
+              ${filter?.needsFirstCrawl === true}::boolean = false
+              or (
+                relevance_status in ('relevant', 'official_comment_source')
+                and first_full_crawl_completed_at is null
+              )
+            )
+          order by coalesce(published_at, first_seen_at) desc
+          limit ${filter?.limit || 2000}
+        `
+      : await sql`
+          select
+            id, canonical_id, platform, platform_content_id, url, author_id, author_username,
+            author_display_name, caption, title, description, transcript, published_at,
+            first_seen_at, last_seen_at, last_checked_at, view_count, like_count, comment_count,
+            share_count, last_comment_count, last_view_count, activity_state, relevance_score,
+            relevance_status, relevance_reason, matched_entities, is_relevant, sentiment,
+            sentiment_confidence, sentiment_reason, sentiment_target, primary_topic,
+            secondary_topics, discovery_query, discovery_group, is_official_source,
+            relevance_model, relevance_checked_at, transcript_provider, transcript_fetched_at,
+            monitoring_state, next_comment_check_at, last_comment_check_at,
+            last_platform_comment_count, last_new_comment_at, last_activity_at,
+            newest_comment_created_at, newest_comment_id, comment_harvest_cursor,
+            first_full_crawl_completed_at, stored_total, dropped_low_signal_count,
+            consecutive_unchanged_checks, relevance_version, harvest_claimed_at, harvest_claim_owner
+          from social_posts
+          where (${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean is null or is_relevant = ${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean)
+            and (${contentOnly}::boolean = false or relevance_status = 'relevant')
+            and (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
+            and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
+            and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
+            and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
+            and (
+              ${filter?.relevanceVersionBelow ?? null}::int is null
+              or coalesce(relevance_version, 0) < ${filter?.relevanceVersionBelow ?? null}::int
+            )
+            and (
+              ${filter?.needsFirstCrawl === true}::boolean = false
+              or (
+                relevance_status in ('relevant', 'official_comment_source')
+                and first_full_crawl_completed_at is null
+              )
+            )
+          order by coalesce(published_at, first_seen_at) desc
+          limit ${filter?.limit || 2000}
+        `;
     return rows.map(mapPostRow);
   },
 
@@ -453,22 +490,56 @@ export const postgresSocialRepository: SocialListeningRepository = {
   async listComments(filter): Promise<Comment[]> {
     await ensureSocialSchema();
     const sql = db();
-    const rows = await sql`
-      select * from social_comments
-      where (${filter?.postId || null}::text is null or post_id = ${filter?.postId || null}::text)
-        and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
-        and (${filter?.topic || null}::text is null or topic = ${filter?.topic || null}::text)
-        and (
-          ${filter?.classificationVersionBelow ?? null}::int is null
-          or (
-            dropped = false
-            and coalesce(classification_version, 0) < ${filter?.classificationVersionBelow ?? null}::int
-          )
-        )
-      order by created_at desc
-      limit ${filter?.limit || 5000}
-    `;
+    const rows = filter?.includeRaw
+      ? await sql`
+          select * from social_comments
+          where (${filter?.postId || null}::text is null or post_id = ${filter?.postId || null}::text)
+            and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
+            and (${filter?.topic || null}::text is null or topic = ${filter?.topic || null}::text)
+            and (
+              ${filter?.classificationVersionBelow ?? null}::int is null
+              or (
+                dropped = false
+                and coalesce(classification_version, 0) < ${filter?.classificationVersionBelow ?? null}::int
+              )
+            )
+          order by created_at desc
+          limit ${filter?.limit || 5000}
+        `
+      : await sql`
+          select
+            id, canonical_id, platform, platform_comment_id, post_id, parent_comment_id,
+            author_id, author_username, author_display_name, text, created_at, first_seen_at,
+            last_seen_at, like_count, reply_count, sentiment, sentiment_confidence,
+            sentiment_reason, sentiment_target, topic, evidence_score, intent, relevance,
+            signal_score, classification_version, classified_at, is_leadership_signal,
+            reply_count_at_last_check, replies_checked_at, dropped, drop_reason, thread_depth,
+            is_official_author
+          from social_comments
+          where (${filter?.postId || null}::text is null or post_id = ${filter?.postId || null}::text)
+            and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
+            and (${filter?.topic || null}::text is null or topic = ${filter?.topic || null}::text)
+            and (
+              ${filter?.classificationVersionBelow ?? null}::int is null
+              or (
+                dropped = false
+                and coalesce(classification_version, 0) < ${filter?.classificationVersionBelow ?? null}::int
+              )
+            )
+          order by created_at desc
+          limit ${filter?.limit || 5000}
+        `;
     return rows.map(mapCommentRow);
+  },
+
+  async listCommentCanonicalIds(postId: string): Promise<string[]> {
+    await ensureSocialSchema();
+    const sql = db();
+    const rows = await sql`
+      select canonical_id from social_comments
+      where post_id = ${postId}
+    `;
+    return rows.map((r: any) => r.canonical_id);
   },
 
   async getCommentByCanonicalId(canonicalId: string): Promise<Comment | null> {

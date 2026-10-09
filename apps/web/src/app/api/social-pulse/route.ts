@@ -37,7 +37,9 @@ export async function GET(request: Request) {
     const narrative = await generateNarrativeSummary(metrics);
     metrics.narrative = narrative;
 
-    return NextResponse.json(metrics);
+    const response = NextResponse.json(metrics);
+    response.headers.set("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
+    return response;
   } catch (err: any) {
     console.error("[API /social-pulse] Error:", err);
     return NextResponse.json({ error: err.message || "Failed to retrieve social pulse data" }, { status: 500 });

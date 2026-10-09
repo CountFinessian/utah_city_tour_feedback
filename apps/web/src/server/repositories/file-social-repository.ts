@@ -229,6 +229,11 @@ export const fileSocialRepository: SocialListeningRepository = {
     return res;
   },
 
+  async listCommentCanonicalIds(postId: string): Promise<string[]> {
+    const data = await readStorage();
+    return data.comments.filter((c) => c.postId === postId).map((c) => c.canonicalId);
+  },
+
   async getCommentByCanonicalId(canonicalId: string): Promise<Comment | null> {
     const data = await readStorage();
     return data.comments.find((c) => c.canonicalId === canonicalId) || null;
