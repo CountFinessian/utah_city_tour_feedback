@@ -9,8 +9,11 @@ import type { Platform, RelevanceStatus } from "./types";
  * 2 — timestamp cutoff 2026-10-08T20:00:00.000Z. Runs before that instant were
  *     stamped with the cutoff itself, so `checked_at >= cutoff` selected nothing.
  * 3 — stage 2d. Explicit per-post version. Equality is already current.
+ * 4 — proper-noun Utah City only. Generic "Utah city/cities", bare Vineyard,
+ *     and unnamed "matches characteristics" keeps are rejected. Reeval
+ *     rechecks every post stored under an older version.
  */
-export const RELEVANCE_VERSION = 3;
+export const RELEVANCE_VERSION = 4;
 
 const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{6,}$/;
 
@@ -89,7 +92,7 @@ export function withSeededExternalIds(accounts: OfficialAccountRef[]): OfficialA
 }
 
 const DEVELOPMENT_ANCHOR =
-  /\butah\s*city\s+in\s+vineyard\b|\bvineyard\b[\s\S]{0,120}\b(greenline|geneva|120\s*bend|220\s*bend|utah\s*city)\b|\b(greenline|geneva|120\s*bend|220\s*bend|utah\s*city)\b[\s\S]{0,120}\bvineyard\b|\b(greenline|geneva\s+steel|old\s+geneva|120\s*bend|220\s*bend)\b|\$\s*1\.8\s*b\b|\b1\.8\s*billion\b/i;
+  /\butah\s*city\s+in\s+vineyard\b|\bvineyard\b[\s\S]{0,120}\b(greenline|geneva|120\s*bend|220\s*bend|utah\s+city)\b|\b(greenline|geneva|120\s*bend|220\s*bend|utah\s+city)\b[\s\S]{0,120}\bvineyard\b|\b(greenline|geneva\s+steel|old\s+geneva|120\s*bend|220\s*bend)\b|\$\s*1\.8\s*b\b|\b1\.8\s*billion\b/i;
 
 /** Spaced name, #utahcity, or the compact token. Not a longer handle such as utahcityfoodtruckrally. */
 const UTAH_CITY_NAME =
@@ -149,18 +152,83 @@ export function isOfficialAuthor(
 }
 
 /**
- * Places and tenants that mean "this could be Utah City" even without the words Utah City.
- * Martha's Vineyard is not one of them. Clear Park City / SLC lookalikes still win when
- * none of these are present.
+ * Nearby places that can be the Vineyard development. Bare "Vineyard" is not one of them.
+ * Martha's Vineyard is not one of them.
  */
 const LOCAL_PLACE =
   /\borem\b|\blindon\b|\butah\s+county\b|\bgeneva\b|\bgreenline\b|\bfini\s*caf[eé]\b|(^|[^a-z0-9])finicafe(?![a-z0-9])|\bbella'?s?\s+market\b|\bracquet\s+club\b|\bbuilt\s+for\s+becoming\b|\b120\s*bend\b|\b220\s*bend\b/i;
 
+/** Tenants and places inside the development. "Vineyard" by itself is not a venue. */
+const KNOWN_VENUE =
+  /\bgreenline\b|\bfini\s*caf[eé]\b|(^|[^a-z0-9])finicafe(?![a-z0-9])|\bbella'?s?\s+market\b|\bracquet\s+club\b|\b120\s*bend\b|\b220\s*bend\b/i;
+
+const GENERIC_UTAH_CITY =
+  /\b(?:best|worst|every|each|any|another|this|a|one)\s+utah\s+city\b|\bwhat\s+is\s+utah\s+city(?:\s+utah)?\b|\butah\s+cities\b/i;
+
+const UTAH_CITY_HASHTAG = /#utahcity(?:utah)?\b/i;
+const UTAH_CITY_DOMAIN = /utahcity\.com|\butah\.city\b/i;
+
+export function hasKnownVenue(text: string): boolean {
+  return KNOWN_VENUE.test(text || "");
+}
+
 export function hasLocalPlaceSignal(text: string): boolean {
+  return LOCAL_PLACE.test(text || "");
+}
+
+/** Case-sensitive "Utah City" left after generic frames and @mentions are removed. */
+export function hasProperUtahCityPlace(text: string): boolean {
+  const stripped = (text || "")
+    .replace(/@+\s*Utah\s+City\b/g, " ")
+    .replace(/@utahcity(?:utah)?\b/gi, " ")
+    .replace(new RegExp(GENERIC_UTAH_CITY.source, "gi"), " ")
+    .replace(/\bUTAH\s+CITY\b/g, " ")
+    .replace(/\butah\s+city\b/gi, (match) => (match === "Utah City" ? match : " "));
+  return /\bUtah City\b/.test(stripped);
+}
+
+export function hasUtahCityBrandMark(text: string): boolean {
   const raw = text || "";
-  if (LOCAL_PLACE.test(raw)) return true;
-  const withoutMartha = raw.replace(/martha['’]s\s+vineyard/gi, " ");
-  return /\bvineyard\b/i.test(withoutMartha);
+  return UTAH_CITY_HASHTAG.test(raw) || UTAH_CITY_DOMAIN.test(raw);
+}
+
+export function hasUtahCityDomain(text: string): boolean {
+  return UTAH_CITY_DOMAIN.test(text || "");
+}
+
+/**
+ * Generic "Utah city/cities", rankings, and all-caps "UTAH CITY".
+ * A remaining proper-noun "Utah City", #utahcity, or utahcity.com/utah.city is not generic.
+ */
+export function isGenericUtahCityPhrasing(text: string): boolean {
+  const raw = text || "";
+  if (hasProperUtahCityPlace(raw) || hasUtahCityBrandMark(raw)) return false;
+  if (GENERIC_UTAH_CITY.test(raw) || /\bUTAH\s+CITY\b/.test(raw)) return true;
+  return /\butah\s+city\b/i.test(raw) && !/\bUtah City\b/.test(raw);
+}
+
+/**
+ * The caption or transcript names the development or a tenant.
+ * A hashtag or @mention does not count once a transcript shows some other subject.
+ */
+export function hasNamedUtahCitySubject(caption: string, transcript?: string): boolean {
+  const written = caption || "";
+  const spoken = (transcript || "").trim();
+  const writtenNames =
+    hasProperUtahCityPlace(written) ||
+    hasUtahCityDomain(written) ||
+    hasDevelopmentAnchor(written) ||
+    hasKnownVenue(written);
+  if (writtenNames) return true;
+  if (spoken) {
+    return (
+      hasProperUtahCityPlace(spoken) ||
+      hasUtahCityDomain(spoken) ||
+      hasDevelopmentAnchor(spoken) ||
+      hasKnownVenue(spoken)
+    );
+  }
+  return hasUtahCityBrandMark(written);
 }
 
 /** Enough words that a "no mention" reject is about the post, not a failed lookup. */
@@ -172,7 +240,8 @@ export function hasSubstantialText(text: string): boolean {
 }
 
 export function hasDevelopmentAnchor(text: string): boolean {
-  return DEVELOPMENT_ANCHOR.test(text || "");
+  const raw = (text || "").replace(/@+\s*Utah\s+City\b/g, " ").replace(/@utahcity(?:utah)?\b/gi, " ");
+  return DEVELOPMENT_ANCHOR.test(raw);
 }
 
 export function hasUtahCityPhrase(text: string): boolean {
@@ -180,14 +249,12 @@ export function hasUtahCityPhrase(text: string): boolean {
 }
 
 /**
- * #utahcity / "Utah City" / utahcity. The "best Utah city to live in" idiom is not this signal.
- * A hit blocks a lookalike hard-reject.
+ * Proper-noun development only: case-sensitive "Utah City", #utahcity, or utahcity.com/utah.city.
+ * Generic "Utah city/cities", "every Utah City", and all-caps "UTAH CITY" do not qualify.
+ * A hit blocks a pre-model lookalike reject. It does not force a keep after the classifier disagrees.
  */
 export function hasProtectedUtahCitySignal(text: string): boolean {
-  const raw = text || "";
-  if (!hasUtahCityPhrase(raw)) return false;
-  const withoutIdiom = raw.replace(/\bbest\s+utah\s+city\s+to\s+live(?:\s+in)?\b/gi, " ");
-  return hasUtahCityPhrase(withoutIdiom);
+  return hasProperUtahCityPlace(text) || hasUtahCityBrandMark(text);
 }
 
 /** A hashtag (or the official @) with no other words is a candidate, not a relevant post. */
@@ -207,7 +274,16 @@ export function isHashtagOnlyCandidate(text: string): boolean {
 
 export function lookalikeHit(text: string): string | null {
   const raw = text || "";
-  if (hasDevelopmentAnchor(raw) || hasUtahCityPhrase(raw) || hasLocalPlaceSignal(raw)) return null;
+  if (
+    hasProperUtahCityPlace(raw) ||
+    hasUtahCityBrandMark(raw) ||
+    hasDevelopmentAnchor(raw) ||
+    hasKnownVenue(raw) ||
+    hasLocalPlaceSignal(raw)
+  ) {
+    return null;
+  }
+  if (isGenericUtahCityPhrasing(raw)) return "generic utah city";
   for (const pattern of LOOKALIKE) {
     if (pattern.re.test(raw)) return pattern.id;
   }
@@ -246,11 +322,20 @@ export interface RulesGate {
 export function rulesPreGate(text: string): RulesGate {
   const raw = text || "";
   const entities: string[] = [];
-  if (hasUtahCityPhrase(raw)) entities.push("utah city");
+  if (hasProperUtahCityPlace(raw) || hasUtahCityBrandMark(raw)) entities.push("utah city");
   if (hasDevelopmentAnchor(raw)) entities.push("vineyard development");
-  if (hasLocalPlaceSignal(raw)) entities.push("local place");
+  if (hasKnownVenue(raw) || hasLocalPlaceSignal(raw)) entities.push("local place");
 
-  if (hasDevelopmentAnchor(raw) || hasLocalPlaceSignal(raw)) {
+  if (looksUnverifiableClaim(raw)) {
+    return {
+      decision: "rejected_unverifiable",
+      reason: "Specific claim about Utah City is not a published project fact.",
+      matchedEntities: entities,
+      candidate: false,
+    };
+  }
+
+  if (hasDevelopmentAnchor(raw) || hasKnownVenue(raw) || hasLocalPlaceSignal(raw)) {
     return {
       decision: null,
       reason: "Local Utah City signal present. Sending to the relevance model.",
@@ -288,11 +373,11 @@ export function rulesPreGate(text: string): RulesGate {
     };
   }
 
-  if (hasUtahCityPhrase(raw) || /\butah\b/i.test(raw)) {
+  if (hasProtectedUtahCitySignal(raw)) {
     return {
       decision: null,
-      reason: "Utah mention. Sending to the relevance model.",
-      matchedEntities: entities.length ? entities : ["utah"],
+      reason: "Utah City proper name or brand mark. Sending to the relevance model.",
+      matchedEntities: entities.length ? entities : ["utah city"],
       candidate: true,
     };
   }
@@ -301,6 +386,15 @@ export function rulesPreGate(text: string): RulesGate {
     return {
       decision: "needs_retry",
       reason: "Lookup text is empty or too thin to apply the no-mention rule.",
+      matchedEntities: [],
+      candidate: false,
+    };
+  }
+
+  if (/\bvineyard\b/i.test(raw) && !/martha['’]s\s+vineyard/i.test(raw)) {
+    return {
+      decision: "rejected_offtopic",
+      reason: "Vineyard alone is not Utah City or a known venue.",
       matchedEntities: [],
       candidate: false,
     };
@@ -318,10 +412,11 @@ export function rulesPreGate(text: string): RulesGate {
 export function resolveBorderline(decision: RelevanceDecision, text: string): RelevanceDecision {
   if (decision !== "unsure") return decision;
   if (looksUnverifiableClaim(text)) return "rejected_unverifiable";
-  if (hasDevelopmentAnchor(text) || hasLocalPlaceSignal(text)) return "relevant";
-  if (lookalikeHit(text)) return "rejected_lookalike";
-  if (hasUtahCityPhrase(text) && !isHashtagOnlyCandidate(text)) return "relevant";
-  if (/\butah\b/i.test(text || "")) return "relevant";
+  if (hasDevelopmentAnchor(text) || hasKnownVenue(text) || hasProperUtahCityPlace(text) || hasUtahCityDomain(text)) {
+    return "relevant";
+  }
+  if (lookalikeHit(text) || isGenericUtahCityPhrasing(text)) return "rejected_lookalike";
+  if (hasUtahCityBrandMark(text)) return "needs_retry";
   if (!hasSubstantialText(text)) return "needs_retry";
   return "rejected_offtopic";
 }

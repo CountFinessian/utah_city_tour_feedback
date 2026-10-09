@@ -5,7 +5,9 @@ import {
   lookalikeHit,
   postCommentsInDashboard,
   postEligibleForCommentHarvest,
+  postNeedsRelevanceRecheck,
   postShownAsContent,
+  RELEVANCE_VERSION,
   rulesPreGate,
   SEEDED_OFFICIAL_ACCOUNTS,
 } from "@/domain/social-listening/relevance";
@@ -182,8 +184,9 @@ describe("relevance v2 rules", () => {
     expect(fini.decision).toBeNull();
 
     const mayor = rulesPreGate("Vineyard Utah… remind the mayor about the road");
-    expect(mayor.candidate).toBe(true);
-    expect(mayor.decision).toBeNull();
+    expect(mayor.candidate).toBe(false);
+    expect(mayor.decision).toBe("rejected_offtopic");
+    expect(mayor.reason).toMatch(/Vineyard alone/);
 
     const nowhere = await classifyRelevance("The downtown parking garage on Main was full all afternoon again.");
     expect(nowhere.decision).toBe("rejected_offtopic");
@@ -209,5 +212,100 @@ describe("relevance v2 rules", () => {
       url: "https://www.youtube.com/watch?v=DnQyX-UA7kY",
     });
     expect(officialEmpty.decision).toBe("official_comment_source");
+  });
+});
+
+describe("relevance false positives", () => {
+  it("rejects generic Utah city phrasing instead of forcing a keep", async () => {
+    const ranked = await classifyRelevance("I Ranked Every Utah City from Worst To Best", {
+      platform: "youtube",
+      url: "https://www.youtube.com/watch?v=go-3aKQUpiU",
+    });
+    expect(ranked.decision).toBe("rejected_lookalike");
+    expect(ranked.isRelevant).toBe(false);
+    expect(ranked.reason).not.toMatch(/not a lookalike/);
+
+    const moving = await classifyRelevance("EVERYONE is MOVING to this UTAH CITY for this reason…", {
+      platform: "youtube",
+      url: "https://www.youtube.com/watch?v=_eRiI_h2C-U",
+    });
+    expect(moving.decision).toBe("rejected_lookalike");
+    expect(moving.isRelevant).toBe(false);
+
+    const mayors = await classifyRelevance(
+      "@mtngirl143 @Utahfarmersorg1 I lived in Utah cities with R-mayors for 28yrs. I know live in a Utah city with a D-Mayor. There is little to no difference.",
+      { platform: "x", url: "https://x.com/i/web/status/2107532868495011918" }
+    );
+    expect(mayors.decision).toBe("rejected_lookalike");
+    expect(mayors.isRelevant).toBe(false);
+
+    const whatIs = await classifyRelevance("What Is Utah City Utah", {
+      platform: "facebook",
+      url: "https://www.instagram.com/popular/what-is-utah-city-utah/",
+    });
+    expect(whatIs.decision).toBe("rejected_lookalike");
+    expect(whatIs.isRelevant).toBe(false);
+    expect(hasProtectedUtahCitySignal("What Is Utah City Utah")).toBe(false);
+    expect(hasProtectedUtahCitySignal("best Utah city to live in")).toBe(false);
+    expect(hasProtectedUtahCitySignal("Utah City is finally opening its new downtown!")).toBe(true);
+  });
+
+  it("does not keep a #utahcity video whose transcript is not the development", async () => {
+    const result = await classifyRelevance("10 more minutes!!! #utah #vineyard #utahcity @Utah City ", {
+      platform: "tiktok",
+      url: "https://www.tiktok.com/@jaimeyaime/video/7572995760069872909",
+      transcript:
+        "Okay, update. We got our ticket for our bags. It's hella crowded. Everyone is trying to get through the airport.",
+    });
+    expect(result.isRelevant).toBe(false);
+    expect(result.decision).not.toBe("relevant");
+    expect(result.reason).not.toMatch(/not a lookalike/);
+    expect(result.reason).toMatch(/Transcript does not name Utah City or a known venue/);
+  });
+
+  it("rejects Vineyard posts that do not name Utah City or a venue", async () => {
+    const mania = await classifyRelevance(
+      "Happy GC#goodvibes #Vineyard, Utah#imalive #Fyp #beenawhile#lovingthefilter",
+      { platform: "tiktok", author: "maniatetoki7", url: "https://www.tiktok.com/@maniatetoki7/video/7422787858496523566" }
+    );
+    expect(mania.isRelevant).toBe(false);
+    expect(mania.decision).toBe("rejected_offtopic");
+    expect(mania.reason).toMatch(/Vineyard alone/);
+
+    const grocery = await classifyRelevance(
+      "I already know Utahns finna eat this up. But It’s giving smiths. #fyp #foryoupage #utah #vineyard #grocerystore",
+      { platform: "tiktok", author: "evekloz", url: "https://www.tiktok.com/@evekloz/video/7573387692478680334" }
+    );
+    expect(grocery.isRelevant).toBe(false);
+    expect(grocery.decision).toBe("rejected_offtopic");
+    expect(grocery.reason).toMatch(/Vineyard alone|neither Utah City nor a known venue/);
+  });
+
+  it("bumps the relevance version and hides rejected comments without deleting them", () => {
+    expect(RELEVANCE_VERSION).toBe(4);
+    expect(postNeedsRelevanceRecheck({ relevanceVersion: 3 })).toBe(true);
+    expect(postNeedsRelevanceRecheck({ relevanceVersion: 4 })).toBe(false);
+
+    const kept = post({ id: "kept", caption: "Utah City downtown", relevanceVersion: 4 });
+    const rejected = post({
+      id: "backfill-fp",
+      caption: "I Ranked Every Utah City from Worst To Best",
+      relevanceStatus: "rejected_lookalike",
+      isRelevant: false,
+      relevanceVersion: 4,
+    });
+    const rows = [
+      comment({ id: "c-kept", postId: "kept", text: "love the downtown" }),
+      comment({ id: "c-fp", postId: "backfill-fp", text: "salt lake was higher" }),
+    ];
+    const metrics = calculateDeterministicSocialMetrics({
+      posts: [kept, rejected],
+      comments: rows,
+      periodDays: 30,
+      now: new Date("2026-09-10T00:00:00Z"),
+    });
+    expect(metrics.attention.commentsCount).toBe(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]?.id).toBe("c-fp");
   });
 });

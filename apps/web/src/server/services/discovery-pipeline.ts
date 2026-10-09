@@ -3,6 +3,7 @@ import type { TregCommentItem } from "./treg-client";
 import { getSocialRepository } from "../repositories/postgres-social-repository";
 import { classifyRelevance } from "../intelligence/relevance-classifier";
 import { providerFor } from "../social/providers";
+import { facebookSearchMissReason } from "../social/providers/facebook";
 import { RELEVANCE_VERSION, postEligibleForCommentHarvest } from "@/domain/social-listening/relevance";
 import { analyzeSentimentAndTopic, classifyComments, type SentimentAnalysisResult } from "../intelligence/sentiment-classifier";
 import { isExplicitDropReason, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
@@ -200,6 +201,13 @@ export class DiscoveryPipelineService {
           }
           const item = rawResults[index];
           nextSkip = index + 1;
+          if (item.platform === "facebook" && strategy !== "account") {
+            const miss = facebookSearchMissReason(item);
+            if (miss) {
+              console.warn(`[discovery] skip facebook search hit: ${miss} ${item.url || item.contentId}`);
+              continue;
+            }
+          }
 
           const parsed = parseAndNormalizePostIdentifier(item.url || item.contentId, item.platform);
           if (!parsed) continue;
