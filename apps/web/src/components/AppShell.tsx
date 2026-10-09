@@ -10,7 +10,7 @@ const nav = [
   { href: "/command", label: "Command", shortLabel: "Command", mark: "C", helper: "Executive OS" },
   { href: "/analyst", label: "AI Analyst", shortLabel: "Analyst", mark: "A", helper: "Ask the corpus" },
   { href: "/journey", label: "Journey", shortLabel: "Journey", mark: "J", helper: "Lifecycle spine" },
-  { href: "/social-pulse", label: "Social listener", shortLabel: "Social", mark: "SL", helper: "Internet listening" },
+  { href: "/social-pulse", label: "Social Pulse", shortLabel: "Social", mark: "SP", helper: "Comment sentiment since 2023" },
   { href: "/evidence", label: "Evidence", shortLabel: "Evidence", mark: "E", helper: "Source corpus" },
   { href: "/operations", label: "Operations", shortLabel: "Ops", mark: "O", helper: "Adoption quality" },
   { href: "/settings", label: "Settings", shortLabel: "Settings", mark: "⚙", helper: "Team & Admin" },

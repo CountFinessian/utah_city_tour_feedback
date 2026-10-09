@@ -236,14 +236,18 @@ describe("Social Pulse cron and leadership refresh", () => {
     expect(runCycle).not.toHaveBeenCalled();
   });
 
-  it("does not point the dashboard refresh button at the cron route", () => {
+  it("does not put a listening job or popularity metrics on the dashboard", () => {
     const source = readFileSync(
       path.join(process.cwd(), "src/app/(leadership)/social-pulse/page.tsx"),
       "utf8"
     );
-    expect(source).toContain('fetch("/api/social-pulse/refresh", { method: "POST" })');
+    expect(source).toContain('fetch("/api/social-pulse/dashboard")');
+    expect(source).not.toContain("/api/social-pulse/refresh");
     expect(source).not.toContain("/api/social-pulse/cron");
     expect(source).not.toContain("CRON_SECRET");
+    expect(source).not.toContain("Total Views");
+    expect(source).not.toContain("Unique Creators");
+    expect(source).not.toContain("likeCount");
   });
 });
 
@@ -261,6 +265,8 @@ describe("Social Pulse leadership API middleware", () => {
       "/api/social-pulse/posts",
       "/api/social-pulse/posts/post_1",
       "/api/social-pulse/refresh",
+      "/api/social-pulse/dashboard",
+      "/api/social-pulse/comments",
     ]) {
       const anon = await call(path);
       expect(anon.status, path).toBe(401);
@@ -271,7 +277,13 @@ describe("Social Pulse leadership API middleware", () => {
 
   it("lets a leader through to admin and posts", async () => {
     const leader = await leaderCookie();
-    for (const path of ["/api/social-pulse/admin", "/api/social-pulse/posts", "/api/social-pulse/posts/post_1"]) {
+    for (const path of [
+      "/api/social-pulse/admin",
+      "/api/social-pulse/posts",
+      "/api/social-pulse/posts/post_1",
+      "/api/social-pulse/dashboard",
+      "/api/social-pulse/comments",
+    ]) {
       const res = await call(path, leader);
       expect(res.headers.get("x-middleware-next"), path).toBe("1");
       expect(res.headers.get("x-middleware-request-x-user-role"), path).toBe("leader");

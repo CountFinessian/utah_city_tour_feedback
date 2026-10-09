@@ -608,7 +608,7 @@ describe("first-crawl claim and comment dates", () => {
     const open = post({ id: "open", platformContentId: "2", commentCount: 1 });
     const crawled: string[] = [];
     const result = await runHarvestFirstCrawl({
-      deadlineAt: NOW + 10_000,
+      deadlineAt: Date.now() + 60_000,
       tregSpentUsd: () => 0,
       postsPerCall: 1,
       claimOwner: HARVEST_CLAIM_OWNER_MONITOR,
@@ -634,7 +634,7 @@ describe("first-crawl claim and comment dates", () => {
     const row = post({ id: "dated", platformContentId: "7621280382356360462" });
     const saved: Comment[] = [];
     await runHarvestFirstCrawl({
-      deadlineAt: NOW + 10_000,
+      deadlineAt: Date.now() + 60_000,
       tregSpentUsd: () => 0,
       postsPerCall: 1,
       listOfficialAccounts: async () => [],
