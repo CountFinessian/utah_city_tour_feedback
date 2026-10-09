@@ -7,7 +7,11 @@ export const ACCEPTANCE_AUTHOR = "itsyaboievan11";
 export const ACCEPTANCE_PLATFORM = "tiktok" as const;
 export const ACCEPTANCE_URL = `https://www.tiktok.com/@${ACCEPTANCE_AUTHOR}/video/${ACCEPTANCE_CONTENT_ID}`;
 
-/** Stored non-dropped comments plus drops should cover about 90% of the platform count, with replies. */
+/**
+ * All stored rows (top-level, replies, and dropped) should cover about 90% of the
+ * platform count, and at least one reply must be stored. Dropped rows are already
+ * inside that stored total.
+ */
 export const ACCEPTANCE_COVERAGE = 0.9;
 
 export type IncrementalStrategy = "watermark" | "delta_walk";
@@ -112,30 +116,96 @@ export function postNeedsFirstCrawl(post: {
   return !post.firstFullCrawlCompletedAt;
 }
 
-export function noteNewestComment(
-  current: { id?: string; at?: string },
-  comment: { id: string; createdAt?: string }
+/** Newest row by created_at. Page order is not time order. */
+export function newestStoredComment(
+  comments: Array<{ platformCommentId: string; createdAt?: string }>
 ): { id?: string; at?: string } {
-  const at = comment.createdAt;
-  const parsed = at ? Date.parse(at) : NaN;
-  if (!Number.isFinite(parsed)) {
-    if (!current.id) return { id: comment.id, at: current.at };
-    return current;
+  let bestId: string | undefined;
+  let bestAt = Number.NEGATIVE_INFINITY;
+  for (const comment of comments) {
+    const parsed = Date.parse(comment.createdAt || "");
+    if (!Number.isFinite(parsed) || parsed < bestAt) continue;
+    bestAt = parsed;
+    bestId = comment.platformCommentId;
   }
-  const currentParsed = current.at ? Date.parse(current.at) : NaN;
-  if (!Number.isFinite(currentParsed) || parsed > currentParsed) {
-    return { id: comment.id, at };
-  }
-  return current;
+  if (!bestId) return {};
+  return { id: bestId, at: new Date(bestAt).toISOString() };
 }
 
 export function meetsAcceptanceBar(input: {
   listedCommentCount: number;
+  /** All stored rows, including dropped ones. */
   stored: number;
-  dropped: number;
   storedReplies: number;
 }): boolean {
   if (input.listedCommentCount <= 0) return false;
   if (input.storedReplies <= 0) return false;
-  return input.stored + input.dropped >= ACCEPTANCE_COVERAGE * input.listedCommentCount;
+  return input.stored >= ACCEPTANCE_COVERAGE * input.listedCommentCount;
+}
+
+/**
+ * Cursor for the next reply page, or undefined when this parent should advance.
+ * TikTok is the only platform that falls back to a numeric offset. Other platforms
+ * follow a real next cursor and stop when that cursor ends.
+ */
+export function nextReplyCursor(input: {
+  platform: string;
+  requestedCursor?: string;
+  nextCursor?: string;
+  expected: number;
+  fetched: number;
+  added: number;
+  /** Rows on the page before duplicate removal. */
+  pageSize: number;
+}): string | undefined {
+  if (input.expected > 0 && input.fetched >= input.expected) return undefined;
+  if (input.nextCursor && input.nextCursor !== input.requestedCursor) return input.nextCursor;
+  const requested = input.requestedCursor && input.requestedCursor !== "0" ? input.requestedCursor : "0";
+  if (input.platform !== "tiktok" || input.expected <= 0 || input.fetched >= input.expected) return undefined;
+  const offset = String(input.fetched);
+  if (offset === requested || offset === "0") return undefined;
+  if (input.added > 0 || input.pageSize > 0) return offset;
+  return undefined;
+}
+
+const HIDDEN_COUNT_KEYS = [
+  "deleted_comment_count",
+  "hidden_comment_count",
+  "filtered_comment_count",
+  "lose_comment_count",
+  "comment_filter_count",
+];
+
+function hiddenKey(node: Record<string, unknown> | null | undefined): number | null {
+  if (!node) return null;
+  for (const key of HIDDEN_COUNT_KEYS) {
+    if (node[key] === undefined || node[key] === null || node[key] === "") continue;
+    const n = Number(node[key]);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/**
+ * TikTok sometimes reports a deleted/hidden total, or a per-comment status other than 1.
+ * When neither is present the count is unknown.
+ */
+export function hiddenOrDeletedCount(
+  detailRaw: Record<string, unknown> | null | undefined,
+  commentRaws: Array<Record<string, unknown> | undefined>
+): number | null {
+  const stats =
+    detailRaw && typeof detailRaw.statistics === "object" && detailRaw.statistics
+      ? (detailRaw.statistics as Record<string, unknown>)
+      : undefined;
+  const fromPayload = hiddenKey(detailRaw) ?? hiddenKey(stats);
+  if (fromPayload != null) return fromPayload;
+  let sawStatus = false;
+  let hidden = 0;
+  for (const raw of commentRaws) {
+    if (!raw || typeof raw.status !== "number") continue;
+    sawStatus = true;
+    if (raw.status !== 1) hidden += 1;
+  }
+  return sawStatus ? hidden : null;
 }

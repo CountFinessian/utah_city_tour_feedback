@@ -49,6 +49,8 @@ export interface CommentPageResult {
   done: boolean;
   phase: "comments" | "replies";
   provider?: string;
+  /** Set when the payload itself reports deleted or hidden comments. */
+  hiddenOrDeleted?: number;
 }
 
 export interface ProviderQuery {

@@ -1,7 +1,7 @@
 import type { CommentQuery, ProviderQuery, SearchPage, SocialProvider, TregSearchResultItem } from "./types";
 import { tregHttp } from "./http";
 import { authorName, commentItem, commentPage, countOf, publishedFrom, searchItem, searchPage, statsOf, textOf } from "./map";
-import { asRecord, cleanUrl, payloadOf, recordsOf, str } from "./util";
+import { asRecord, cleanUrl, cursorString, payloadOf, recordsOf, str } from "./util";
 
 export const TIKTOK_COMMENT_ORDERING = "ranked" as const;
 export const TIKTOK_COMMENT_ORDERING_NOTE =
@@ -102,34 +102,116 @@ export function parseTikTokSearch(output: Record<string, unknown> | null): Searc
   return searchPage(items, data.cursor || data.max_cursor || body.nextCursor, data.has_more ?? data.hasMore ?? body.has_more);
 }
 
+const REPLY_COUNT_KEYS = ["reply_comment_total", "reply_total", "reply_count", "reply_comment_count", "reply_cnt"] as const;
+const HIDDEN_COUNT_KEYS = [
+  "deleted_comment_count",
+  "hidden_comment_count",
+  "filtered_comment_count",
+  "lose_comment_count",
+  "comment_filter_count",
+] as const;
+
+function explicitCount(node: Record<string, unknown> | null | undefined, keys: readonly string[]): number | null {
+  if (!node) return null;
+  for (const key of keys) {
+    if (node[key] === undefined || node[key] === null || node[key] === "") continue;
+    const n = Number(node[key]);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/** Reply total from the comment, its statistics, or the preview list, whichever is larger. */
+export function tiktokReplyCount(raw: Record<string, unknown> | null | undefined): number {
+  if (!raw) return 0;
+  const stats = asRecord(raw.statistics) || {};
+  const preview = Array.isArray(raw.reply_comment) ? raw.reply_comment.length : 0;
+  return Math.max(countOf(raw, ...REPLY_COUNT_KEYS), countOf(stats, ...REPLY_COUNT_KEYS), preview);
+}
+
 function parseTikTokComment(raw: Record<string, unknown>, parentCommentId?: string) {
   const user = asRecord(raw.user) || {};
   const id = str(raw.cid || raw.comment_id || raw.id);
   if (!id) return null;
+  const stats = asRecord(raw.statistics) || {};
   return commentItem(raw, {
     commentId: id,
     authorUsername: str(user.unique_id || user.uniqueId || raw.author) || "tiktok_user",
     authorDisplayName: str(user.nickname) || undefined,
     text: str(raw.text),
     createdAt: publishedFrom(raw) || new Date().toISOString(),
-    likeCount: countOf(raw, "digg_count", "likes"),
-    replyCount: countOf(raw, "reply_comment_total", "reply_total", "reply_count"),
+    likeCount: countOf(raw, "digg_count", "likes") || countOf(stats, "digg_count"),
+    replyCount: tiktokReplyCount(raw),
     parentCommentId,
   });
 }
 
+function withPreviewReplies(raw: Record<string, unknown>, parentCommentId?: string) {
+  const parent = parseTikTokComment(raw, parentCommentId);
+  if (!parent) return [];
+  const out = [parent];
+  if (!Array.isArray(raw.reply_comment)) return out;
+  for (const entry of raw.reply_comment) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const reply = parseTikTokComment(record, parent.commentId);
+    if (reply) out.push(reply);
+  }
+  return out;
+}
+
+function openFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
+
+function closedFlag(value: unknown): boolean {
+  return value === false || value === 0 || value === "0" || value === "false";
+}
+
+/** Cursor and has_more often sit a level deeper than the comments array. */
+function tiktokListMeta(output: Record<string, unknown> | null): {
+  cursor: unknown;
+  hasMore: unknown;
+  hiddenOrDeleted?: number;
+} {
+  const data = asRecord(output?.data);
+  const nested = asRecord(data?.data);
+  const payload = payloadOf(output);
+  const roots = [output, data, nested, payload, asRecord(payload.data)].filter(
+    (root): root is Record<string, unknown> => Boolean(root)
+  );
+  let cursor: unknown;
+  let sawOpen = false;
+  let sawClosed = false;
+  let hidden: number | undefined;
+  for (const root of roots) {
+    if (cursor == null) {
+      const candidate = root.cursor ?? root.next_cursor ?? root.max_cursor ?? root.nextCursor;
+      if (cursorString(candidate)) cursor = candidate;
+    }
+    const flag = root.has_more ?? root.hasMore;
+    if (openFlag(flag)) sawOpen = true;
+    else if (closedFlag(flag)) sawClosed = true;
+    if (hidden == null) {
+      const found = explicitCount(root, HIDDEN_COUNT_KEYS) ?? explicitCount(asRecord(root.statistics), HIDDEN_COUNT_KEYS);
+      if (found != null) hidden = found;
+    }
+  }
+  return { cursor, hasMore: sawOpen ? 1 : sawClosed ? 0 : undefined, hiddenOrDeleted: hidden };
+}
+
 export function parseTikTokComments(output: Record<string, unknown> | null, parentCommentId?: string) {
   const rows = recordsOf(output, ["comments", "comments_list"]);
-  const comments = rows.map((row) => parseTikTokComment(row, parentCommentId)).filter((row) => Boolean(row));
-  const body = payloadOf(output);
-  const data = asRecord(body.data) || body;
-  return commentPage(
-    comments as NonNullable<ReturnType<typeof parseTikTokComment>>[],
-    data.cursor || body.cursor,
-    data.has_more ?? data.hasMore,
+  const comments = rows.flatMap((row) => withPreviewReplies(row, parentCommentId));
+  const meta = tiktokListMeta(output);
+  const page = commentPage(
+    comments,
+    meta.cursor,
+    meta.hasMore,
     parentCommentId ? "replies" : "comments",
     parentCommentId ? REPLIES : COMMENTS
   );
+  return meta.hiddenOrDeleted == null ? page : { ...page, hiddenOrDeleted: meta.hiddenOrDeleted };
 }
 
 async function keywordSearch(query: ProviderQuery): Promise<SearchPage> {
