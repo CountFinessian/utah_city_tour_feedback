@@ -6,9 +6,14 @@ import {
   commentCountDelta,
   CURRENT_MONITOR_MIX,
   deltaWalkDecision,
+  DISCOVERY_WINDOW_FRACTION,
   expectedDailyMonitorUsd,
+  FIRST_CRAWL_WINDOW_FRACTION,
   IG_BACKFILL_TREG_BUDGET_USD,
+  initialMonitorFields,
   meaningfulStatsChange,
+  monitoringStateDistribution,
+  phaseDeadline,
   searchHitResurfaces,
   MONITOR_GEMINI_BUDGET_MICRO,
   MONITOR_MIN_BALANCE_USD,
@@ -18,10 +23,11 @@ import {
   resolveMonitorSchedule,
   selectDuePosts,
   watermarkReached,
+  type DiscoveryQueryCursor,
   type StatCounts,
 } from "@/domain/social-listening/monitoring";
 import { isOfficialAuthor, type OfficialAccountRef } from "@/domain/social-listening/relevance";
-import type { Comment, Platform, Post } from "@/domain/social-listening/types";
+import type { Comment, MonitoringState, Platform, Post } from "@/domain/social-listening/types";
 import { geminiFlashLiteCostMicro, hasLLM } from "@/server/ai/model-config";
 import { classifyComments } from "@/server/intelligence/sentiment-classifier";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
@@ -48,6 +54,16 @@ export interface MonitorCycleResult {
   harvested: number;
   newComments: number;
   resurfaced: number;
+  /** Relevant or official posts kept from discovery. */
+  kept: number;
+  backfilled: number;
+  phases: {
+    backfillMs: number;
+    discoveryMs: number;
+    firstCrawlMs: number;
+    checksMs: number;
+  };
+  stateDistribution: Record<MonitoringState, number>;
   tregSpendUsd: number;
   geminiSpendMicro: number;
   /** Steady-state Treg estimate for the current ~44-post inventory. */
@@ -97,7 +113,18 @@ interface MonitorDeps {
   listOfficialAccounts?: () => Promise<OfficialAccountRef[]>;
   getListenerState?: () => Promise<SocialListenerState>;
   saveListenerState?: (state: SocialListenerState) => Promise<void>;
-  runDiscovery?: (input: { since?: string; budgetUsd: number }) => Promise<{ newPosts: number; resurfaced: Post[] }>;
+  runDiscovery?: (input: {
+    since?: string;
+    budgetUsd: number;
+    deadlineAt: number;
+    cursor?: DiscoveryQueryCursor[];
+  }) => Promise<{
+    newPosts: number;
+    kept?: number;
+    resurfaced: Post[];
+    cursor?: DiscoveryQueryCursor[];
+    stoppedEarly?: boolean;
+  }>;
   runFirstCrawl?: (budgetUsd: number, geminiMicro: number, deadlineAt: number) => Promise<{ completed: number }>;
 }
 
@@ -262,6 +289,14 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
   const gemini = { spent: 0, cap: d.geminiBudgetMicro };
   if (!deps.tregSpentUsd) tregClient.resetCycleCost();
   const balanceUsd = await d.getBalance();
+  const startedAt = Date.now();
+  const discoveryDeadline = phaseDeadline(startedAt, d.deadlineAt, DISCOVERY_WINDOW_FRACTION);
+  const crawlDeadline = phaseDeadline(startedAt, d.deadlineAt, FIRST_CRAWL_WINDOW_FRACTION);
+  const tracked = new Map<string, Post>();
+  const remember = (post: Post) => {
+    tracked.set(post.id, post);
+    return post;
+  };
   const base: MonitorCycleResult = {
     task: "monitor",
     stopped: "done",
@@ -273,6 +308,10 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
     harvested: 0,
     newComments: 0,
     resurfaced: 0,
+    kept: 0,
+    backfilled: 0,
+    phases: { backfillMs: 0, discoveryMs: 0, firstCrawlMs: 0, checksMs: 0 },
+    stateDistribution: monitoringStateDistribution([]),
     tregSpendUsd: 0,
     geminiSpendMicro: 0,
     expectedUsdPerDay: expectedDailyMonitorUsd({ postsByState: CURRENT_MONITOR_MIX }),
@@ -281,6 +320,7 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
   const finish = (stopped: MonitorCycleResult["stopped"]): MonitorCycleResult => ({
     ...base,
     stopped,
+    stateDistribution: monitoringStateDistribution([...tracked.values()]),
     tregSpendUsd: Number(d.tregSpent().toFixed(6)),
     geminiSpendMicro: gemini.spent,
   });
@@ -292,63 +332,111 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
     if (gemini.spent >= d.geminiBudgetMicro) return "gemini_budget";
     return null;
   };
+  const phaseOver = (phaseDeadlineAt: number): boolean => Date.now() >= phaseDeadlineAt || over() != null;
 
   const listener = await d.getListenerState();
-  const since = listener.cursors?.lastMonitorAt || new Date(d.now - 3 * 3_600_000).toISOString();
+  const cursors = { ...(listener.cursors || {}) };
+  const persistMonitorCursor = () => d.saveListenerState({ ...listener, cursors });
+
+  const backfillStarted = Date.now();
+  let posts = await d.listPosts({ commentHarvest: true, limit: 5000 });
+  for (const post of posts) {
+    const fields = initialMonitorFields(post, d.now);
+    if (!fields) {
+      remember(post);
+      continue;
+    }
+    const saved = remember(await d.upsertPost({ ...post, ...fields }));
+    const index = posts.findIndex((item) => item.id === post.id);
+    if (index >= 0) posts[index] = saved;
+    base.backfilled += 1;
+  }
+  base.phases.backfillMs = Date.now() - backfillStarted;
+
+  const since = cursors.lastMonitorAt || new Date(d.now - 3 * 3_600_000).toISOString();
   const resurfaced: Post[] = [];
-  const discovery = d.runDiscovery
-    ? await d.runDiscovery({ since, budgetUsd: Math.min(0.2, d.tregBudgetUsd) })
-    : await (async () => {
-        const found: Post[] = [];
-        const result = await discoveryPipelineService.runDiscovery({
+  const discoveryStarted = Date.now();
+  if (!phaseOver(discoveryDeadline)) {
+    const discovery = d.runDiscovery
+      ? await d.runDiscovery({
           since,
-          cycleBudgetUsd: Math.min(0.2, d.tregBudgetUsd),
-          resetCost: false,
-          onExisting: (post, item, previous) => {
-            if (searchHitResurfaces(previous, detailCounts(item))) found.push(post);
-          },
-        });
-        return { newPosts: result.newPostsCount, resurfaced: found };
-      })();
-  base.discovered = discovery.newPosts;
-  base.resurfaced = discovery.resurfaced.length;
-  resurfaced.push(...discovery.resurfaced);
-  let stop = over();
-  const stamp = new Date(d.now).toISOString();
-  const persistMonitorCursor = () =>
-    d.saveListenerState({
-      ...listener,
-      cursors: { ...listener.cursors, lastMonitorAt: stamp },
-    });
+          budgetUsd: Math.min(0.2, d.tregBudgetUsd),
+          deadlineAt: discoveryDeadline,
+          cursor: cursors.discovery,
+        })
+      : await (async () => {
+          const found: Post[] = [];
+          const result = await discoveryPipelineService.runDiscovery({
+            since,
+            cycleBudgetUsd: Math.min(0.2, d.tregBudgetUsd),
+            resetCost: false,
+            deadlineAt: discoveryDeadline,
+            cursor: cursors.discovery,
+            onExisting: (post, item, previous) => {
+              if (searchHitResurfaces(previous, detailCounts(item))) found.push(post);
+            },
+          });
+          return {
+            newPosts: result.newPostsCount,
+            kept: result.relevantPostsCount,
+            resurfaced: found,
+            cursor: result.discoveryCursor,
+            stoppedEarly: result.stoppedEarly,
+          };
+        })();
+    base.discovered = discovery.newPosts;
+    base.kept = discovery.kept ?? discovery.newPosts;
+    base.resurfaced = discovery.resurfaced.length;
+    resurfaced.push(...discovery.resurfaced);
+    if (discovery.cursor) cursors.discovery = discovery.cursor;
+  }
+  base.phases.discoveryMs = Date.now() - discoveryStarted;
+  cursors.lastMonitorAt = new Date(d.now).toISOString();
   await persistMonitorCursor();
-  if (stop) return finish(stop);
 
-  const first = d.runFirstCrawl
-    ? await d.runFirstCrawl(d.tregBudgetUsd, d.geminiBudgetMicro - gemini.spent, d.deadlineAt)
-    : await runHarvestFirstCrawl({
-        deadlineAt: d.deadlineAt,
-        tregBudgetUsd: d.tregBudgetUsd,
-        geminiBudgetMicro: Math.max(0, d.geminiBudgetMicro - gemini.spent),
-        tregSpentUsd: d.tregSpent,
-        postsPerCall: 2,
-        hasModel: d.hasModel,
-      }).then((result) => {
-        gemini.spent += result.geminiSpendMicro;
-        return { completed: result.completedPosts };
-      });
-  base.firstCrawlCompleted = first.completed;
-  stop = over();
-  if (stop) return finish(stop);
+  const crawlStarted = Date.now();
+  if (!phaseOver(crawlDeadline)) {
+    const first = d.runFirstCrawl
+      ? await d.runFirstCrawl(d.tregBudgetUsd, d.geminiBudgetMicro - gemini.spent, crawlDeadline)
+      : await runHarvestFirstCrawl({
+          deadlineAt: crawlDeadline,
+          tregBudgetUsd: d.tregBudgetUsd,
+          geminiBudgetMicro: Math.max(0, d.geminiBudgetMicro - gemini.spent),
+          tregSpentUsd: d.tregSpent,
+          postsPerCall: 2,
+          hasModel: d.hasModel,
+        }).then((result) => {
+          gemini.spent += result.geminiSpendMicro;
+          return { completed: result.completedPosts };
+        });
+    base.firstCrawlCompleted = first.completed;
+  }
+  base.phases.firstCrawlMs = Date.now() - crawlStarted;
 
+  const listed = await d.listPosts({ commentHarvest: true, limit: 5000 });
+  posts = listed.map((post) => tracked.get(post.id) || post);
+  for (const post of posts) {
+    const fields = initialMonitorFields(post, d.now);
+    if (!fields) continue;
+    const saved = remember(await d.upsertPost({ ...post, ...fields }));
+    const index = posts.findIndex((item) => item.id === post.id);
+    if (index >= 0) posts[index] = saved;
+    base.backfilled += 1;
+  }
+
+  const checksStarted = Date.now();
   const official = await d.listOfficialAccounts();
-  const posts = await d.listPosts({ commentHarvest: true, limit: 5000 });
   const due = selectDuePosts(posts, d.now, d.dueLimit);
   const seenDue = new Set(due.map((post) => post.id));
   const queue = [...resurfaced.filter((post) => post.firstFullCrawlCompletedAt && !seenDue.has(post.id)), ...due];
 
+  let stop: MonitorCycleResult["stopped"] | null = null;
   for (const start of queue) {
     stop = over();
-    if (stop) return finish(stop);
+    if (stop) {
+      base.phases.checksMs = Date.now() - checksStarted;
+      return finish(stop);
+    }
     let post = posts.find((item) => item.id === start.id) || start;
     const detail = await d.fetchDetail(post);
     if (!detail) {
@@ -358,13 +446,13 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
         now: d.now,
         elevatedReplyMonitor: false,
       });
-      post = await d.upsertPost({
+      post = remember(await d.upsertPost({
         ...post,
         monitoringState: schedule.state,
         nextCommentCheckAt: schedule.nextCheckAt,
         lastActivityAt: schedule.lastActivityAt,
         lastCommentCheckAt: new Date(d.now).toISOString(),
-      });
+      }));
       base.checked += 1;
       continue;
     }
@@ -382,7 +470,7 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
         now: d.now,
         elevatedReplyMonitor: elevated,
       });
-      await d.upsertPost({
+      remember(await d.upsertPost({
         ...post,
         ...nextCounts,
         commentCount: nextCounts.commentCount,
@@ -392,7 +480,7 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
         lastActivityAt: schedule.lastActivityAt,
         lastCommentCheckAt: new Date(d.now).toISOString(),
         consecutiveUnchangedChecks: (post.consecutiveUnchangedChecks || 0) + 1,
-      });
+      }));
       base.checked += 1;
       base.unchanged += 1;
       continue;
@@ -519,7 +607,7 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
       resurgence: true,
       elevatedReplyMonitor: needsElevatedReplyMonitor(stored),
     });
-    await d.upsertPost({
+    remember(await d.upsertPost({
       ...post,
       viewCount: nextCounts.viewCount,
       likeCount: nextCounts.likeCount,
@@ -535,10 +623,11 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
       lastNewCommentAt: added > 0 ? new Date(d.now).toISOString() : post.lastNewCommentAt,
       lastCommentCheckAt: new Date(d.now).toISOString(),
       consecutiveUnchangedChecks: 0,
-    });
+    }));
     base.checked += 1;
   }
 
+  base.phases.checksMs = Date.now() - checksStarted;
   await persistMonitorCursor();
   return finish(over() || "done");
 }

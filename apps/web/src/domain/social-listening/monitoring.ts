@@ -28,6 +28,100 @@ export const MONITOR_INTERVAL_MS: Record<MonitoringState, number> = {
 
 export const MONITOR_RUNS_PER_DAY = 24 / 3;
 
+/** Discovery stops here so first crawl and due checks still fit in the same run. */
+export const DISCOVERY_WINDOW_FRACTION = 0.38;
+/** First crawl stops here. Phase B keeps the rest of the window. */
+export const FIRST_CRAWL_WINDOW_FRACTION = 0.6;
+
+export function phaseDeadline(startMs: number, deadlineAt: number, fraction: number): number {
+  const span = Math.max(0, deadlineAt - startMs);
+  return startMs + Math.round(span * fraction);
+}
+
+export interface DiscoveryQueryCursor {
+  queryId: string;
+  platform: string;
+  /** Results already handled on this query. The next run skips them. */
+  skipResults: number;
+  done: boolean;
+}
+
+/**
+ * Continues a discovery sweep. A half-finished query stays first.
+ * When every query is done, the sweep restarts from the front.
+ */
+export function planDiscoveryQueries<T extends { id: string; platform: string }>(
+  queries: T[],
+  cursor: DiscoveryQueryCursor[] | undefined,
+  limit: number
+): { queries: Array<T & { skipResults: number }>; cursor: DiscoveryQueryCursor[] } {
+  const byId = new Map((cursor || []).map((item) => [item.queryId, item]));
+  const enabledIds = new Set(queries.map((query) => query.id));
+  const remembered = (cursor || []).filter((item) => enabledIds.has(item.queryId));
+  const allDone = queries.length > 0 && queries.every((query) => byId.get(query.id)?.done);
+  const active = allDone ? [] : remembered;
+  const activeById = new Map(active.map((item) => [item.queryId, item]));
+  const pending = queries.filter((query) => !activeById.get(query.id)?.done);
+  const partial = pending.find((query) => (activeById.get(query.id)?.skipResults || 0) > 0);
+  const ordered = partial ? [partial, ...pending.filter((query) => query.id !== partial.id)] : pending;
+  return {
+    queries: ordered.slice(0, Math.max(0, limit)).map((query) => ({
+      ...query,
+      skipResults: activeById.get(query.id)?.skipResults || 0,
+    })),
+    cursor: active,
+  };
+}
+
+export function advanceDiscoveryCursor(cursor: DiscoveryQueryCursor[], update: DiscoveryQueryCursor): DiscoveryQueryCursor[] {
+  return [...cursor.filter((item) => item.queryId !== update.queryId), update];
+}
+
+/**
+ * Fills a missing monitor schedule from the newest activity we already stored.
+ * A post that has never been checked is due now, so the first Phase B can select it.
+ */
+export function initialMonitorFields(post: {
+  firstSeenAt: string;
+  publishedAt?: string;
+  lastActivityAt?: string;
+  lastNewCommentAt?: string;
+  newestCommentCreatedAt?: string;
+  lastCommentCheckAt?: string;
+  monitoringState?: MonitoringState;
+  nextCommentCheckAt?: string;
+}, now: number): { monitoringState: MonitoringState; nextCommentCheckAt: string; lastActivityAt: string } | null {
+  if (post.monitoringState && post.nextCommentCheckAt) return null;
+  const schedule = resolveMonitorSchedule({
+    discoveredAt: post.firstSeenAt,
+    lastActivityAt: post.lastActivityAt || post.lastNewCommentAt || post.newestCommentCreatedAt || post.publishedAt,
+    now,
+  });
+  return {
+    monitoringState: schedule.state,
+    nextCommentCheckAt: post.lastCommentCheckAt ? schedule.nextCheckAt : new Date(now).toISOString(),
+    lastActivityAt: schedule.lastActivityAt,
+  };
+}
+
+export function monitoringStateDistribution(
+  posts: Array<{ monitoringState?: MonitoringState }>
+): Record<MonitoringState, number> {
+  const counts: Record<MonitoringState, number> = {
+    NEW: 0,
+    HOT: 0,
+    WARM: 0,
+    COOLING: 0,
+    QUIET: 0,
+    DORMANT: 0,
+    LONG_DORMANT: 0,
+  };
+  for (const post of posts) {
+    if (post.monitoringState && counts[post.monitoringState] != null) counts[post.monitoringState] += 1;
+  }
+  return counts;
+}
+
 const STATE_PRIORITY: Record<MonitoringState, number> = {
   NEW: 0,
   HOT: 1,

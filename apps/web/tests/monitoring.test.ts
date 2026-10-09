@@ -4,12 +4,17 @@ import { describe, expect, it } from "vitest";
 import {
   BACKLOG_MONITOR_MIX,
   CURRENT_MONITOR_MIX,
+  DISCOVERY_WINDOW_FRACTION,
+  FIRST_CRAWL_WINDOW_FRACTION,
   deltaWalkDecision,
   estimateLegacyReclassifyUsd,
   expectedDailyMonitorUsd,
+  initialMonitorFields,
   MONITOR_INTERVAL_MS,
   monitoringStateAt,
   needsElevatedReplyMonitor,
+  phaseDeadline,
+  planDiscoveryQueries,
   resolveMonitorSchedule,
   searchHitResurfaces,
   selectDuePosts,
@@ -126,6 +131,7 @@ function cycle(input: {
   page?: (query: CommentPageQuery) => Promise<CommentPageResult>;
   discovery?: () => Promise<{ newPosts: number; resurfaced: Post[] }>;
   spent?: () => number;
+  deadlineAt?: number;
 }) {
   const posts = input.posts || [];
   const comments = input.comments || [];
@@ -133,17 +139,19 @@ function cycle(input: {
   const snapshots: string[] = [];
   const classified: string[][] = [];
   let listener: SocialListenerState = { lastDigestAt: "2026-01-01T00:00:00.000Z", cursors: { lastMonitorAt: ago(3 * HOUR) } };
-  const discoveryCalls: Array<{ since?: string; budgetUsd: number }> = [];
+  const discoveryCalls: Array<{ since?: string; budgetUsd: number; deadlineAt: number }> = [];
+  const crawlDeadlines: number[] = [];
   return {
     saved,
     snapshots,
     classified,
     listener: () => listener,
     discoveryCalls,
+    crawlDeadlines,
     run: () =>
       runMonitorCycle({
         now: NOW,
-        deadlineAt: NOW + 60_000,
+        deadlineAt: input.deadlineAt ?? Date.now() + 240_000,
         getBalance: async () => (input.balance === undefined ? 25 : input.balance),
         tregSpentUsd: input.spent || (() => 0),
         hasModel: () => false,
@@ -185,7 +193,10 @@ function cycle(input: {
           discoveryCalls.push(args);
           return input.discovery ? input.discovery() : { newPosts: 0, resurfaced: [] };
         },
-        runFirstCrawl: async () => ({ completed: 0 }),
+        runFirstCrawl: async (_budget, _gemini, deadlineAt) => {
+          crawlDeadlines.push(deadlineAt);
+          return { completed: 0 };
+        },
       }),
   };
 }
@@ -601,6 +612,126 @@ describe("admin tasks", () => {
     expect(estimateLegacyReclassifyUsd({ comments: 1781, noiseFraction: 0 })).toBe(0.3024);
     expect(expectedDailyMonitorUsd({ postsByState: CURRENT_MONITOR_MIX })).toBe(0.14);
     expect(expectedDailyMonitorUsd({ postsByState: BACKLOG_MONITOR_MIX, newPostsPerDay: 4 })).toBe(0.85);
+  });
+});
+
+describe("deadline budget and state backfill", () => {
+  it("keeps discovery to about 38% of the window and first crawl to 60%", () => {
+    expect(DISCOVERY_WINDOW_FRACTION).toBeGreaterThanOrEqual(0.35);
+    expect(DISCOVERY_WINDOW_FRACTION).toBeLessThanOrEqual(0.4);
+    expect(phaseDeadline(1_000, 241_000, DISCOVERY_WINDOW_FRACTION)).toBe(1_000 + 91_200);
+    expect(phaseDeadline(1_000, 241_000, FIRST_CRAWL_WINDOW_FRACTION)).toBe(1_000 + 144_000);
+  });
+
+  it("resumes the unfinished query and restarts a finished sweep", () => {
+    const queries = [
+      { id: "a", platform: "tiktok" },
+      { id: "b", platform: "instagram" },
+      { id: "c", platform: "reddit" },
+    ];
+    const resumed = planDiscoveryQueries(
+      queries,
+      [
+        { queryId: "a", platform: "tiktok", skipResults: 2, done: false },
+        { queryId: "b", platform: "instagram", skipResults: 0, done: true },
+      ],
+      2
+    );
+    expect(resumed.queries.map((query) => [query.id, query.skipResults])).toEqual([
+      ["a", 2],
+      ["c", 0],
+    ]);
+
+    const restart = planDiscoveryQueries(
+      queries,
+      queries.map((query) => ({ queryId: query.id, platform: query.platform, skipResults: 0, done: true })),
+      2
+    );
+    expect(restart.cursor).toEqual([]);
+    expect(restart.queries.map((query) => query.id)).toEqual(["a", "b"]);
+  });
+
+  it("fills a null schedule from the newest comment and leaves a scheduled post alone", () => {
+    const quiet = initialMonitorFields(
+      {
+        firstSeenAt: ago(40 * DAY),
+        newestCommentCreatedAt: ago(40 * DAY),
+      },
+      NOW
+    );
+    expect(quiet?.monitoringState).toBe("LONG_DORMANT");
+    expect(quiet?.nextCommentCheckAt).toBe(new Date(NOW).toISOString());
+    expect(quiet?.lastActivityAt).toBe(ago(40 * DAY));
+
+    const checked = initialMonitorFields(
+      {
+        firstSeenAt: ago(20 * DAY),
+        lastActivityAt: ago(10 * DAY),
+        lastCommentCheckAt: ago(DAY),
+      },
+      NOW
+    );
+    expect(checked?.monitoringState).toBe("QUIET");
+    expect(Date.parse(checked?.nextCommentCheckAt || "") - NOW).toBe(DAY);
+
+    expect(
+      initialMonitorFields(
+        {
+          firstSeenAt: ago(DAY),
+          monitoringState: "HOT",
+          nextCommentCheckAt: new Date(NOW + HOUR).toISOString(),
+        },
+        NOW
+      )
+    ).toBeNull();
+  });
+
+  it("passes those phase deadlines into one monitor call and still checks due posts", async () => {
+    const start = Date.now();
+    const windowMs = 240_000;
+    const run = cycle({
+      posts: [post({ id: "due" })],
+      deadlineAt: start + windowMs,
+    });
+    const result = await run.run();
+    const discoveryAt = run.discoveryCalls[0]?.deadlineAt || 0;
+    const crawlAt = run.crawlDeadlines[0] || 0;
+    expect((discoveryAt - start) / windowMs).toBeGreaterThan(0.35);
+    expect((discoveryAt - start) / windowMs).toBeLessThan(0.42);
+    expect((crawlAt - start) / windowMs).toBeGreaterThan(0.55);
+    expect((crawlAt - start) / windowMs).toBeLessThan(0.65);
+    expect(result.checked).toBe(1);
+    expect(result.phases.checksMs).toBeGreaterThanOrEqual(0);
+    expect(result.stateDistribution.LONG_DORMANT).toBe(1);
+  });
+
+  it("backfills null monitor state even when the run is already past its deadline", async () => {
+    const bare = post({
+      id: "bare",
+      monitoringState: undefined,
+      nextCommentCheckAt: undefined,
+      lastActivityAt: undefined,
+      newestCommentCreatedAt: ago(40 * DAY),
+    });
+    let details = 0;
+    const run = cycle({
+      posts: [bare],
+      deadlineAt: Date.now() - 1_000,
+      detail: (item) => {
+        details += 1;
+        return detailOf(item);
+      },
+    });
+    const result = await run.run();
+    expect(result.stopped).toBe("deadline");
+    expect(result.backfilled).toBeGreaterThanOrEqual(1);
+    expect(result.discovered).toBe(0);
+    expect(run.discoveryCalls).toEqual([]);
+    expect(details).toBe(0);
+    expect(result.checked).toBe(0);
+    expect(run.saved[0]?.monitoringState).toBe("LONG_DORMANT");
+    expect(run.saved[0]?.nextCommentCheckAt).toBe(new Date(NOW).toISOString());
+    expect(result.stateDistribution.LONG_DORMANT).toBe(1);
   });
 });
 

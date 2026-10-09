@@ -667,9 +667,25 @@ function parseListenerCursors(value: unknown): SocialListenerState["cursors"] {
         commentIndex: Number(item.commentIndex) || 0,
       };
     }
+    const discoveryRaw = record.discovery;
+    const discovery = Array.isArray(discoveryRaw)
+      ? discoveryRaw.flatMap((item) => {
+          const row = item && typeof item === "object" && !Array.isArray(item) ? (item as Record<string, unknown>) : null;
+          if (!row || typeof row.queryId !== "string") return [];
+          return [
+            {
+              queryId: row.queryId,
+              platform: typeof row.platform === "string" ? row.platform : "other",
+              skipResults: Number(row.skipResults) || 0,
+              done: Boolean(row.done),
+            },
+          ];
+        })
+      : undefined;
     return {
       lastMonitorAt: typeof record.lastMonitorAt === "string" ? record.lastMonitorAt : undefined,
       igReplyBackfill,
+      discovery,
     };
   } catch {
     return undefined;

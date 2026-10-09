@@ -25,6 +25,12 @@ import {
   resolveMaxReplyParents,
   withCommentSync,
 } from "@/domain/social-listening/comment-sync";
+import {
+  advanceDiscoveryCursor,
+  planDiscoveryQueries,
+  resolveMonitorSchedule,
+  type DiscoveryQueryCursor,
+} from "@/domain/social-listening/monitoring";
 import { Post, Comment, SearchRun, ActivityState } from "@/domain/social-listening/types";
 import type { TregSearchResultItem } from "@/server/social/providers/types";
 
@@ -93,6 +99,10 @@ export class DiscoveryPipelineService {
     since?: string;
     /** Monitor shares one Treg meter. Discovery must not zero it. */
     resetCost?: boolean;
+    /** Stop before the next query or result once this time is reached. */
+    deadlineAt?: number;
+    /** Resume a sweep. Absent on the legacy scheduler path. */
+    cursor?: DiscoveryQueryCursor[];
     /** Existing post, before this hit overwrites its counts. */
     onExisting?: (
       post: Post,
@@ -104,24 +114,55 @@ export class DiscoveryPipelineService {
     newPostsCount: number;
     relevantPostsCount: number;
     costUsd: number;
+    discoveryCursor: DiscoveryQueryCursor[];
+    stoppedEarly: boolean;
   }> {
     if (options?.resetCost !== false) tregClient.resetCycleCost();
     const budget = options?.cycleBudgetUsd ?? resolveCycleBudgetUsd();
+    const trackCursor = options?.deadlineAt != null;
 
     const allQueries = await this.repo.listQueries(true);
-    const targetQueries = options?.queryId
-      ? allQueries.filter((q) => q.id === options.queryId)
-      : selectQueriesForCycle(allQueries, resolveMaxQueriesPerCycle(options?.maxQueries));
+    const maxQueries = resolveMaxQueriesPerCycle(options?.maxQueries);
+    let workingCursor: DiscoveryQueryCursor[] = options?.cursor || [];
+    let targetQueries: Array<(typeof allQueries)[number] & { skipResults: number }>;
+    if (options?.queryId) {
+      targetQueries = allQueries
+        .filter((query) => query.id === options.queryId)
+        .map((query) => ({ ...query, skipResults: 0 }));
+    } else if (trackCursor) {
+      const ordered = [...allQueries].sort((a, b) => {
+        const aRun = a.lastRunAt ? Date.parse(a.lastRunAt) : 0;
+        const bRun = b.lastRunAt ? Date.parse(b.lastRunAt) : 0;
+        if (aRun !== bRun) return aRun - bRun;
+        return a.id.localeCompare(b.id);
+      });
+      const planned = planDiscoveryQueries(ordered, workingCursor, maxQueries);
+      workingCursor = planned.cursor;
+      targetQueries = planned.queries;
+    } else {
+      targetQueries = selectQueriesForCycle(allQueries, maxQueries).map((query) => ({ ...query, skipResults: 0 }));
+    }
 
     const runs: SearchRun[] = [];
     let totalNew = 0;
     let totalRel = 0;
+    let stoppedEarly = false;
     const officialAccounts = await this.repo.listOfficialAccounts();
+    const pastDeadline = () => options?.deadlineAt != null && Date.now() >= options.deadlineAt;
 
     for (const q of targetQueries) {
-      if (tregClient.getCycleCostUsd() >= budget) {
+      if (pastDeadline() || tregClient.getCycleCostUsd() >= budget) {
+        stoppedEarly = true;
+        if (trackCursor) {
+          workingCursor = advanceDiscoveryCursor(workingCursor, {
+            queryId: q.id,
+            platform: q.platform,
+            skipResults: q.skipResults,
+            done: false,
+          });
+        }
         console.warn(
-          `[Pipeline] Stopping discovery — cycle budget $${budget} reached (spent $${tregClient.getCycleCostUsd().toFixed(4)})`
+          `[Pipeline] Stopping discovery — ${pastDeadline() ? "phase deadline" : `cycle budget $${budget}`} (spent $${tregClient.getCycleCostUsd().toFixed(4)})`
         );
         break;
       }
@@ -140,12 +181,25 @@ export class DiscoveryPipelineService {
         );
         let runNew = 0;
         let runRel = 0;
+        let incomplete = false;
+        let nextSkip = q.skipResults;
 
         let processed = 0;
         const maxProcessPerQuery = 6;
-        for (const item of rawResults) {
-          if (tregClient.getCycleCostUsd() >= budget) break;
-          if (processed >= maxProcessPerQuery) break;
+        for (let index = 0; index < rawResults.length; index += 1) {
+          if (index < q.skipResults) continue;
+          if (pastDeadline() || tregClient.getCycleCostUsd() >= budget) {
+            incomplete = true;
+            stoppedEarly = true;
+            nextSkip = index;
+            break;
+          }
+          if (processed >= maxProcessPerQuery) {
+            nextSkip = index;
+            break;
+          }
+          const item = rawResults[index];
+          nextSkip = index + 1;
 
           const parsed = parseAndNormalizePostIdentifier(item.url || item.contentId, item.platform);
           if (!parsed) continue;
@@ -181,6 +235,11 @@ export class DiscoveryPipelineService {
               runRel++;
             }
 
+            const schedule = resolveMonitorSchedule({
+              discoveredAt: now,
+              lastActivityAt: item.publishedAt,
+              now: Date.parse(now),
+            });
             let newPost: Post = {
               id: `post_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
               canonicalId: parsed.canonicalId,
@@ -210,6 +269,9 @@ export class DiscoveryPipelineService {
               lastCommentCount: item.commentCount,
               lastViewCount: item.viewCount,
               activityState: "NEW",
+              monitoringState: schedule.state,
+              nextCommentCheckAt: now,
+              lastActivityAt: schedule.lastActivityAt,
               relevanceScore: relVerdict.confidence,
               relevanceStatus: relVerdict.relevanceStatus,
               relevanceReason: relVerdict.reason,
@@ -308,11 +370,20 @@ export class DiscoveryPipelineService {
         };
 
         await this.repo.recordSearchRun(runRecord);
-        await this.repo.updateQueryLastRun(q.id, startedAt);
+        if (!trackCursor || !incomplete) await this.repo.updateQueryLastRun(q.id, startedAt);
+        if (trackCursor) {
+          workingCursor = advanceDiscoveryCursor(workingCursor, {
+            queryId: q.id,
+            platform: q.platform,
+            skipResults: incomplete ? nextSkip : 0,
+            done: !incomplete,
+          });
+        }
         runs.push(runRecord);
 
         totalNew += runNew;
         totalRel += runRel;
+        if (incomplete) break;
       } catch (err: any) {
         const errorRun: SearchRun = {
           id: runId,
@@ -327,8 +398,18 @@ export class DiscoveryPipelineService {
           error: err.message,
         };
         await this.repo.recordSearchRun(errorRun);
-        await this.repo.updateQueryLastRun(q.id, startedAt);
+        if (!trackCursor) await this.repo.updateQueryLastRun(q.id, startedAt);
+        if (trackCursor) {
+          stoppedEarly = true;
+          workingCursor = advanceDiscoveryCursor(workingCursor, {
+            queryId: q.id,
+            platform: q.platform,
+            skipResults: q.skipResults,
+            done: false,
+          });
+        }
         runs.push(errorRun);
+        if (pastDeadline()) break;
       }
     }
 
@@ -337,6 +418,8 @@ export class DiscoveryPipelineService {
       newPostsCount: totalNew,
       relevantPostsCount: totalRel,
       costUsd: tregClient.getCycleCostUsd(),
+      discoveryCursor: workingCursor,
+      stoppedEarly,
     };
   }
 
