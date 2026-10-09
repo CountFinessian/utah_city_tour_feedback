@@ -1,16 +1,31 @@
 name: Social Pulse listener
 
 # Hobby Vercel only allows one cron/day. This workflow drives listening against production.
+#
+# GitHub reads cron only from the default branch. A UI re-enable does not
+# re-register a schedule that changed while the workflow was disabled.
+# The last schedule events (2026-10-08) still ran commit 09b64b0 (`0 */3` and
+# `30 */6`) and then stopped. After #15 replaced that with `17 */3` and the
+# workflow was re-enabled at 2026-10-09 05:24 UTC, the 06:17 and 09:17 UTC
+# runs never started. workflow_dispatch kept working. Touching this file
+# re-registers the schedule. The :47 nudge covers a dropped :17 slot.
 on:
   schedule:
-    # Continuous monitor every 3 hours, off the hour so it does not pile onto other jobs.
+    # Every 3 hours, off the top of the hour. UTC.
     - cron: "17 */3 * * *"
+    # 90 minutes later (01:47, 04:47, … UTC) if the :17 slot is delayed or dropped.
+    - cron: "47 1-23/3 * * *"
   workflow_dispatch:
     inputs:
       mode:
         description: "monitor | discover | comments | full"
         required: false
         default: "monitor"
+
+# A late :17 run and the :47 nudge must not post two monitor cycles at once.
+concurrency:
+  group: social-pulse-listener
+  cancel-in-progress: true
 
 jobs:
   run-cycle:

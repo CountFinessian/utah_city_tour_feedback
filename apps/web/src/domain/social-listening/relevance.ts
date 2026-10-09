@@ -12,8 +12,11 @@ import type { Platform, RelevanceStatus } from "./types";
  * 4 — proper-noun Utah City only. Generic "Utah city/cities", bare Vineyard,
  *     and unnamed "matches characteristics" keeps are rejected. Reeval
  *     rechecks every post stored under an older version.
+ * 5 — reeval rejects a stored row whose URL host does not match its platform,
+ *     a Facebook row that is not facebook.com or fb.watch, an undated
+ *     non-official Facebook row, or an instagram.com/popular page.
  */
-export const RELEVANCE_VERSION = 4;
+export const RELEVANCE_VERSION = 5;
 
 const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{6,}$/;
 
@@ -23,6 +26,60 @@ export function postNeedsRelevanceRecheck(
   version = RELEVANCE_VERSION
 ): boolean {
   return (post.relevanceVersion ?? 0) < version;
+}
+
+const HOST_BY_PLATFORM: Record<string, RegExp> = {
+  facebook: /^(?:.+\.)?(?:facebook\.com|fb\.watch)$/,
+  instagram: /^(?:.+\.)?instagram\.com$/,
+  tiktok: /^(?:.+\.)?tiktok\.com$/,
+  youtube: /^(?:.+\.)?(?:youtube\.com|youtu\.be)$/,
+  x: /^(?:.+\.)?(?:x\.com|twitter\.com)$/,
+  reddit: /^(?:.+\.)?reddit\.com$/,
+  linkedin: /^(?:.+\.)?linkedin\.com$/,
+};
+
+export function urlHostname(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** facebook.com and fb.watch, including m. and www. hosts. Other sites are not posts. */
+export function isFacebookContentUrl(url: string | undefined): boolean {
+  const host = urlHostname(url);
+  return Boolean(host && HOST_BY_PLATFORM.facebook.test(host));
+}
+
+/**
+ * Stored-row reject for relevance-reeval. Wrong hosts (a Facebook row whose URL is
+ * utahcity.com, ksl.com, an app store, or instagram.com/popular) and undated
+ * non-official Facebook rows are not posts. Official Facebook posts may omit a date.
+ * Returns the reason to log, or null when the row can be classified.
+ */
+export function storedPostUrlRejection(post: {
+  platform?: string;
+  url?: string;
+  publishedAt?: string | null;
+  isOfficialSource?: boolean;
+  relevanceStatus?: string;
+}): string | null {
+  const platform = post.platform || "";
+  const host = urlHostname(post.url);
+  const allowed = HOST_BY_PLATFORM[platform];
+  if (!host || (allowed && !allowed.test(host))) {
+    return `URL host ${host || "(missing)"} does not match platform ${platform}.`;
+  }
+  if (platform === "instagram" && /\/popular\//i.test(post.url || "")) {
+    return "Instagram /popular/ page is not a post.";
+  }
+  const official = post.isOfficialSource || post.relevanceStatus === "official_comment_source";
+  if (platform === "facebook" && !post.publishedAt && !official) {
+    return "Facebook search result has no publish date.";
+  }
+  return null;
 }
 
 export function youtubeVideoIdFromUrl(url: string | undefined): string | null {
