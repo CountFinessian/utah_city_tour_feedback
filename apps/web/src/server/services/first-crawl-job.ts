@@ -10,12 +10,15 @@ import { parseAndNormalizeCommentIdentifier } from "@/domain/social-listening/de
 import {
   ACCEPTANCE_AUTHOR,
   ACCEPTANCE_CONTENT_ID,
+  ACCEPTANCE_COVERAGE,
   ACCEPTANCE_PLATFORM,
   ACCEPTANCE_URL,
   expectedFirstCrawlUsd,
+  hiddenOrDeletedCount,
   incrementalStrategyFor,
   meetsAcceptanceBar,
-  noteNewestComment,
+  newestStoredComment,
+  nextReplyCursor,
   postNeedsFirstCrawl,
 } from "@/domain/social-listening/first-crawl";
 import { isOfficialAuthor, type OfficialAccountRef } from "@/domain/social-listening/relevance";
@@ -25,12 +28,32 @@ import { hasLLM } from "@/server/ai/model-config";
 import { classifyComments } from "@/server/intelligence/sentiment-classifier";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
 import { providerFor } from "@/server/social/providers";
+import { tiktokReplyCount } from "@/server/social/providers/tiktok";
 import type { CommentPageResult, TregCommentItem, TregSearchResultItem } from "@/server/social/providers/types";
 import { tregClient, type CommentPageQuery } from "@/server/services/treg-client";
 
 export const FIRST_CRAWL_TREG_BUDGET_USD = 0.5;
 export const FIRST_CRAWL_GEMINI_BUDGET_MICRO = 50_000;
 export const FIRST_CRAWL_POSTS_PER_CALL = 3;
+/** 166 parents with several reply pages still finishes inside one call. Spend caps still stop the walk. */
+const FIRST_CRAWL_LOOP_GUARD = 4000;
+
+interface ReplyCoverage {
+  commentId: string;
+  expected: number;
+  fetched: number;
+}
+
+interface CrawlOutcome {
+  post: Post;
+  added: number;
+  dropped: number;
+  replies: number;
+  stopped: HarvestStop | null;
+  duplicatesSkipped: number;
+  hiddenOrDeleted: number | null;
+  replyParents: ReplyCoverage[];
+}
 
 export type HarvestStop = "done" | "deadline" | "treg_budget" | "gemini_budget" | "error";
 
@@ -71,7 +94,11 @@ export interface AcceptanceTestResult {
   storedReplies: number;
   stored: number;
   dropped: number;
+  duplicatesSkipped: number;
+  /** Unique persisted rows. Dropped comments are already included in `stored`. */
   accounted: number;
+  hiddenOrDeleted: number | null;
+  replyParents: Array<{ commentId: string; expected: number; fetched: number }>;
   newestCommentId?: string;
   newestCommentCreatedAt?: string;
   repliesCaptured: boolean;
@@ -159,7 +186,7 @@ async function crawlOnePost(
   limits: ReturnType<typeof limitsOf>,
   officialAccounts: OfficialAccountRef[],
   gemini: { spent: number }
-): Promise<{ post: Post; added: number; dropped: number; replies: number; stopped: HarvestStop | null }> {
+): Promise<CrawlOutcome> {
   const repo = getSocialRepository();
   const upsertPost = options.upsertPost ?? ((post: Post) => repo.upsertPost(post));
   const listComments = options.listComments ?? ((postId: string) => repo.listComments({ postId, limit: 20000 }));
@@ -176,16 +203,102 @@ async function crawlOnePost(
   state = { ...state, ordering: ordering ?? state.ordering, incremental: incremental ?? state.incremental };
   const existing = await listComments(post.id);
   const known = new Set(existing.map((comment) => comment.canonicalId));
-  let newest: { id?: string; at?: string } = { id: post.newestCommentId, at: post.newestCommentCreatedAt };
+  const commentByCanonical = new Map(existing.map((comment) => [comment.canonicalId, comment]));
+  const storedTimes: Array<{ platformCommentId: string; createdAt?: string }> = existing.map((comment) => ({
+    platformCommentId: comment.platformCommentId,
+    createdAt: comment.createdAt,
+  }));
+  const expectedReplies = new Map<string, number>();
+  const fetchedReplies = new Map<string, number>();
+  const exhaustedParents = new Set<string>();
+  const commentRaws: Array<Record<string, unknown> | undefined> = [];
+  const replyCountPatches: Comment[] = [];
+  let newest: { id?: string; at?: string } = {};
   let droppedTotal = post.droppedLowSignalCount || 0;
   let added = 0;
   let droppedAdded = 0;
   let repliesAdded = 0;
+  let duplicatesSkipped = 0;
+  let hiddenOrDeleted: number | null = null;
   let stopped: HarvestStop | null = null;
 
+  const noteExpected = (commentId: string, count: number) => {
+    if (!commentId || count <= 0) return;
+    expectedReplies.set(commentId, Math.max(expectedReplies.get(commentId) || 0, count));
+  };
+  const noteFetched = (parentId: string | undefined, count = 1) => {
+    if (!parentId || count <= 0) return;
+    fetchedReplies.set(parentId, (fetchedReplies.get(parentId) || 0) + count);
+  };
+  const noteHidden = (value: number | undefined) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return;
+    hiddenOrDeleted = hiddenOrDeleted == null ? value : Math.max(hiddenOrDeleted, value);
+  };
+  const raiseStoredReplyCount = (canonicalId: string, replyCount: number) => {
+    const prior = commentByCanonical.get(canonicalId);
+    if (!prior || prior.parentCommentId || replyCount <= prior.replyCount) return;
+    prior.replyCount = replyCount;
+    replyCountPatches.push(prior);
+  };
+
+  for (const comment of existing) {
+    commentRaws.push(comment.rawProviderData);
+    if (comment.parentCommentId) {
+      noteFetched(comment.parentCommentId);
+      continue;
+    }
+    const recovered = post.platform === "tiktok" ? tiktokReplyCount(comment.rawProviderData) : 0;
+    const count = Math.max(comment.replyCount || 0, recovered);
+    if (count > (comment.replyCount || 0)) raiseStoredReplyCount(comment.canonicalId, count);
+    noteExpected(comment.platformCommentId, count);
+  }
+  if (replyCountPatches.length) await bulkUpsertComments(replyCountPatches.splice(0));
+
+  const shortParentIds = () =>
+    [...expectedReplies.entries()]
+      .filter(([id, expected]) => (fetchedReplies.get(id) || 0) < expected && !exhaustedParents.has(id))
+      .map(([id]) => id);
+
+  const topReplyParents = (): ReplyCoverage[] =>
+    [...expectedReplies.entries()]
+      .map(([commentId, expected]) => ({
+        commentId,
+        expected,
+        fetched: fetchedReplies.get(commentId) || 0,
+      }))
+      .sort((a, b) => b.expected - a.expected || a.commentId.localeCompare(b.commentId))
+      .slice(0, 10);
+
+  const ensureReplyQueue = () => {
+    if (state.replyCursor) return;
+    for (const id of shortParentIds()) {
+      const index = state.pendingReplyParents.indexOf(id);
+      if (index === -1 || index < state.replyParentIndex) state.pendingReplyParents.push(id);
+    }
+  };
+
+  const outcome = (): CrawlOutcome => ({
+    post,
+    added,
+    dropped: droppedAdded,
+    replies: repliesAdded,
+    stopped,
+    duplicatesSkipped,
+    hiddenOrDeleted: hiddenOrDeleted ?? hiddenOrDeletedCount(undefined, commentRaws),
+    replyParents: topReplyParents(),
+  });
+
   const persist = async (complete: boolean) => {
+    const pick = newestStoredComment(storedTimes);
+    newest = pick;
     const now = new Date().toISOString();
-    const nextState = { ...state, complete, updatedAt: now };
+    const nextState: CommentSyncState = {
+      ...state,
+      complete,
+      updatedAt: now,
+      newestCommentId: pick.id,
+      newestCommentCreatedAt: pick.at,
+    };
     const stamped = withCommentSync(post, nextState, complete ? now : undefined);
     post = await upsertPost({
       ...stamped,
@@ -203,12 +316,54 @@ async function crawlOnePost(
     state = readCommentSync(post) ?? nextState;
   };
 
+  const listed = post.commentCount || 0;
+  const underBar = listed > 0 && known.size < ACCEPTANCE_COVERAGE * listed;
+  if (post.firstFullCrawlCompletedAt && !state.cursor && state.phase !== "replies") {
+    const shorts = shortParentIds();
+    if (!shorts.length && !underBar) {
+      await persist(true);
+      return outcome();
+    }
+    if (shorts.length) {
+      state = {
+        ...state,
+        phase: "replies",
+        pendingReplyParents: shorts,
+        replyParentIndex: 0,
+        replyCursor: undefined,
+        complete: false,
+      };
+    } else if (!state.countsRefreshed) {
+      state = {
+        ...state,
+        phase: "comments",
+        cursor: undefined,
+        replyCursor: undefined,
+        replyParentIndex: 0,
+        pendingReplyParents: [],
+        pagesFetched: 0,
+        complete: false,
+        countsRefreshed: true,
+      };
+    } else {
+      await persist(true);
+      return outcome();
+    }
+  }
+
   const saveItems = async (items: TregCommentItem[], depth: number, parentId?: string): Promise<"ok" | "budget"> => {
     const seen = new Set<string>();
     const fresh = items.filter((item) => {
       if (!item.commentId) return false;
       const { canonicalId } = parseAndNormalizeCommentIdentifier(post.platform, item.commentId, post.id);
-      if (known.has(canonicalId) || seen.has(canonicalId)) return false;
+      if (known.has(canonicalId) || seen.has(canonicalId)) {
+        duplicatesSkipped += 1;
+        if (!item.parentCommentId && !parentId) {
+          noteExpected(item.commentId, item.replyCount);
+          raiseStoredReplyCount(canonicalId, item.replyCount);
+        }
+        return false;
+      }
       seen.add(canonicalId);
       return true;
     });
@@ -248,7 +403,10 @@ async function crawlOnePost(
       const { canonicalId, platformCommentId } = parseAndNormalizeCommentIdentifier(post.platform, item.commentId, post.id);
       const parentCommentId = item.parentCommentId || parentId;
       known.add(canonicalId);
-      newest = noteNewestComment(newest, { id: item.commentId, createdAt: item.createdAt });
+      storedTimes.push({ platformCommentId, createdAt: item.createdAt || now });
+      if (parentCommentId) noteFetched(parentCommentId);
+      else noteExpected(item.commentId, item.replyCount);
+      commentRaws.push(item.raw);
       comments.push({
         id: `comm_${Date.now()}_${comments.length}_${Math.random().toString(36).substring(2, 7)}`,
         canonicalId,
@@ -270,6 +428,7 @@ async function crawlOnePost(
         rawProviderData: item.raw,
         ...extra,
       });
+      commentByCanonical.set(canonicalId, comments[comments.length - 1]);
     };
 
     for (const item of drops) {
@@ -307,8 +466,9 @@ async function crawlOnePost(
       });
     });
 
-    if (parentId) repliesAdded += comments.length;
+    repliesAdded += comments.filter((comment) => comment.parentCommentId || (comment.threadDepth || 0) > 0).length;
     added += comments.length;
+    if (replyCountPatches.length) await bulkUpsertComments(replyCountPatches.splice(0));
     await bulkUpsertComments(comments);
     return "ok";
   };
@@ -316,20 +476,26 @@ async function crawlOnePost(
   const rememberParents = (items: TregCommentItem[]) => {
     for (const item of items) {
       if (!item.commentId || item.parentCommentId || item.replyCount <= 0) continue;
-      if (state.pendingReplyParents.includes(item.commentId)) continue;
-      state.pendingReplyParents.push(item.commentId);
+      noteExpected(item.commentId, item.replyCount);
+      const meta = state.replyMeta?.[item.commentId] || {};
       state.replyMeta = {
         ...(state.replyMeta || {}),
         [item.commentId]: {
-          feedbackId: item.feedbackId,
-          expansionToken: item.expansionToken,
-          replyContinuationToken: item.replyContinuationToken,
+          ...meta,
+          feedbackId: item.feedbackId || meta.feedbackId,
+          expansionToken: item.expansionToken || meta.expansionToken,
+          replyContinuationToken: item.replyContinuationToken || meta.replyContinuationToken,
+          expected: Math.max(meta.expected || 0, item.replyCount),
         },
       };
+      if (state.pendingReplyParents.includes(item.commentId) || exhaustedParents.has(item.commentId)) continue;
+      state.pendingReplyParents.push(item.commentId);
     }
   };
 
-  for (let guard = 0; guard < 500; guard += 1) {
+  ensureReplyQueue();
+
+  for (let guard = 0; guard < FIRST_CRAWL_LOOP_GUARD; guard += 1) {
     const limit = stopForLimits(options, limits, gemini.spent);
     if (limit) {
       stopped = limit;
@@ -346,23 +512,25 @@ async function crawlOnePost(
           cursor: state.cursor,
           phase: "comments",
         });
-        const outcome = await saveItems(page.comments, 0);
-        if (outcome === "budget") {
+        noteHidden(page.hiddenOrDeleted);
+        const pageOutcome = await saveItems(page.comments, 0);
+        if (pageOutcome === "budget") {
           stopped = "gemini_budget";
           await persist(false);
           break;
         }
         rememberParents(page.comments);
         const repeated = Boolean(page.nextCursor && page.nextCursor === state.cursor);
-        if (page.done || !page.nextCursor || repeated) {
+        if (!page.nextCursor || repeated) {
           state.cursor = undefined;
-          state.phase = state.pendingReplyParents.length > state.replyParentIndex ? "replies" : "comments";
-          if (state.phase === "comments") {
-            await persist(true);
-            break;
+          ensureReplyQueue();
+          if (state.pendingReplyParents.length > state.replyParentIndex) {
+            state.phase = "replies";
+            await persist(false);
+            continue;
           }
-          await persist(false);
-          continue;
+          await persist(true);
+          break;
         }
         state.cursor = page.nextCursor;
         state.pagesFetched += 1;
@@ -372,9 +540,23 @@ async function crawlOnePost(
 
       const parentId = state.pendingReplyParents[state.replyParentIndex];
       if (!parentId) {
-        await persist(true);
-        break;
+        ensureReplyQueue();
+        if (state.replyParentIndex >= state.pendingReplyParents.length) {
+          await persist(true);
+          break;
+        }
+        continue;
       }
+      const expected = expectedReplies.get(parentId) || state.replyMeta?.[parentId]?.expected || 0;
+      const have = fetchedReplies.get(parentId) || 0;
+      if (expected > 0 && have >= expected) {
+        exhaustedParents.add(parentId);
+        state.replyCursor = undefined;
+        state.replyParentIndex += 1;
+        await persist(false);
+        continue;
+      }
+      const requested = state.replyCursor;
       const meta = state.replyMeta?.[parentId];
       const page = await fetchPage({
         platform: post.platform,
@@ -387,22 +569,44 @@ async function crawlOnePost(
         expansionToken: meta?.expansionToken,
         replyContinuationToken: meta?.replyContinuationToken,
       });
-      const outcome = await saveItems(page.comments, 1, parentId);
-      if (outcome === "budget") {
+      noteHidden(page.hiddenOrDeleted);
+      const beforeKnown = known.size;
+      const pageOutcome = await saveItems(page.comments, 1, parentId);
+      if (pageOutcome === "budget") {
         stopped = "gemini_budget";
         await persist(false);
         break;
       }
-      const repeated = Boolean(page.nextCursor && page.nextCursor === state.replyCursor);
-      if (page.done || !page.nextCursor || repeated) {
-        state.replyCursor = undefined;
-        state.replyParentIndex += 1;
-        if (state.replyParentIndex >= state.pendingReplyParents.length) {
-          await persist(true);
-          break;
+      const addedNow = known.size - beforeKnown;
+      const haveAfter = fetchedReplies.get(parentId) || 0;
+      const expectedAfter = expectedReplies.get(parentId) || expected;
+      const follow = nextReplyCursor({
+        platform: post.platform,
+        requestedCursor: requested,
+        nextCursor: page.nextCursor,
+        expected: expectedAfter,
+        fetched: haveAfter,
+        added: addedNow,
+        pageSize: page.comments.length,
+      });
+      if (follow) {
+        state.replyCursor = follow;
+        if (state.replyMeta?.[parentId] && follow === String(haveAfter)) {
+          state.replyMeta = {
+            ...state.replyMeta,
+            [parentId]: { ...state.replyMeta[parentId], offsetTried: true },
+          };
         }
-      } else {
-        state.replyCursor = page.nextCursor;
+        await persist(false);
+        continue;
+      }
+      exhaustedParents.add(parentId);
+      state.replyCursor = undefined;
+      state.replyParentIndex += 1;
+      ensureReplyQueue();
+      if (state.replyParentIndex >= state.pendingReplyParents.length) {
+        await persist(true);
+        break;
       }
       await persist(false);
     } catch (err) {
@@ -413,7 +617,8 @@ async function crawlOnePost(
     }
   }
 
-  return { post, added, dropped: droppedAdded, replies: repliesAdded, stopped };
+  if (!post.firstFullCrawlCompletedAt && !stopped) await persist(false);
+  return outcome();
 }
 
 function summarize(post: Post, added: number, dropped: number, replies: number): FirstCrawlPostSummary {
@@ -544,14 +749,17 @@ export async function runAcceptanceTest(options: CrawlOptions = {}): Promise<Acc
 
   const outcome = await crawlOnePost(post, { ...options, upsertPost, listComments }, limits, officialAccounts, gemini);
   const comments = await listComments(outcome.post.id);
-  const droppedRows = comments.filter((comment) => comment.dropped);
-  const kept = comments.filter((comment) => !comment.dropped);
   const storedReplies = comments.filter((comment) => comment.parentCommentId || (comment.threadDepth || 0) > 0).length;
-  const storedTopLevel = comments.length - storedReplies;
+  const stored = comments.length;
+  const storedTopLevel = stored - storedReplies;
   const listedCommentCount = outcome.post.commentCount || listedFromDetail || 0;
-  const stored = kept.length;
-  const dropped = droppedRows.length;
+  const dropped = comments.filter((comment) => comment.dropped).length;
   const sync = readCommentSync(outcome.post);
+  const hiddenOrDeleted =
+    hiddenOrDeletedCount(
+      detail?.raw,
+      comments.map((comment) => comment.rawProviderData)
+    ) ?? outcome.hiddenOrDeleted;
 
   return {
     task: "acceptance-test",
@@ -564,14 +772,16 @@ export async function runAcceptanceTest(options: CrawlOptions = {}): Promise<Acc
     storedReplies,
     stored,
     dropped,
-    accounted: stored + dropped,
+    duplicatesSkipped: outcome.duplicatesSkipped,
+    accounted: stored,
+    hiddenOrDeleted,
+    replyParents: outcome.replyParents,
     newestCommentId: outcome.post.newestCommentId,
     newestCommentCreatedAt: outcome.post.newestCommentCreatedAt,
     repliesCaptured: storedReplies > 0,
     meetsBar: meetsAcceptanceBar({
       listedCommentCount,
       stored,
-      dropped,
       storedReplies,
     }),
     stopped: outcome.stopped ?? "done",

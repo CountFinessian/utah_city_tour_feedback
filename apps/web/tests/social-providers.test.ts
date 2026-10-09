@@ -3,7 +3,7 @@ import { parseFacebookComments } from "@/server/social/providers/facebook";
 import { parseInstagramComments } from "@/server/social/providers/instagram";
 import { socialProviders } from "@/server/social/providers";
 import { parseRedditComments } from "@/server/social/providers/reddit";
-import { parseTikTokSearch, parseTikTokVideo } from "@/server/social/providers/tiktok";
+import { parseTikTokComments, parseTikTokSearch, parseTikTokVideo } from "@/server/social/providers/tiktok";
 import { parseXPost } from "@/server/social/providers/x";
 import { parseYouTubeVideo } from "@/server/social/providers/youtube";
 import { tregClient } from "@/server/services/treg-client";
@@ -198,5 +198,47 @@ describe("social providers", () => {
     });
     expect(blocked.comments).toEqual([]);
     expect(calls).toHaveLength(1);
+  });
+
+  it("reads a nested TikTok cursor and flattens reply previews", () => {
+    const page = parseTikTokComments({
+      data: {
+        comments: [
+          {
+            cid: "p1",
+            text: "parent",
+            create_time: 1717200000,
+            user: { unique_id: "fan" },
+            reply_comment_total: 4,
+            reply_comment: [{ cid: "r1", text: "child", create_time: 1717201000, user: { unique_id: "kid" } }],
+          },
+        ],
+        data: { cursor: 50, has_more: 1, deleted_comment_count: 6 },
+      },
+    });
+    expect(page.done).toBe(false);
+    expect(page.nextCursor).toBe("50");
+    expect(page.hiddenOrDeleted).toBe(6);
+    expect(page.comments.map((comment) => comment.commentId)).toEqual(["p1", "r1"]);
+    expect(page.comments[0]?.replyCount).toBe(4);
+    expect(page.comments[1]?.parentCommentId).toBe("p1");
+
+    const fromStats = parseTikTokComments({
+      comments: [
+        {
+          cid: "p2",
+          text: "stats",
+          user: { unique_id: "fan" },
+          statistics: { reply_count: 3 },
+          reply_comment: [
+            { cid: "c1", text: "one", user: { unique_id: "a" } },
+            { cid: "c2", text: "two", user: { unique_id: "b" } },
+          ],
+        },
+      ],
+    });
+    expect(fromStats.comments[0]?.replyCount).toBe(3);
+    expect(fromStats.comments).toHaveLength(3);
+    expect(fromStats.done).toBe(true);
   });
 });

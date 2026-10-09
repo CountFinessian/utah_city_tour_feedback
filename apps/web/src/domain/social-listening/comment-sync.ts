@@ -16,11 +16,25 @@ export interface CommentSyncState {
   complete: boolean;
   updatedAt: string;
   /** Tokens required to expand a parent (Facebook feedback_id, YouTube continuation, Reddit more.cursor). */
-  replyMeta?: Record<string, { feedbackId?: string; expansionToken?: string; replyContinuationToken?: string }>;
+  replyMeta?: Record<
+    string,
+    {
+      feedbackId?: string;
+      expansionToken?: string;
+      replyContinuationToken?: string;
+      expected?: number;
+      offsetTried?: boolean;
+    }
+  >;
   /** Provider order for this crawl. Stage 4 must not assume page 1 is newest. */
   ordering?: "newest_first" | "ranked" | "relevance";
   /** watermark = stop at newest id/time. delta_walk = ranked or relevance pages. */
   incremental?: "watermark" | "delta_walk";
+  /** Max created_at among stored comments. Not the last page's first row. */
+  newestCommentId?: string;
+  newestCommentCreatedAt?: string;
+  /** Top-level pages were walked again to recover reply counts. Do not repeat that walk. */
+  countsRefreshed?: boolean;
 }
 
 const DEFAULT_DEADLINE_MS = 240_000;
@@ -104,6 +118,10 @@ export function readCommentSync(post: Post): CommentSyncState | null {
         ? sync.ordering
         : undefined,
     incremental: sync.incremental === "watermark" || sync.incremental === "delta_walk" ? sync.incremental : undefined,
+    newestCommentId: typeof sync.newestCommentId === "string" && sync.newestCommentId ? sync.newestCommentId : undefined,
+    newestCommentCreatedAt:
+      typeof sync.newestCommentCreatedAt === "string" && sync.newestCommentCreatedAt ? sync.newestCommentCreatedAt : undefined,
+    countsRefreshed: sync.countsRefreshed === true,
   };
 }
 

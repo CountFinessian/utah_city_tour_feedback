@@ -6,8 +6,10 @@ import { readCommentSync } from "@/domain/social-listening/comment-sync";
 import {
   ACCEPTANCE_CONTENT_ID,
   expectedFirstCrawlUsd,
+  hiddenOrDeletedCount,
   meetsAcceptanceBar,
-  noteNewestComment,
+  newestStoredComment,
+  nextReplyCursor,
   postNeedsFirstCrawl,
 } from "@/domain/social-listening/first-crawl";
 import type { Comment, Post } from "@/domain/social-listening/types";
@@ -54,6 +56,27 @@ function item(partial: Partial<TregCommentItem> & { commentId: string; text: str
     replyCount: 0,
     raw: {},
     ...partial,
+  };
+}
+
+function storedComment(partial: Partial<Comment> & { platformCommentId: string; postId: string }): Comment {
+  const createdAt = partial.createdAt || "2026-06-15T00:00:00.000Z";
+  return {
+    id: partial.platformCommentId,
+    canonicalId: `tiktok:comment:${partial.platformCommentId}`,
+    platform: "tiktok",
+    text: partial.text || "already stored",
+    createdAt,
+    firstSeenAt: createdAt,
+    lastSeenAt: createdAt,
+    likeCount: 0,
+    replyCount: partial.replyCount ?? 0,
+    threadDepth: partial.threadDepth ?? 0,
+    parentCommentId: partial.parentCommentId,
+    rawProviderData: partial.rawProviderData,
+    authorUsername: partial.authorUsername || "fan",
+    platformCommentId: partial.platformCommentId,
+    postId: partial.postId,
   };
 }
 
@@ -268,10 +291,15 @@ describe("first-crawl comment harvest", () => {
     const saved = store.posts.find((item) => item.id === "ranked")!;
     expect(saved.newestCommentId).toBe("reply-official");
     expect(saved.newestCommentCreatedAt).toBe("2026-10-03T00:00:00.000Z");
-    expect(noteNewestComment({ id: "old-top", at: "2024-01-01T00:00:00.000Z" }, { id: "new-top", createdAt: "2026-08-01T00:00:00.000Z" }).id).toBe(
-      "new-top"
-    );
+    expect(
+      newestStoredComment([
+        { platformCommentId: "old-top", createdAt: "2024-01-01T00:00:00.000Z" },
+        { platformCommentId: "new-top", createdAt: "2026-08-01T00:00:00.000Z" },
+      ]).id
+    ).toBe("new-top");
     const sync = readCommentSync(saved);
+    expect(sync?.newestCommentId).toBe("reply-official");
+    expect(sync?.newestCommentCreatedAt).toBe("2026-10-03T00:00:00.000Z");
     expect(sync?.ordering).toBe("ranked");
     expect(sync?.incremental).toBe("delta_walk");
     expect(sync?.complete).toBe(true);
@@ -371,7 +399,7 @@ describe("first-crawl comment harvest", () => {
         viewCount: 1,
         likeCount: 1,
         shareCount: 0,
-        raw: {},
+        raw: { deleted_comment_count: 2 },
       }),
       fetchPage: async (query) => {
         if (query.phase === "replies") {
@@ -386,6 +414,7 @@ describe("first-crawl comment harvest", () => {
           done: true,
           comments: [
             item({ commentId: "a", text: "Utah City still is not on the map", replyCount: 1 }),
+            item({ commentId: "a", text: "Utah City still is not on the map", replyCount: 1 }),
             item({ commentId: "b", text: "first" }),
             ...Array.from({ length: 7 }, (_, index) =>
               item({ commentId: `k${index}`, text: `The downtown housing plan still needs a sidewalk ${index}` })
@@ -397,14 +426,57 @@ describe("first-crawl comment harvest", () => {
 
     expect(result.platformContentId).toBe(ACCEPTANCE_CONTENT_ID);
     expect(result.listedCommentCount).toBe(10);
-    expect(result.stored + result.dropped).toBe(result.accounted);
-    expect(result.accounted).toBe(10);
+    expect(result.stored).toBe(10);
+    expect(result.storedTopLevel + result.storedReplies).toBe(result.stored);
+    expect(result.accounted).toBe(result.stored);
     expect(result.dropped).toBe(1);
+    expect(result.duplicatesSkipped).toBe(1);
+    expect(result.hiddenOrDeleted).toBe(2);
+    expect(result.storedReplies).toBe(1);
+    expect(result.replyParents[0]).toEqual({ commentId: "a", expected: 1, fetched: 1 });
     expect(result.repliesCaptured).toBe(true);
     expect(result.meetsBar).toBe(true);
     expect(result.newestCommentId).toBeTruthy();
     expect(result.incremental).toBe("delta_walk");
-    expect(meetsAcceptanceBar({ listedCommentCount: 10, stored: 9, dropped: 0, storedReplies: 0 })).toBe(false);
+    expect(meetsAcceptanceBar({ listedCommentCount: 10, stored: 9, storedReplies: 0 })).toBe(false);
+    expect(meetsAcceptanceBar({ listedCommentCount: 220, stored: 190, storedReplies: 18 })).toBe(false);
+    expect(meetsAcceptanceBar({ listedCommentCount: 220, stored: 198, storedReplies: 1 })).toBe(true);
+    expect(hiddenOrDeletedCount({ statistics: { hidden_comment_count: 4 } }, [])).toBe(4);
+    expect(hiddenOrDeletedCount({}, [{ status: 1 }, { status: 0 }])).toBe(1);
+    expect(hiddenOrDeletedCount({}, [{}])).toBeNull();
+    expect(
+      nextReplyCursor({
+        platform: "tiktok",
+        requestedCursor: undefined,
+        nextCursor: undefined,
+        expected: 4,
+        fetched: 2,
+        added: 2,
+        pageSize: 2,
+      })
+    ).toBe("2");
+    expect(
+      nextReplyCursor({
+        platform: "instagram",
+        requestedCursor: undefined,
+        nextCursor: undefined,
+        expected: 4,
+        fetched: 2,
+        added: 2,
+        pageSize: 2,
+      })
+    ).toBeUndefined();
+    expect(
+      nextReplyCursor({
+        platform: "tiktok",
+        requestedCursor: undefined,
+        nextCursor: "50",
+        expected: 80,
+        fetched: 2,
+        added: 2,
+        pageSize: 2,
+      })
+    ).toBe("50");
     expect(FIRST_CRAWL_TREG_BUDGET_USD).toBe(0.5);
     expect(FIRST_CRAWL_GEMINI_BUDGET_MICRO).toBe(50_000);
     expect(expectedFirstCrawlUsd("tiktok", 220, 10)).toBe(0.015);
@@ -417,5 +489,304 @@ describe("first-crawl comment harvest", () => {
     const workflow = readFileSync(path.join(process.cwd(), "../../.github/workflows/social-pulse-admin.yml"), "utf8");
     expect(workflow).toContain("mode=${TASK}");
     expect(workflow).not.toContain("schedule:");
+  });
+
+  it("keeps the newest stored created_at ahead of an older comment seen later in the walk", async () => {
+    const store = memory();
+    store.posts.push(post({ id: "dated", platformContentId: "dated", commentCount: 2 }));
+    store.comments.push(
+      storedComment({
+        platformCommentId: "june",
+        postId: "dated",
+        text: "Utah City in June still has no sidewalk",
+        createdAt: "2026-06-15T00:00:00.000Z",
+      })
+    );
+    await runHarvestFirstCrawl({
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: (filter) => store.listPosts(filter),
+      upsertPost: (item) => store.upsertPost(item),
+      listComments: (postId) => store.listComments(postId),
+      bulkUpsertComments: (batch) => store.bulkUpsertComments(batch),
+      fetchPage: async () => ({
+        phase: "comments",
+        done: true,
+        comments: [
+          item({
+            commentId: "may",
+            text: "Utah City in May was already busy",
+            createdAt: "2026-05-24T00:00:00.000Z",
+          }),
+        ],
+      }),
+    });
+    const saved = store.posts.find((entry) => entry.id === "dated")!;
+    expect(saved.newestCommentId).toBe("june");
+    expect(saved.newestCommentCreatedAt).toBe("2026-06-15T00:00:00.000Z");
+    expect(readCommentSync(saved)?.newestCommentId).toBe("june");
+    expect(readCommentSync(saved)?.newestCommentCreatedAt).toBe("2026-06-15T00:00:00.000Z");
+    expect(store.comments.map((comment) => comment.platformCommentId).sort()).toEqual(["june", "may"]);
+  });
+
+  it("pages every TikTok reply parent until reply_count, and follows a real cursor on the next parent", async () => {
+    const store = memory();
+    store.posts.push(post({ id: "threads", platformContentId: "threads", commentCount: 9 }));
+    const calls: string[] = [];
+    await runHarvestFirstCrawl({
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: (filter) => store.listPosts(filter),
+      upsertPost: (item) => store.upsertPost(item),
+      listComments: (postId) => store.listComments(postId),
+      bulkUpsertComments: (batch) => store.bulkUpsertComments(batch),
+      fetchPage: async (query) => {
+        calls.push(`${query.phase}:${query.replyParentId || "-"}:${query.cursor || "-"}`);
+        if (query.phase !== "replies") {
+          return {
+            phase: "comments",
+            done: true,
+            comments: [
+              item({
+                commentId: "p4",
+                text: "Utah City needs four replies here",
+                replyCount: 4,
+                createdAt: "2026-01-01T00:00:00.000Z",
+              }),
+              item({
+                commentId: "p3",
+                text: "Utah City needs three replies here",
+                replyCount: 3,
+                createdAt: "2026-01-02T00:00:00.000Z",
+              }),
+            ],
+          };
+        }
+        if (query.replyParentId === "p4" && !query.cursor) {
+          return {
+            phase: "replies",
+            done: true,
+            comments: [
+              item({ commentId: "p4a", text: "Reply one on the first parent", createdAt: "2026-02-01T00:00:00.000Z" }),
+              item({ commentId: "p4b", text: "Reply two on the first parent", createdAt: "2026-02-02T00:00:00.000Z" }),
+            ],
+          };
+        }
+        if (query.replyParentId === "p4") {
+          return {
+            phase: "replies",
+            done: true,
+            comments: [
+              item({ commentId: "p4b", text: "Reply two on the first parent", createdAt: "2026-02-02T00:00:00.000Z" }),
+              item({ commentId: "p4c", text: "Reply three on the first parent", createdAt: "2026-02-03T00:00:00.000Z" }),
+              item({ commentId: "p4d", text: "Reply four on the first parent", createdAt: "2026-02-04T00:00:00.000Z" }),
+            ],
+          };
+        }
+        if (!query.cursor) {
+          return {
+            phase: "replies",
+            done: false,
+            nextCursor: "opaque-2",
+            comments: [
+              item({ commentId: "p3a", text: "First reply on the second parent", createdAt: "2026-03-01T00:00:00.000Z" }),
+              item({ commentId: "p3b", text: "Second reply on the second parent", createdAt: "2026-03-02T00:00:00.000Z" }),
+            ],
+          };
+        }
+        return {
+          phase: "replies",
+          done: true,
+          comments: [item({ commentId: "p3c", text: "Third reply on the second parent", createdAt: "2026-03-03T00:00:00.000Z" })],
+        };
+      },
+    });
+
+    expect(calls).toEqual(["comments:-:-", "replies:p4:-", "replies:p4:2", "replies:p3:-", "replies:p3:opaque-2"]);
+    expect(store.comments.map((comment) => comment.platformCommentId).sort()).toEqual([
+      "p3",
+      "p3a",
+      "p3b",
+      "p3c",
+      "p4",
+      "p4a",
+      "p4b",
+      "p4c",
+      "p4d",
+    ]);
+  });
+
+  it("does not invent a numeric reply offset when the platform cursor is opaque", async () => {
+    const store = memory();
+    store.posts.push(post({ id: "ig", platform: "instagram", platformContentId: "ig", commentCount: 3 }));
+    const calls: string[] = [];
+    await runHarvestFirstCrawl({
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: (filter) => store.listPosts(filter),
+      upsertPost: (item) => store.upsertPost(item),
+      listComments: (postId) => store.listComments(postId),
+      bulkUpsertComments: (batch) => store.bulkUpsertComments(batch),
+      fetchPage: async (query) => {
+        calls.push(`${query.phase}:${query.cursor || "-"}`);
+        if (query.phase !== "replies") {
+          return {
+            phase: "comments",
+            done: true,
+            comments: [item({ commentId: "ig-p", text: "Utah City instagram thread", replyCount: 4 })],
+          };
+        }
+        return {
+          phase: "replies",
+          done: true,
+          comments: [
+            item({ commentId: "ig-r1", text: "One instagram reply" }),
+            item({ commentId: "ig-r2", text: "Two instagram replies" }),
+          ],
+        };
+      },
+    });
+    expect(calls).toEqual(["comments:-", "replies:-"]);
+    expect(store.comments.filter((comment) => comment.parentCommentId)).toHaveLength(2);
+  });
+
+  it("reopens short reply parents on a completed post and does not page top-level comments again", async () => {
+    const store = memory();
+    store.posts.push(
+      post({
+        id: "acc",
+        canonicalId: `tiktok:${ACCEPTANCE_CONTENT_ID}`,
+        platformContentId: ACCEPTANCE_CONTENT_ID,
+        authorUsername: "itsyaboievan11",
+        url: `https://www.tiktok.com/@itsyaboievan11/video/${ACCEPTANCE_CONTENT_ID}`,
+        firstFullCrawlCompletedAt: "2026-10-01T00:00:00.000Z",
+        commentCount: 8,
+        rawProviderData: {
+          commentSync: {
+            phase: "comments",
+            pendingReplyParents: ["old"],
+            replyParentIndex: 1,
+            pagesFetched: 4,
+            complete: true,
+            updatedAt: "2026-10-01T00:00:00.000Z",
+          },
+        },
+      })
+    );
+    store.comments.push(
+      storedComment({
+        platformCommentId: "old",
+        postId: "acc",
+        text: "Utah City sidewalk is missing",
+        replyCount: 4,
+        createdAt: "2026-06-15T00:00:00.000Z",
+      }),
+      storedComment({
+        platformCommentId: "old-r1",
+        postId: "acc",
+        parentCommentId: "old",
+        threadDepth: 1,
+        text: "Agree, the block is not walkable",
+        createdAt: "2026-05-24T00:00:00.000Z",
+      }),
+      storedComment({
+        platformCommentId: "full",
+        postId: "acc",
+        text: "The park is already busy",
+        replyCount: 1,
+        createdAt: "2026-04-01T00:00:00.000Z",
+      }),
+      storedComment({
+        platformCommentId: "full-r",
+        postId: "acc",
+        parentCommentId: "full",
+        threadDepth: 1,
+        text: "We saw the same thing downtown",
+        createdAt: "2026-04-02T00:00:00.000Z",
+      }),
+      storedComment({
+        platformCommentId: "buried",
+        postId: "acc",
+        text: "Utah City thread with a buried reply count",
+        replyCount: 0,
+        createdAt: "2026-03-01T00:00:00.000Z",
+        rawProviderData: { reply_comment_total: 2 },
+      })
+    );
+    const calls: string[] = [];
+    const result = await runAcceptanceTest({
+      deadlineAt: Date.now() + 10_000,
+      tregSpentUsd: () => 0,
+      listOfficialAccounts: async () => [],
+      listPosts: (filter) => store.listPosts(filter),
+      getPostByCanonicalId: (id) => store.getPostByCanonicalId(id),
+      upsertPost: (item) => store.upsertPost(item),
+      listComments: (postId) => store.listComments(postId),
+      bulkUpsertComments: (batch) => store.bulkUpsertComments(batch),
+      fetchDetail: async () => ({
+        platform: "tiktok",
+        contentId: ACCEPTANCE_CONTENT_ID,
+        url: `https://www.tiktok.com/@itsyaboievan11/video/${ACCEPTANCE_CONTENT_ID}`,
+        authorUsername: "itsyaboievan11",
+        caption: "Like what are we actually doing? #utahcity",
+        commentCount: 8,
+        viewCount: 1,
+        likeCount: 1,
+        shareCount: 0,
+        raw: {},
+      }),
+      fetchPage: async (query) => {
+        calls.push(`${query.phase}:${query.replyParentId || "-"}:${query.cursor || "-"}`);
+        if (query.phase !== "replies") throw new Error("top-level pages must stay put");
+        if (query.replyParentId === "old" && !query.cursor) {
+          return {
+            phase: "replies",
+            done: true,
+            comments: [item({ commentId: "old-r2", text: "The crosswalk is still missing", createdAt: "2026-05-01T00:00:00.000Z" })],
+          };
+        }
+        if (query.replyParentId === "old") {
+          return {
+            phase: "replies",
+            done: true,
+            comments: [
+              item({ commentId: "old-r3", text: "Drivers do not stop there", createdAt: "2026-05-02T00:00:00.000Z" }),
+              item({ commentId: "old-r4", text: "We need a signal at that corner", createdAt: "2026-05-03T00:00:00.000Z" }),
+            ],
+          };
+        }
+        return {
+          phase: "replies",
+          done: true,
+          comments: [
+            item({ commentId: "buried-r1", text: "First buried reply", createdAt: "2026-03-02T00:00:00.000Z" }),
+            item({ commentId: "buried-r2", text: "Second buried reply", createdAt: "2026-03-03T00:00:00.000Z" }),
+          ],
+        };
+      },
+    });
+
+    expect(calls.filter((call) => call.startsWith("comments:"))).toEqual([]);
+    expect(calls).toContain("replies:old:-");
+    expect(calls).toContain("replies:old:2");
+    expect(calls).toContain("replies:buried:-");
+    expect(calls).not.toContain("replies:full:-");
+    expect(result.stored).toBe(10);
+    expect(result.storedTopLevel).toBe(3);
+    expect(result.storedReplies).toBe(7);
+    expect(result.accounted).toBe(10);
+    expect(result.dropped).toBe(0);
+    expect(result.newestCommentId).toBe("old");
+    expect(result.newestCommentCreatedAt).toBe("2026-06-15T00:00:00.000Z");
+    expect(result.hiddenOrDeleted).toBeNull();
+    expect(result.replyParents.slice(0, 3)).toEqual([
+      { commentId: "old", expected: 4, fetched: 4 },
+      { commentId: "buried", expected: 2, fetched: 2 },
+      { commentId: "full", expected: 1, fetched: 1 },
+    ]);
+    expect(store.comments.find((comment) => comment.platformCommentId === "buried")?.replyCount).toBe(2);
   });
 });
