@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFacebookPost } from "@/server/social/providers/facebook";
+import { parseFacebookPost, parseFacebookSearch } from "@/server/social/providers/facebook";
 import { parseInstagramPost } from "@/server/social/providers/instagram";
 import { parseLinkedInPost } from "@/server/social/providers/linkedin";
 import { parseRedditSearch } from "@/server/social/providers/reddit";
@@ -180,6 +180,61 @@ describe("detail parsers", () => {
     expect(post?.caption).toBe("Come see Utah City");
     expect(post?.authorUsername).toBe("Utah City");
     expect(post?.authorId).toBe("77");
+  });
+
+  it("drops Facebook keyword hits that are not facebook.com or fb.watch, and undated search hits", () => {
+    const page = parseFacebookSearch({
+      organic_results: [
+        { link: "https://apps.apple.com/us/app/utah-city/id123", title: "Utah City", snippet: "Download" },
+        { link: "https://www.apartments.com/vineyard-ut/", title: "Apartments", snippet: "Utah City" },
+        { link: "https://www.ksl.com/article/utah-city", title: "KSL", snippet: "Utah City" },
+        { link: "https://www.utah.gov/residents", title: "Utah", snippet: "cities" },
+        { link: "https://utahcity.com/live", title: "Utah City", snippet: "the development" },
+        {
+          link: "https://www.instagram.com/popular/what-is-utah-city-utah/",
+          title: "What Is Utah City Utah",
+          snippet: "What Is Utah City Utah",
+        },
+        {
+          link: "https://www.facebook.com/utahcityutah/posts/111",
+          title: "Downtown",
+          snippet: "Utah City downtown",
+        },
+        {
+          link: "https://www.facebook.com/utahcityutah/posts/222",
+          title: "Dated",
+          snippet: "Utah City opening",
+          created_at: "2024-06-01T00:00:00.000Z",
+        },
+        {
+          link: "https://fb.watch/utahcityclip/",
+          title: "Clip",
+          snippet: "Utah City",
+          created_at: "2024-06-02T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(page.items.map((item) => item.url)).toEqual([
+      "https://www.facebook.com/utahcityutah/posts/222",
+      "https://fb.watch/utahcityclip/",
+    ]);
+  });
+
+  it("keeps an official Facebook post that has no publish date", () => {
+    const page = parseFacebookSearch(
+      {
+        posts: [
+          {
+            post_id: "999",
+            message: "Spooky Fest this Friday at Greenline",
+            url: "https://www.facebook.com/utahcityutah/posts/999",
+          },
+        ],
+      },
+      "utahcityutah"
+    );
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]?.publishedAt).toBeUndefined();
   });
 
   it("reads LinkedIn commentary under data", () => {

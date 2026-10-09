@@ -17,6 +17,24 @@ const REPLIES = "scrapecreators.x.v1-facebook-post-comment-replies";
 
 const TBS: Record<string, string> = { hour: "qdr:h", day: "qdr:d", week: "qdr:w", month: "qdr:m", year: "qdr:y" };
 
+/** facebook.com and fb.watch, including m. and www. hosts. Other sites are not posts. */
+export function isFacebookContentUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "facebook.com" || host.endsWith(".facebook.com") || host === "fb.watch" || host.endsWith(".fb.watch");
+  } catch {
+    return false;
+  }
+}
+
+/** Keyword search misses: a non-Facebook URL, or a Facebook URL with no publish date. */
+export function facebookSearchMissReason(item: { url?: string; publishedAt?: string }): string | null {
+  if (!isFacebookContentUrl(item.url)) return "URL is not facebook.com or fb.watch.";
+  if (!item.publishedAt) return "Facebook search result has no publish date.";
+  return null;
+}
+
 function facebookNode(raw: Record<string, unknown>): Record<string, unknown> {
   const data = asRecord(raw.data);
   const nested = asRecord(data?.data);
@@ -31,6 +49,7 @@ function facebookNode(raw: Record<string, unknown>): Record<string, unknown> {
 export function parseFacebookPost(input: Record<string, unknown>, handle?: string): TregSearchResultItem | null {
   const raw = facebookNode(input);
   const url = str(raw.url || raw.link || raw.permalink_url);
+  if (url && !isFacebookContentUrl(url)) return null;
   const parsed = url ? parseAndNormalizePostIdentifier(url, "facebook") : null;
   const id = str(raw.post_id || raw.id || raw.feedback_id) || parsed?.platformContentId || "";
   if (!id && !url) return null;
@@ -59,7 +78,8 @@ export function parseFacebookSearch(output: Record<string, unknown> | null, hand
   const rows = recordsOf(output, ["posts", "organic_results", "organic", "results", "items"]);
   const items = rows
     .map((row) => parseFacebookPost(row, handle))
-    .filter((item): item is TregSearchResultItem => Boolean(item));
+    .filter((item): item is TregSearchResultItem => Boolean(item))
+    .filter((item) => (handle ? isFacebookContentUrl(item.url) : !facebookSearchMissReason(item)));
   const body = payloadOf(output);
   const data = asRecord(body.data) || body;
   return searchPage(items, data.nextCursor || data.cursor, data.has_next_page ?? data.hasMore);

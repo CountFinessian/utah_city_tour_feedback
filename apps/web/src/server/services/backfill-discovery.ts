@@ -32,6 +32,7 @@ import { classifyRelevance, type RelevanceClassificationResult } from "@/server/
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
 import type { SocialListenerState } from "@/server/repositories/social-repository";
 import { providerFor } from "@/server/social/providers";
+import { facebookSearchMissReason } from "@/server/social/providers/facebook";
 import type { SearchPage, TregSearchResultItem } from "@/server/social/providers/types";
 import { HARVEST_CLAIM_OWNER_BACKFILL } from "@/domain/social-listening/first-crawl";
 import { runHarvestFirstCrawl } from "@/server/services/first-crawl-job";
@@ -416,6 +417,13 @@ async function considerItem(input: {
   noteSpend: (kind: "search" | "detail", platform: string, query: string) => void;
   now: number;
 }): Promise<"skip" | "duplicate" | "budget" | { decision: string; costMicro: number }> {
+  if (input.spec.platform === "facebook" && input.spec.strategy !== "account") {
+    const miss = facebookSearchMissReason(input.item);
+    if (miss) {
+      console.warn(`[backfill] skip facebook search hit: ${miss} ${input.item.url || input.item.contentId}`);
+      return "skip";
+    }
+  }
   const parsed = parseAndNormalizePostIdentifier(input.item.url || input.item.contentId, input.spec.platform);
   if (!parsed) return "skip";
   const existing = await input.getPostByCanonicalId(parsed.canonicalId);

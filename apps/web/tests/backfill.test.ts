@@ -384,6 +384,63 @@ describe("backfill-discovery admin task", () => {
     expect(result.windows.x.remaining).toBe(13);
   });
 
+  it("does not store Facebook search pages from other sites or hits with no publish date", async () => {
+    const run = session({ plan: [spec("facebook", "Utah City")], maxSearchUnits: 1 });
+    let classified = 0;
+    run.deps.classify = async () => {
+      classified += 1;
+      return verdict("relevant");
+    };
+    run.deps.searchPage = async () => ({
+      items: [
+        {
+          platform: "facebook",
+          contentId: "https://apps.apple.com/us/app/utah-city/id1",
+          url: "https://apps.apple.com/us/app/utah-city/id1",
+          authorUsername: "apple",
+          caption: "Utah City",
+          publishedAt: "2024-01-01T00:00:00.000Z",
+          viewCount: 0,
+          likeCount: 0,
+          commentCount: 0,
+          shareCount: 0,
+          raw: {},
+        },
+        {
+          platform: "facebook",
+          contentId: "https://www.facebook.com/utahcityutah/posts/undated",
+          url: "https://www.facebook.com/utahcityutah/posts/undated",
+          authorUsername: "fb_page",
+          caption: "Utah City downtown",
+          viewCount: 0,
+          likeCount: 0,
+          commentCount: 0,
+          shareCount: 0,
+          raw: {},
+        },
+        {
+          platform: "facebook",
+          contentId: "https://www.facebook.com/utahcityutah/posts/333",
+          url: "https://www.facebook.com/utahcityutah/posts/333",
+          authorUsername: "utahcityutah",
+          caption: "Utah City at the Greenline",
+          publishedAt: "2024-05-01T00:00:00.000Z",
+          viewCount: 1,
+          likeCount: 1,
+          commentCount: 1,
+          shareCount: 0,
+          raw: {},
+        },
+      ],
+      done: true,
+    });
+    const result = await runBackfillDiscovery(run.deps);
+    expect(classified).toBe(1);
+    expect(result.candidates).toBe(1);
+    expect(run.posts).toHaveLength(1);
+    expect(run.posts[0]?.url).toContain("facebook.com/utahcityutah/posts/333");
+  });
+
   it("does not fetch detail for a post id already stored", async () => {
     const seen = post({ id: "known", platformContentId: "111", caption: "" });
     const run = session();

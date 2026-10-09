@@ -79,6 +79,34 @@ describe("gemini 3.5 flash lite", () => {
     expect(result.relevanceStatus).not.toBe("rejected_lookalike");
   });
 
+  it("does not keep a lookalike #utahcity video when the transcript is something else", async () => {
+    process.env.GEMINI_API_KEY = "test-key";
+    vi.mocked(generateObject).mockResolvedValue({
+      object: { decision: "rejected_lookalike", reason: "Airport crowd and a coincidental hashtag." },
+      usage: { inputTokens: 10, outputTokens: 5 },
+    } as never);
+    const result = await classifyRelevance("10 more minutes!!! #utah #vineyard #utahcity @Utah City ", {
+      platform: "tiktok",
+      url: "https://www.tiktok.com/@jaimeyaime/video/7572995760069872909",
+      transcript: "Okay, update. We got our ticket for our bags. It's hella crowded.",
+    });
+    expect(result.decision).toBe("rejected_lookalike");
+    expect(result.isRelevant).toBe(false);
+    expect(result.reason).not.toMatch(/not a lookalike/);
+  });
+
+  it("rejects a characteristics match that names neither Utah City nor a venue", async () => {
+    process.env.GEMINI_API_KEY = "test-key";
+    vi.mocked(generateObject).mockResolvedValue({
+      object: { decision: "relevant", reason: "Vineyard, Utah matches characteristics of the development." },
+      usage: { inputTokens: 12, outputTokens: 8 },
+    } as never);
+    const result = await classifyRelevance("Lunch in Orem today, the new patio is packed and everyone is outside.");
+    expect(result.decision).toBe("rejected_offtopic");
+    expect(result.isRelevant).toBe(false);
+    expect(result.reason).toMatch(/neither Utah City nor a known venue/);
+  });
+
   it("records a model-unavailable error instead of a no-mention reject", async () => {
     process.env.GEMINI_API_KEY = "test-key";
     vi.mocked(generateObject).mockRejectedValueOnce(

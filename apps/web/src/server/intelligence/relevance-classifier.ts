@@ -4,9 +4,14 @@ import {
   applyUnverifiableGuard,
   decisionToStatus,
   hasDevelopmentAnchor,
+  hasKnownVenue,
+  hasNamedUtahCitySubject,
+  hasProperUtahCityPlace,
   hasProtectedUtahCitySignal,
-  hasUtahCityPhrase,
+  hasUtahCityBrandMark,
+  hasUtahCityDomain,
   isContentRelevant,
+  isGenericUtahCityPhrasing,
   isHashtagOnlyCandidate,
   hasLocalPlaceSignal,
   isOfficialAuthor,
@@ -116,18 +121,31 @@ function finish(
   };
 }
 
-function noModelDecision(text: string): { decision: RelevanceDecision; reason: string } {
-  if (looksUnverifiableClaim(text)) {
+function noModelDecision(text: string, transcript?: string): { decision: RelevanceDecision; reason: string } {
+  const combined = `${text}\n${transcript || ""}`;
+  if (looksUnverifiableClaim(combined)) {
     return {
       decision: "rejected_unverifiable",
       reason: "Specific claim about Utah City is not a published project fact.",
     };
   }
-  if (hasDevelopmentAnchor(text)) {
-    return { decision: "relevant", reason: "Text names the Vineyard development." };
+  if ((transcript || "").trim() && !hasNamedUtahCitySubject(text, transcript)) {
+    return {
+      decision: "rejected_offtopic",
+      reason: "Transcript does not name Utah City or a known venue.",
+    };
   }
-  if (hasUtahCityPhrase(text) && !isHashtagOnlyCandidate(text)) {
-    return { decision: "relevant", reason: "Text names Utah City beyond a hashtag." };
+  if (hasDevelopmentAnchor(combined) || hasKnownVenue(combined)) {
+    return { decision: "relevant", reason: "Text names the Vineyard development or a known venue." };
+  }
+  if (hasProperUtahCityPlace(combined) && !isHashtagOnlyCandidate(text)) {
+    return { decision: "relevant", reason: "Text names Utah City as a place." };
+  }
+  if (isGenericUtahCityPhrasing(text) || isGenericUtahCityPhrasing(combined)) {
+    return {
+      decision: "rejected_lookalike",
+      reason: "Generic Utah city/cities phrasing is not the Vineyard development.",
+    };
   }
   if (isHashtagOnlyCandidate(text)) {
     return {
@@ -135,16 +153,36 @@ function noModelDecision(text: string): { decision: RelevanceDecision; reason: s
       reason: "Hashtag alone is a candidate, not a relevant post.",
     };
   }
-  if (hasLocalPlaceSignal(text) || /\butah\b/i.test(text)) {
+  if (hasUtahCityBrandMark(text) || hasUtahCityDomain(text) || hasLocalPlaceSignal(text)) {
     return {
       decision: "needs_retry",
       reason: "Local signal needs the relevance model, which did not run.",
+    };
+  }
+  if (/\bvineyard\b/i.test(text) && !/martha['’]s\s+vineyard/i.test(text)) {
+    return {
+      decision: "rejected_offtopic",
+      reason: "Vineyard alone is not Utah City or a known venue.",
     };
   }
   return {
     decision: "rejected_offtopic",
     reason: "No reference to Utah City or the Vineyard development.",
   };
+}
+
+function enforceNamedSubject(
+  decision: RelevanceDecision,
+  reason: string,
+  caption: string,
+  transcript?: string
+): { decision: RelevanceDecision; reason: string } {
+  if (decision !== "relevant" || hasNamedUtahCitySubject(caption, transcript)) {
+    return { decision, reason };
+  }
+  const next = `${reason} Rejected: post names neither Utah City nor a known venue.`.trim();
+  console.warn(`[relevance] ${next}`);
+  return { decision: "rejected_offtopic", reason: next };
 }
 
 function usageMicro(usage: { inputTokens?: number; outputTokens?: number; promptTokens?: number; completionTokens?: number } | undefined): number {
@@ -155,7 +193,7 @@ function usageMicro(usage: { inputTokens?: number; outputTokens?: number; prompt
 
 async function callModel(caption: string, transcript?: string): Promise<{ decision: RelevanceDecision; reason: string; costMicro: number }> {
   if (spentMicro >= budgetMicro) {
-    const fallback = noModelDecision(`${caption}\n${transcript || ""}`);
+    const fallback = noModelDecision(caption, transcript);
     return {
       decision: fallback.decision,
       reason: `${fallback.reason} Gemini budget of $${(budgetMicro / 1_000_000).toFixed(2)} was already reached.`,
@@ -165,9 +203,9 @@ async function callModel(caption: string, transcript?: string): Promise<{ decisi
 
   const prompt = `Decide if this public post is about Utah City, the master-planned development in Vineyard, Utah (former Geneva Steel site on Utah Lake, the Greenline, 120 Bend, 220 Bend, about $1.8 billion).
 
-relevant: the post is about that development, its downtown, streets, buildings, public reaction to it, or a business or place there (Fini Cafe at the Greenline, Bella's Market, Utah City Racquet Club). Vineyard, Orem, Lindon, Utah County, Geneva, and the Greenline count when the post is about that place.
-rejected_lookalike: Park City, Salt Lake City, SLC, or "best Utah city to live in", unless the text also references the Vineyard development or one of those places. Never choose rejected_lookalike when the caption contains Utah City, #utahcity, or utahcity. A thin #utahcity caption on a video is not a lookalike; the transcript decides.
-rejected_offtopic: something else, and only when the text clearly is not about Utah City or those nearby places.
+relevant: the post is about that development, its downtown, streets, buildings, public reaction to it, or a business or place there (Fini Cafe at the Greenline, Bella's Market, Utah City Racquet Club, 120 Bend, 220 Bend). The case-sensitive place name "Utah City", #utahcity, utahcity.com, or utah.city counts. Orem, Lindon, Utah County, Geneva, and the Greenline count only when the post is about that place.
+rejected_lookalike: Park City, Salt Lake City, SLC, "best/worst/every Utah City", "Utah cities", "what is Utah City", or all-caps "UTAH CITY" used as a generic city in Utah. Do not treat those as the Vineyard development. "Vineyard" alone is not enough.
+rejected_offtopic: something else, including a Vineyard, Utah post that names neither Utah City nor a known venue. Do not choose relevant because the post merely matches the city's characteristics.
 rejected_unverifiable: a specific claim about Utah City that is made up or cannot be checked, such as an invented price, a secret payment, or a logo that cost a large unpublished sum. The published $1.8 billion project figure is fine.
 unsure: the text is not enough to decide.
 
@@ -242,9 +280,10 @@ export async function classifyRelevance(
   let transcriptProvider: string | undefined;
 
   if (!hasRelevanceModel()) {
-    const fallback = noModelDecision(caption);
-    decision = fallback.decision;
-    reason = fallback.reason;
+    const fallback = noModelDecision(caption, transcript);
+    const named = enforceNamedSubject(fallback.decision, fallback.reason, caption, transcript);
+    decision = named.decision;
+    reason = named.reason;
     events.push({ decision, reason, costMicro: 0, stage: "stage1_rule" });
   } else {
     model = resolveRelevanceModelName();
@@ -320,14 +359,29 @@ export async function classifyRelevance(
       events.push({ decision, reason, costMicro: 0, stage });
     }
 
-    if (decision === "rejected_lookalike" && (utahCitySignal || hasProtectedUtahCitySignal(`${caption}\n${transcript || ""}`))) {
-      if (video && !(transcript || "").trim()) {
-        decision = "needs_retry";
-        reason = `${reason} Utah City video needs a transcript before a lookalike reject.`;
-      } else {
-        decision = "relevant";
-        reason = `${reason} Utah City mention is not a lookalike.`;
-      }
+    const combined = `${caption}\n${transcript || ""}`;
+    const properNoun = hasProperUtahCityPlace(combined) || hasUtahCityDomain(combined);
+    const genericOnly = isGenericUtahCityPhrasing(caption) && !properNoun && !hasUtahCityBrandMark(caption);
+    if (decision === "rejected_lookalike" && !genericOnly && properNoun && hasNamedUtahCitySubject(caption, transcript)) {
+      decision = "relevant";
+      reason = `${reason} Utah City mention is not a lookalike.`;
+      events.push({ decision, reason, costMicro: 0, stage });
+    } else if (
+      decision === "rejected_lookalike" &&
+      video &&
+      !(transcript || "").trim() &&
+      (utahCitySignal || hasProtectedUtahCitySignal(caption)) &&
+      !genericOnly
+    ) {
+      decision = "needs_retry";
+      reason = `${reason} Utah City video needs a transcript before a lookalike reject.`;
+      events.push({ decision, reason, costMicro: 0, stage });
+    }
+
+    const named = enforceNamedSubject(decision, reason, caption, transcript);
+    if (named.decision !== decision || named.reason !== reason) {
+      decision = named.decision;
+      reason = named.reason;
       events.push({ decision, reason, costMicro: 0, stage });
     }
   }
