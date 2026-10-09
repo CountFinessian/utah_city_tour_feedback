@@ -2,661 +2,375 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  TrendingUp,
-  MessageSquare,
-  Users,
-  Eye,
-  RefreshCw,
-  Sparkles,
-  AlertCircle,
-  ThumbsUp,
-  MinusCircle,
-  ThumbsDown,
-  Radio,
-  SlidersHorizontal,
-  MapPin,
-  Compass,
-  ExternalLink,
-} from "lucide-react";
+import { ExternalLink, Minus, Radio, TrendingDown, TrendingUp } from "lucide-react";
+import { SentimentChart, type SentimentChartMonth } from "@/components/social/SentimentChart";
 
-interface SocialPulseData {
-  periodDays: number;
-  startDate: string;
-  endDate: string;
-  attention: {
-    relevantPosts: number;
-    relevantPostsChange: number;
-    views: number;
-    viewsChange: number;
-    engagement: number;
-    engagementChange: number;
-    uniqueCreators: number;
-    uniqueCreatorsChange: number;
-    commentsCount: number;
-    commentsChange: number;
-  };
-  sentiment: {
-    commentWeighted: {
-      positivePct: number;
-      neutralPct: number;
-      negativePct: number;
-      positiveCount: number;
-      neutralCount: number;
-      negativeCount: number;
-    };
-    postWeighted: {
-      positivePct: number;
-      neutralPct: number;
-      negativePct: number;
-    };
-  };
-  topics: Array<{
-    name: string;
-    label: string;
-    postCount: number;
-    percentage: number;
-  }>;
-  representativeComments: {
-    positive: any[];
-    neutral: any[];
-    negative: any[];
-  };
-  actionableFeedback?: any[];
-  narrative?: string;
-  narrativeConfidence: "LOW" | "MEDIUM" | "HIGH";
-  narrativeGroundingFacts: string[];
+interface CommentFilter {
+  month?: string;
+  months?: string[];
+  sentiment?: "positive" | "neutral" | "negative";
+  topic?: string;
+  window?: "now" | "then" | "all";
+}
+
+interface NarrativeLink {
+  label: string;
+  filter: CommentFilter;
+}
+
+interface DashboardComment {
+  id: string;
+  text: string;
+  sentiment?: string;
+  topic?: string;
+  createdAt: string;
+  authorUsername: string;
+  platform: string;
+  postUrl: string;
+  postCaption: string;
+}
+
+interface DashboardPayload {
+  rangeLabel: string;
+  months: SentimentChartMonth[];
+  trend: { direction: "up" | "down" | "flat" | "insufficient"; text: string; months: string[] };
+  headline: { net: number | null; positive: number; neutral: number; negative: number; total: number };
+  nowWindow: { label: string; total: number; issues: Array<{ topic: string; label: string; count: number; share: number }> };
+  thenWindow: { label: string; total: number; issues: Array<{ topic: string; label: string; count: number; share: number }> };
+  shifts: Array<{ id: string; month: string; title: string; detail: string; commentCount: number; filter: CommentFilter }>;
+  quotes: Array<{ postId: string; postUrl: string; platform: string; quote: string; publishedAt?: string }>;
+  claims: Array<{ id: string; text: string; links: NarrativeLink[] }>;
+  narrative: { summary: string; generatedOn: string; source: string };
+}
+
+function points(net: number | null): string {
+  if (net == null) return "—";
+  const value = Math.round(net * 100);
+  return `${value > 0 ? "+" : ""}${value}`;
+}
+
+function filterQuery(filter: CommentFilter): string {
+  const params = new URLSearchParams();
+  if (filter.month) params.set("month", filter.month);
+  if (filter.months?.length) params.set("months", filter.months.join(","));
+  if (filter.sentiment) params.set("sentiment", filter.sentiment);
+  if (filter.topic) params.set("topic", filter.topic);
+  if (filter.window) params.set("window", filter.window);
+  return params.toString();
+}
+
+function filterTitle(filter: CommentFilter): string {
+  const parts: string[] = [];
+  if (filter.window === "now") parts.push("last 90 days");
+  if (filter.window === "then") parts.push("about two years ago");
+  if (filter.window === "all") parts.push("since August 2023");
+  if (filter.months?.length) parts.push(filter.months.join(", "));
+  else if (filter.month) parts.push(filter.month);
+  if (filter.sentiment) parts.push(filter.sentiment);
+  if (filter.topic) parts.push(filter.topic.replaceAll("_", " "));
+  return parts.join(" · ") || "Public comments";
+}
+
+function formatWhen(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
 
 export default function SocialPulsePage() {
-  const [data, setData] = useState<SocialPulseData | null>(null);
+  const [data, setData] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<string>("7d");
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const fetchData = async (p = period) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch(`/api/social-pulse?period=${p}`);
-      if (!res.ok) throw new Error("Failed to load pulse data");
-      const json = await res.json();
-      setData(json);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  const [openFilter, setOpenFilter] = useState<CommentFilter | null>(null);
+  const [comments, setComments] = useState<DashboardComment[]>([]);
+  const [commentTotal, setCommentTotal] = useState(0);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchData(period);
-  }, [period]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    let triggerError: string | null = null;
-    try {
-      const res = await fetch("/api/social-pulse/refresh", { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        triggerError = body.error || "Could not start a listening cycle";
+    let cancelled = false;
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch("/api/social-pulse/dashboard");
+        if (!res.ok) throw new Error("Failed to load the conversation");
+        const json = (await res.json()) as DashboardPayload;
+        if (!cancelled) setData(json);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load the conversation");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch {
-      triggerError = "Could not start a listening cycle";
     }
-    await fetchData(period);
-    if (triggerError) setError(triggerError);
-  };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function openComments(filter: CommentFilter) {
+    setOpenFilter(filter);
+    setCommentsLoading(true);
+    setCommentsError(null);
+    try {
+      const res = await fetch(`/api/social-pulse/comments?${filterQuery(filter)}`);
+      if (!res.ok) throw new Error("Failed to load comments");
+      const json = (await res.json()) as { comments: DashboardComment[]; total: number };
+      setComments(json.comments);
+      setCommentTotal(json.total);
+    } catch (err) {
+      setComments([]);
+      setCommentTotal(0);
+      setCommentsError(err instanceof Error ? err.message : "Failed to load comments");
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
+
+  const direction = data?.trend.direction;
+  const TrendIcon = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
 
   return (
     <div className="space-y-8">
-      {/* Leadership Header inside Command AppShell */}
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-white/10">
+      <header className="flex flex-col gap-3 pb-6 border-b border-white/10 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
-              <Radio className="w-6 h-6 text-[#20d0c3]" />
-              Social Listener
-            </h1>
-            <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-[#20d0c3]/10 text-[#20d0c3] border border-[#20d0c3]/20">
-              3-HOUR LIVE SYNC
-            </span>
-          </div>
-          <p className="text-sm text-slate-400 mt-1">
-            Real-time public sentiment, creator attention velocity, and organic evidence across social platforms
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
+            <Radio className="w-6 h-6 text-[#20d0c3]" />
+            Social Pulse
+          </h1>
+          <p className="text-sm text-slate-400 mt-1 max-w-2xl">
+            Net sentiment from public comments, August 2023 through today. Counts use comments on relevant posts and other people&apos;s comments on official posts. Official accounts&apos; own posts stay out, and comments on rejected posts stay hidden.
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <span className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white/[0.04] text-slate-300 border border-white/10">
-            <RefreshCw className="w-3.5 h-3.5 text-[#20d0c3]" />
-            Continuous Cycle: 3 Hours
-          </span>
-
-          <div className="flex bg-white/[0.04] border border-white/10 rounded-lg p-1">
-            {["24h", "7d", "30d"].map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                  period === p
-                    ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30 shadow-sm"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                {p === "24h" ? "24 Hours" : p === "7d" ? "7 Days" : "30 Days"}
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="p-2 text-slate-400 hover:text-white bg-white/[0.04] border border-white/10 rounded-lg hover:bg-white/[0.08] transition"
-            title="Start a listening cycle"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#20d0c3]" : ""}`} />
-          </button>
-
-          <Link
-            href="/social-pulse/admin"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 bg-white/[0.04] border border-white/10 rounded-lg hover:bg-white/[0.08] transition"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
-            Terms Matrix
-          </Link>
-        </div>
+        <Link href="/social-pulse/admin" className="text-xs text-slate-500 hover:text-slate-300">
+          Listening setup
+        </Link>
       </header>
 
-      {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
+      {error ? <p className="text-sm text-rose-300">{error}</p> : null}
 
       {loading && !data ? (
-        <div className="p-16 text-center text-slate-500 flex flex-col items-center justify-center gap-3">
-          <RefreshCw className="w-6 h-6 animate-spin text-[#20d0c3]" />
-          <p className="text-sm font-medium">Synthesizing social pulse data and deterministic change reflection...</p>
-        </div>
+        <p className="text-sm text-slate-500">Loading the conversation…</p>
       ) : data ? (
         <div className="space-y-8">
-          {/* Executive Intelligence Narrative Card */}
-          <section className="bg-gradient-to-r from-white/[0.06] to-white/[0.02] border border-white/10 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-[#20d0c3] uppercase">
-                <Sparkles className="w-4 h-4 text-[#20d0c3]" />
-                Reflection of Change Over Time
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button
+              type="button"
+              onClick={() => openComments({ window: "all" })}
+              className="text-left bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-[#20d0c3]/40"
+            >
+              <div className="text-xs font-medium text-slate-400">Net sentiment</div>
+              <div className="mt-2 text-4xl font-extrabold text-white">{points(data.headline.net)}</div>
+              <div className="mt-1 text-xs text-slate-500">{data.rangeLabel}</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => openComments({ window: "all" })}
+              className="text-left bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-[#20d0c3]/40"
+            >
+              <div className="text-xs font-medium text-slate-400">Public comments</div>
+              <div className="mt-2 text-4xl font-extrabold text-white">{data.headline.total.toLocaleString()}</div>
+              <div className="mt-2 flex gap-3 text-xs">
+                <span className="text-emerald-300">{data.headline.positive} positive</span>
+                <span className="text-slate-400">{data.headline.neutral} neutral</span>
+                <span className="text-rose-300">{data.headline.negative} negative</span>
               </div>
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span>Confidence:</span>
-                <span
-                  className={`font-semibold px-2 py-0.5 rounded text-[11px] ${
-                    data.narrativeConfidence === "HIGH"
-                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                      : data.narrativeConfidence === "MEDIUM"
-                      ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                      : "bg-white/10 text-slate-300"
-                  }`}
-                >
-                  {data.narrativeConfidence}
-                </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => openComments({ months: data.trend.months })}
+              className="text-left bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-[#20d0c3]/40"
+            >
+              <div className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
+                <TrendIcon className="w-3.5 h-3.5 text-[#20d0c3]" />
+                Direction
               </div>
-            </div>
-            <p className="text-base sm:text-lg text-slate-100 leading-relaxed font-normal">
-              {data.narrative || "Synthesizing conversational evidence..."}
-            </p>
+              <div className="mt-2 text-lg font-semibold text-white leading-snug">{data.trend.text}</div>
+            </button>
           </section>
 
-          {/* KEY PUBLIC FEEDBACK & OPERATIONAL SIGNALS */}
-          {data.actionableFeedback && data.actionableFeedback.length > 0 && (
-            <section className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-[#20d0c3] flex items-center gap-2">
-                    <Compass className="w-4 h-4 text-[#20d0c3]" />
-                    Key Public Feedback & Operational Signals
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Critical public feedback requiring leadership awareness — wayfinding confusions, lake perceptions, and community friction
-                  </p>
-                </div>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 font-medium">
-                  {data.actionableFeedback.length} Action Items
-                </span>
-              </div>
+          <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">Sentiment over time</h2>
+              <span className="text-xs text-slate-500">Click a month</span>
+            </div>
+            <SentimentChart months={data.months} onSelectMonth={(month) => openComments({ month })} />
+            <div className="mt-4 flex flex-wrap gap-2">
+              <CountButton label={`${data.headline.positive} positive`} onClick={() => openComments({ window: "all", sentiment: "positive" })} />
+              <CountButton label={`${data.headline.negative} negative`} onClick={() => openComments({ window: "all", sentiment: "negative" })} />
+              <CountButton label={`${data.headline.neutral} neutral`} onClick={() => openComments({ window: "all", sentiment: "neutral" })} />
+            </div>
+          </section>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {data.actionableFeedback.map((item, idx) => {
-                  const textLower = (item.text || "").toLowerCase();
-                  const kind = item.feedbackKind as string | undefined;
-                  let tag = "Public Feedback";
-                  let tagColor = "bg-slate-500/10 text-slate-300 border-slate-500/20";
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <IssueColumn
+              title="Issues now"
+              windowLabel={data.nowWindow.label}
+              total={data.nowWindow.total}
+              issues={data.nowWindow.issues}
+              onCount={(topic) => openComments({ window: "now", topic })}
+              onTotal={() => openComments({ window: "now" })}
+            />
+            <IssueColumn
+              title="About two years ago"
+              windowLabel={data.thenWindow.label}
+              total={data.thenWindow.total}
+              issues={data.thenWindow.issues}
+              onCount={(topic) => openComments({ window: "then", topic })}
+              onTotal={() => openComments({ window: "then" })}
+            />
+          </section>
 
-                  if (
-                    kind === "wayfinding_and_access" ||
-                    item.topic === "wayfinding_and_access" ||
-                    textLower.includes("map") ||
-                    textLower.includes("address") ||
-                    textLower.includes("direction") ||
-                    textLower.includes("parking")
-                  ) {
-                    tag = "Wayfinding & Access";
-                    tagColor = "bg-cyan-500/10 text-cyan-300 border-cyan-500/20";
-                  } else if (
-                    kind === "environment" ||
-                    item.topic === "environment" ||
-                    textLower.includes("lake") ||
-                    textLower.includes("algae") ||
-                    textLower.includes("water") ||
-                    textLower.includes("shallow")
-                  ) {
-                    tag = "Utah Lake Perception";
-                    tagColor = "bg-teal-500/10 text-teal-300 border-teal-500/20";
-                  } else if (kind === "brand_operational") {
-                    tag = "Brand & Operations";
-                    tagColor = "bg-amber-500/10 text-amber-300 border-amber-500/20";
-                  } else if (
-                    item.topic === "traffic_and_infrastructure" ||
-                    textLower.includes("traffic") ||
-                    textLower.includes("road")
-                  ) {
-                    tag = "Traffic & Capacity";
-                    tagColor = "bg-rose-500/10 text-rose-300 border-rose-500/20";
-                  } else if (kind === "generic_sentiment") {
-                    tag = "General sentiment";
-                    tagColor = "bg-slate-500/10 text-slate-300 border-slate-500/20";
-                  }
-
-                  return (
-                    <div
-                      key={item.id || idx}
-                      className="p-4 bg-white/[0.03] border border-white/10 hover:border-white/20 rounded-2xl flex flex-col justify-between transition space-y-3"
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${tagColor}`}>
-                            {tag}
-                          </span>
-                          <span className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">
-                            {item.platform}
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-100 font-medium leading-relaxed italic">
-                          "{item.text}"
-                        </p>
-                        {item.leadershipAction ? (
-                          <p className="text-xs text-slate-300 leading-relaxed not-italic">{item.leadershipAction}</p>
-                        ) : null}
-                      </div>
-
-                      <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
-                        <span>@{item.authorUsername}</span>
-                        <div className="flex items-center gap-3">
-                          <span>{item.likeCount} likes</span>
-                          {item.postUrl && (
-                            <a
-                              href={item.postUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[#20d0c3] hover:underline flex items-center gap-1"
-                            >
-                              Post <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* ATTENTION & REACH */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                ATTENTION & VELOCITY
-              </h2>
-              <span className="text-xs text-slate-500">
-                vs previous {data.periodDays} days
+          <section className="bg-gradient-to-r from-white/[0.06] to-white/[0.02] border border-white/10 rounded-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[#20d0c3]">How commenters&apos; views changed</h2>
+              <span className="text-[11px] text-slate-500">
+                {data.narrative.source === "cache" ? "Cached" : data.narrative.source === "model" ? "Fresh brief" : "Grounded brief"} · {data.narrative.generatedOn}
               </span>
             </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* Metric Card 1 */}
-              <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-xs font-medium">Relevant Posts</span>
-                  <MessageSquare className="w-4 h-4 text-slate-500" />
-                </div>
-                <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  {data.attention.relevantPosts}
-                </div>
-                <div className="flex items-center gap-1.5 mt-2">
-                  <span
-                    className={`text-xs font-bold ${
-                      data.attention.relevantPostsChange >= 0
-                        ? "text-emerald-400"
-                        : "text-rose-400"
-                    }`}
-                  >
-                    {data.attention.relevantPostsChange >= 0 ? "+" : ""}
-                    {Math.round(data.attention.relevantPostsChange * 100)}%
-                  </span>
-                  <span className="text-[11px] text-slate-500">period shift</span>
-                </div>
-              </div>
-
-              {/* Metric Card 2 */}
-              <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-xs font-medium">Total Views</span>
-                  <Eye className="w-4 h-4 text-slate-500" />
-                </div>
-                <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  {formatNumber(data.attention.views)}
-                </div>
-                <div className="flex items-center gap-1.5 mt-2">
-                  <span
-                    className={`text-xs font-bold ${
-                      data.attention.viewsChange >= 0
-                        ? "text-emerald-400"
-                        : "text-rose-400"
-                    }`}
-                  >
-                    {data.attention.viewsChange >= 0 ? "+" : ""}
-                    {Math.round(data.attention.viewsChange * 100)}%
-                  </span>
-                  <span className="text-[11px] text-slate-500">organic reach</span>
-                </div>
-              </div>
-
-              {/* Metric Card 3 */}
-              <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-xs font-medium">Engagement</span>
-                  <TrendingUp className="w-4 h-4 text-slate-500" />
-                </div>
-                <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  {formatNumber(data.attention.engagement)}
-                </div>
-                <div className="flex items-center gap-1.5 mt-2">
-                  <span
-                    className={`text-xs font-bold ${
-                      data.attention.engagementChange >= 0
-                        ? "text-emerald-400"
-                        : "text-rose-400"
-                    }`}
-                  >
-                    {data.attention.engagementChange >= 0 ? "+" : ""}
-                    {Math.round(data.attention.engagementChange * 100)}%
-                  </span>
-                  <span className="text-[11px] text-slate-500">likes/comments</span>
-                </div>
-              </div>
-
-              {/* Metric Card 4 */}
-              <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-white/20 transition">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-xs font-medium">Unique Creators</span>
-                  <Users className="w-4 h-4 text-slate-500" />
-                </div>
-                <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  {data.attention.uniqueCreators}
-                </div>
-                <div className="flex items-center gap-1.5 mt-2">
-                  <span
-                    className={`text-xs font-bold ${
-                      data.attention.uniqueCreatorsChange >= 0
-                        ? "text-emerald-400"
-                        : "text-rose-400"
-                    }`}
-                  >
-                    {data.attention.uniqueCreatorsChange >= 0 ? "+" : ""}
-                    {Math.round(data.attention.uniqueCreatorsChange * 100)}%
-                  </span>
-                  <span className="text-[11px] text-slate-500">creators posting</span>
-                </div>
-              </div>
-            </div>
+            <p className="text-base text-slate-100 leading-relaxed">{data.narrative.summary}</p>
+            <ul className="space-y-3">
+              {data.claims.map((claim) => (
+                <li key={claim.id} className="text-sm text-slate-200 leading-relaxed">
+                  <p>{claim.text}</p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {claim.links.map((link) => (
+                      <CountButton key={link.label} label={link.label} onClick={() => openComments(link.filter)} />
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </section>
 
-          {/* WHAT PEOPLE ARE SAYING & SENTIMENT SPLIT */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* TOPICS */}
-            <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  WHAT PEOPLE ARE SAYING
-                </h2>
-                <span className="text-xs text-slate-500">Primary Topics</span>
-              </div>
-
-              <div className="space-y-3.5">
-                {data.topics.length === 0 ? (
-                  <p className="text-sm text-slate-500 italic py-4">No topic categories identified yet.</p>
-                ) : (
-                  data.topics.map((t) => (
-                    <div key={t.name} className="space-y-1.5">
-                      <div className="flex justify-between text-xs">
-                        <span className="font-semibold text-slate-200">{t.label}</span>
-                        <span className="text-slate-400">
-                          {t.postCount} posts ({t.percentage}%)
-                        </span>
-                      </div>
-                      <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#20d0c3] rounded-full"
-                          style={{ width: `${Math.min(100, Math.max(5, t.percentage))}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-
-            {/* SENTIMENT */}
-            <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 space-y-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  SENTIMENT ANALYSIS
-                </h2>
-                <span className="text-xs text-slate-500">
-                  Comment-Weighted vs Post-Weighted
-                </span>
-              </div>
-
-              <div className="space-y-4">
-                {/* Positive */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                      Positive
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-slate-400 text-[11px]">
-                        Post: {Math.round(data.sentiment.postWeighted.positivePct * 100)}%
-                      </span>
-                      <span className="font-bold text-slate-100 text-sm">
-                        {Math.round(data.sentiment.commentWeighted.positivePct * 100)}%
-                      </span>
-                    </div>
-                  </div>
-                  <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 rounded-full"
-                      style={{
-                        width: `${Math.round(data.sentiment.commentWeighted.positivePct * 100)}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Neutral */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
-                      <span className="w-2 h-2 rounded-full bg-slate-400" />
-                      Neutral / Descriptive
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-slate-400 text-[11px]">
-                        Post: {Math.round(data.sentiment.postWeighted.neutralPct * 100)}%
-                      </span>
-                      <span className="font-bold text-slate-100 text-sm">
-                        {Math.round(data.sentiment.commentWeighted.neutralPct * 100)}%
-                      </span>
-                    </div>
-                  </div>
-                  <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-slate-400 rounded-full"
-                      style={{
-                        width: `${Math.round(data.sentiment.commentWeighted.neutralPct * 100)}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Negative */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1.5 text-rose-400 font-semibold">
-                      <span className="w-2 h-2 rounded-full bg-rose-400" />
-                      Negative / Concerns
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-slate-400 text-[11px]">
-                        Post: {Math.round(data.sentiment.postWeighted.negativePct * 100)}%
-                      </span>
-                      <span className="font-bold text-slate-100 text-sm">
-                        {Math.round(data.sentiment.commentWeighted.negativePct * 100)}%
-                      </span>
-                    </div>
-                  </div>
-                  <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-rose-500 rounded-full"
-                      style={{
-                        width: `${Math.round(data.sentiment.commentWeighted.negativePct * 100)}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-white/10 text-[11px] text-slate-500">
-                Total analyzed: {data.sentiment.commentWeighted.positiveCount + data.sentiment.commentWeighted.neutralCount + data.sentiment.commentWeighted.negativeCount} comments across {data.attention.relevantPosts} verified posts.
-              </div>
-            </section>
-          </div>
-
-          {/* REPRESENTATIVE EVIDENCE SECTION */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                REPRESENTATIVE EVIDENCE & ACTUAL COMMENTS
-              </h2>
-              <span className="text-xs text-slate-500">
-                Verified public evidence
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Positive Evidence Column */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wide">
-                  <ThumbsUp className="w-3.5 h-3.5" />
-                  Positive Evidence
-                </div>
-                <div className="space-y-3">
-                  {data.representativeComments.positive.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic p-4 bg-white/[0.02] rounded-xl border border-white/5">No positive comments recorded.</p>
-                  ) : (
-                    data.representativeComments.positive.map((c, i) => (
-                      <div key={i} className="p-4 bg-white/[0.03] border border-emerald-500/20 rounded-2xl space-y-2">
-                        <p className="text-sm text-slate-200 italic leading-relaxed">
-                          "{c.text}"
-                        </p>
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-white/5">
-                          <span>@{c.authorUsername}</span>
-                          <span>{c.likeCount} likes</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Neutral Evidence Column */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-300 uppercase tracking-wide">
-                  <MinusCircle className="w-3.5 h-3.5" />
-                  Neutral / Inquiries
-                </div>
-                <div className="space-y-3">
-                  {data.representativeComments.neutral.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic p-4 bg-white/[0.02] rounded-xl border border-white/5">No neutral comments recorded.</p>
-                  ) : (
-                    data.representativeComments.neutral.map((c, i) => (
-                      <div key={i} className="p-4 bg-white/[0.03] border border-white/10 rounded-2xl space-y-2">
-                        <p className="text-sm text-slate-200 italic leading-relaxed">
-                          "{c.text}"
-                        </p>
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-white/5">
-                          <span>@{c.authorUsername}</span>
-                          <span>{c.likeCount} likes</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Negative Evidence Column */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-rose-400 uppercase tracking-wide">
-                  <ThumbsDown className="w-3.5 h-3.5" />
-                  Critical Themes & Concerns
-                </div>
-                <div className="space-y-3">
-                  {data.representativeComments.negative.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic p-4 bg-white/[0.02] rounded-xl border border-white/5">No critical comments recorded.</p>
-                  ) : (
-                    data.representativeComments.negative.map((c, i) => (
-                      <div key={i} className="p-4 bg-white/[0.03] border border-rose-500/20 rounded-2xl space-y-2">
-                        <p className="text-sm text-slate-200 italic leading-relaxed">
-                          "{c.text}"
-                        </p>
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-white/5">
-                          <span>@{c.authorUsername}</span>
-                          <span>{c.likeCount} likes</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
+          <section className="space-y-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">Conversation shifts</h2>
+            {data.shifts.length === 0 ? (
+              <p className="text-sm text-slate-500">No month yet has enough comments to mark a shift.</p>
+            ) : (
+              <ol className="space-y-3 border-l border-white/10 ml-2">
+                {[...data.shifts].reverse().slice(0, 8).map((shift) => (
+                  <li key={shift.id} className="pl-4">
+                    <div className="text-xs text-slate-500">{shift.month}</div>
+                    <div className="text-sm font-semibold text-white">{shift.title}</div>
+                    <p className="text-sm text-slate-300">{shift.detail}</p>
+                    <CountButton label={`${shift.commentCount} comments`} onClick={() => openComments(shift.filter)} />
+                  </li>
+                ))}
+              </ol>
+            )}
           </section>
+
+          {data.quotes.length > 0 ? (
+            <section className="space-y-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">On camera</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {data.quotes.map((quote) => (
+                  <a
+                    key={quote.postId}
+                    href={quote.postUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block bg-white/[0.03] border border-white/10 rounded-2xl p-4 hover:border-[#20d0c3]/40"
+                  >
+                    <p className="text-sm text-slate-100 leading-relaxed">&ldquo;{quote.quote}&rdquo;</p>
+                    <div className="mt-3 text-xs text-[#20d0c3] flex items-center gap-1">
+                      Open post <ExternalLink className="w-3 h-3" />
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {openFilter ? (
+            <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-white">{filterTitle(openFilter)}</h2>
+                <span className="text-xs text-slate-500">{commentTotal.toLocaleString()} comments</span>
+              </div>
+              {commentsLoading ? <p className="text-sm text-slate-500">Loading comments…</p> : null}
+              {commentsError ? <p className="text-sm text-rose-300">{commentsError}</p> : null}
+              {!commentsLoading && comments.length === 0 ? (
+                <p className="text-sm text-slate-500">No public comments in this slice.</p>
+              ) : null}
+              <ul className="space-y-3">
+                {comments.map((comment) => (
+                  <li key={comment.id} className="border-t border-white/5 pt-3">
+                    <p className="text-sm text-slate-100 leading-relaxed">{comment.text}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                      <span>{formatWhen(comment.createdAt)}</span>
+                      {comment.sentiment ? <span>{comment.sentiment}</span> : null}
+                      {comment.topic ? <span>{comment.topic.replaceAll("_", " ")}</span> : null}
+                      <span>@{comment.authorUsername}</span>
+                      {comment.postUrl ? (
+                        <a href={comment.postUrl} target="_blank" rel="noopener noreferrer" className="text-[#20d0c3] inline-flex items-center gap-1">
+                          Original post <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ) : null}
+                    </div>
+                    {comment.postCaption ? <p className="mt-1 text-xs text-slate-500">{comment.postCaption}</p> : null}
+                  </li>
+                ))}
+              </ul>
+              {commentTotal > comments.length ? (
+                <p className="text-xs text-slate-500">Showing {comments.length} of {commentTotal}.</p>
+              ) : null}
+            </section>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-function formatNumber(num: number): string {
-  if (!num) return "0";
-  if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
-  if (num >= 1000) return (num / 1000).toFixed(1) + "K";
-  return num.toString();
+function CountButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex text-xs font-semibold text-[#20d0c3] underline decoration-[#20d0c3]/40 underline-offset-2 hover:decoration-[#20d0c3]"
+    >
+      {label}
+    </button>
+  );
 }
 
+function IssueColumn({
+  title,
+  windowLabel,
+  total,
+  issues,
+  onCount,
+  onTotal,
+}: {
+  title: string;
+  windowLabel: string;
+  total: number;
+  issues: Array<{ topic: string; label: string; count: number; share: number }>;
+  onCount: (topic: string) => void;
+  onTotal: () => void;
+}) {
+  return (
+    <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 space-y-3">
+      <div>
+        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">{title}</h2>
+        <p className="text-xs text-slate-500 mt-1">{windowLabel}</p>
+      </div>
+      <CountButton label={`${total} comments`} onClick={onTotal} />
+      {issues.length === 0 ? (
+        <p className="text-sm text-slate-500">No topic tags in this window.</p>
+      ) : (
+        <ul className="space-y-2">
+          {issues.map((issue) => (
+            <li key={issue.topic} className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-slate-200">{issue.label}</span>
+              <CountButton label={`${issue.count}`} onClick={() => onCount(issue.topic)} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
