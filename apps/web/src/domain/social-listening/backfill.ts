@@ -23,6 +23,14 @@ export const BACKFILL_UNDATED_PAGE_CAP = 6;
 
 export const BACKFILL_LOOKALIKE_MIN_DECIDED = 8;
 export const BACKFILL_LOOKALIKE_RATIO = 0.7;
+/**
+ * A window that has already been sampled this much and kept under 2%
+ * (lookalike, off-topic, and unverifiable all count as rejects) is finished.
+ */
+export const BACKFILL_WINDOW_SAMPLE = 100;
+export const BACKFILL_WINDOW_MIN_KEEP_RATE = 0.02;
+/** Dated X windows stop after this many pages even when the keep rate is fine. */
+export const BACKFILL_DATED_PAGE_CAP = 5;
 
 const CORE_PLATFORMS: Platform[] = ["tiktok", "instagram", "youtube", "reddit", "x", "facebook"];
 const DEVELOPMENT_PLATFORMS: Platform[] = ["tiktok", "youtube", "reddit", "x", "facebook"];
@@ -84,10 +92,22 @@ export interface HistoricalBackfillQueryCursor {
   kept: number;
   rejected: Record<string, number>;
   pagesWithoutDate?: number;
+  /** Counts for the current window only. Missing on cursors saved before this field existed. */
+  windowCandidates?: number;
+  windowKept?: number;
+  windowPages?: number;
+}
+
+export interface BackfillRotation {
+  official: number;
+  other: number;
+  x: number;
 }
 
 export interface HistoricalBackfillState {
   queries: HistoricalBackfillQueryCursor[];
+  /** Round-robin index. Absent on older saves, which resume at the start of the ring. */
+  rotation?: BackfillRotation;
 }
 
 /** Only X writes since:/until: into the search. Every other tool collapses old dates to "all". */
@@ -141,13 +161,23 @@ export function backfillQueryPlan(): BackfillQuerySpec[] {
   return specs;
 }
 
-/** Hashtag searches store `utahcity`. X still needs the hash in the query string. */
+function quotePhrase(query: string): string {
+  const trimmed = query.trim().replace(/^"+|"+$/g, "");
+  return `"${trimmed}"`;
+}
+
+/**
+ * Hashtag searches store `utahcity`. X still needs the hash in the query string.
+ * Keyword phrases are quoted. Facebook's provider already wraps the query, so it stays bare.
+ */
 export function backfillSearchText(spec: Pick<BackfillQuerySpec, "platform" | "query" | "strategy">): string {
   if (spec.strategy === "account") return spec.query.replace(/^@/, "");
   if (spec.strategy === "hashtag") {
     const tag = spec.query.replace(/^#/, "");
     return spec.platform === "x" ? `#${tag}` : tag;
   }
+  if (spec.platform === "facebook") return spec.query;
+  if (spec.platform === "x" || /\s/.test(spec.query)) return quotePhrase(spec.query);
   return spec.query;
 }
 
@@ -237,10 +267,91 @@ export function shouldSkipForLookalikes(cursor: { candidates: number; lookalikes
   return cursor.lookalikes / cursor.candidates >= BACKFILL_LOOKALIKE_RATIO;
 }
 
+/**
+ * Older cursors stored one counter for the whole query. Window 0 never advanced on the
+ * stuck X search, so those totals are this window. Later windows start clean.
+ */
+export function hydrateWindowStats(cursor: HistoricalBackfillQueryCursor): HistoricalBackfillQueryCursor {
+  if (cursor.windowCandidates != null && cursor.windowKept != null) return cursor;
+  const legacyWindow = cursor.windowIndex === 0;
+  return {
+    ...cursor,
+    windowCandidates: cursor.windowCandidates ?? (legacyWindow ? cursor.candidates : 0),
+    windowKept: cursor.windowKept ?? (legacyWindow ? cursor.kept : 0),
+    windowPages: cursor.windowPages ?? 0,
+  };
+}
+
+export function shouldAbandonWindow(cursor: HistoricalBackfillQueryCursor): boolean {
+  const sample = hydrateWindowStats(cursor);
+  const candidates = sample.windowCandidates || 0;
+  if (candidates < BACKFILL_WINDOW_SAMPLE) return false;
+  return (sample.windowKept || 0) / candidates < BACKFILL_WINDOW_MIN_KEEP_RATE;
+}
+
+/** Leave the current window. A dated query continues at the next quarter; other modes finish. */
+export function skipCurrentWindow(cursor: HistoricalBackfillQueryCursor, windowCount: number): HistoricalBackfillQueryCursor {
+  if (cursor.mode === "dated") {
+    const windowIndex = cursor.windowIndex + 1;
+    return {
+      ...cursor,
+      windowIndex,
+      cursor: undefined,
+      pagesWithoutDate: 0,
+      windowCandidates: 0,
+      windowKept: 0,
+      windowPages: 0,
+      done: windowIndex >= windowCount,
+    };
+  }
+  return {
+    ...cursor,
+    done: true,
+    skipped: true,
+    cursor: undefined,
+    pagesWithoutDate: 0,
+    windowCandidates: 0,
+    windowKept: 0,
+    windowPages: 0,
+  };
+}
+
+export function emptyBackfillRotation(): BackfillRotation {
+  return { official: 0, other: 0, x: 0 };
+}
+
+/**
+ * One page per query each turn. Official accounts lead the ring, then every non-X query.
+ * X keywords run only after that ring is finished, so one dated window cannot block the rest.
+ */
+export function nextBackfillQuery(
+  queries: HistoricalBackfillQueryCursor[],
+  rotation: BackfillRotation,
+  used: ReadonlySet<string>
+): { cursor: HistoricalBackfillQueryCursor; rotation: BackfillRotation } | null {
+  const officials = queries.filter((query) => !query.done && (query.mode === "official" || query.strategy === "account"));
+  const others = queries.filter(
+    (query) => !query.done && query.platform !== "x" && query.mode !== "official" && query.strategy !== "account"
+  );
+  const xQueries = queries.filter(
+    (query) => !query.done && query.platform === "x" && query.mode !== "official" && query.strategy !== "account"
+  );
+  const ring = officials.length + others.length > 0 ? [...officials, ...others] : xQueries;
+  const key: keyof BackfillRotation = officials.length + others.length > 0 ? "other" : "x";
+  if (!ring.length) return null;
+  const start = rotation[key] || 0;
+  for (let step = 0; step < ring.length; step += 1) {
+    const cursor = ring[(start + step) % ring.length];
+    if (used.has(cursor.id)) continue;
+    return { cursor, rotation: { ...rotation, [key]: start + step + 1 } };
+  }
+  return null;
+}
+
 export function advanceAfterPage(
   cursor: HistoricalBackfillQueryCursor,
   page: { nextCursor?: string; done: boolean; publishedAts: Array<string | undefined> },
-  options: { windowCount: number; windowSince?: string; cutoff?: string; pageCap?: number }
+  options: { windowCount: number; windowSince?: string; cutoff?: string; pageCap?: number; datedPageCap?: number }
 ): HistoricalBackfillQueryCursor {
   const cutoff = options.cutoff || BACKFILL_CUTOFF;
   const pageCap = options.pageCap ?? BACKFILL_UNDATED_PAGE_CAP;
@@ -255,7 +366,9 @@ export function advanceAfterPage(
     const sinceMs = options.windowSince ? Date.parse(`${options.windowSince}T00:00:00.000Z`) : NaN;
     const newest = dates.length ? Math.max(...dates) : NaN;
     const beforeWindow = Number.isFinite(sinceMs) && Number.isFinite(newest) && newest < sinceMs;
-    if (!providerExhausted && !beforeWindow) {
+    const pageCap = options.datedPageCap ?? BACKFILL_DATED_PAGE_CAP;
+    const capped = (cursor.windowPages || 0) >= pageCap;
+    if (!providerExhausted && !beforeWindow && !capped) {
       return { ...cursor, cursor: page.nextCursor, pagesWithoutDate: 0 };
     }
     const windowIndex = cursor.windowIndex + 1;
@@ -264,6 +377,9 @@ export function advanceAfterPage(
       windowIndex,
       cursor: undefined,
       pagesWithoutDate: 0,
+      windowCandidates: 0,
+      windowKept: 0,
+      windowPages: 0,
       done: windowIndex >= options.windowCount,
     };
   }
@@ -353,6 +469,19 @@ function parseCursor(value: unknown): HistoricalBackfillQueryCursor | null {
     kept: Number(row.kept) || 0,
     rejected: finiteRecord(row.rejected),
     pagesWithoutDate: Number(row.pagesWithoutDate) || undefined,
+    windowCandidates: typeof row.windowCandidates === "number" ? row.windowCandidates : undefined,
+    windowKept: typeof row.windowKept === "number" ? row.windowKept : undefined,
+    windowPages: typeof row.windowPages === "number" ? row.windowPages : undefined,
+  };
+}
+
+function parseRotation(value: unknown): BackfillRotation | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  return {
+    official: Number(row.official) || 0,
+    other: Number(row.other) || 0,
+    x: Number(row.x) || 0,
   };
 }
 
@@ -360,10 +489,13 @@ export function parseHistoricalBackfill(value: unknown): HistoricalBackfillState
   const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
   const queries = record && Array.isArray(record.queries) ? record.queries : null;
   if (!queries) return undefined;
-  return { queries: queries.flatMap((item) => {
-    const cursor = parseCursor(item);
-    return cursor ? [cursor] : [];
-  }) };
+  return {
+    queries: queries.flatMap((item) => {
+      const cursor = parseCursor(item);
+      return cursor ? [cursor] : [];
+    }),
+    rotation: parseRotation(record?.rotation),
+  };
 }
 
 /**
@@ -378,6 +510,7 @@ export const BACKFILL_COST_MODEL = {
   otherPageUsd: 0.0015,
   pagesPerPaginateQuery: 3,
   pagesPerOfficialQuery: 6,
+  pagesPerDatedWindow: BACKFILL_DATED_PAGE_CAP,
   expectedNewCandidates: 350,
   transcriptShare: 0.3,
   transcriptUsd: 0.002,
@@ -401,7 +534,7 @@ export function estimateHistoricalBackfillUsd(now = new Date(BACKFILL_COST_AS_OF
   const dated = plan.filter((item) => item.mode === "dated");
   const paginate = plan.filter((item) => item.mode === "paginate");
   const official = plan.filter((item) => item.mode === "official");
-  const xSearchUsd = dated.length * windows.length * model.xPageUsd;
+  const xSearchUsd = dated.length * windows.length * model.pagesPerDatedWindow * model.xPageUsd;
   const paginateUsd = paginate.length * model.pagesPerPaginateQuery * model.otherPageUsd;
   const officialUsd = official.length * model.pagesPerOfficialQuery * model.otherPageUsd;
   const transcriptUsd = model.expectedNewCandidates * model.transcriptShare * model.transcriptUsd;

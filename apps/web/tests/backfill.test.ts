@@ -5,19 +5,26 @@ import {
   BACKFILL_COST_AS_OF,
   BACKFILL_COST_MODEL,
   BACKFILL_CUTOFF,
+  BACKFILL_DATED_PAGE_CAP,
   BACKFILL_GEMINI_BUDGET_MICRO,
   BACKFILL_MIN_BALANCE_USD,
   BACKFILL_TREG_BUDGET_USD,
   BACKFILL_UNDATED_PAGE_CAP,
+  BACKFILL_WINDOW_SAMPLE,
   advanceAfterPage,
   backfillQueryPlan,
   backfillSearchText,
+  emptyBackfillRotation,
   estimateHistoricalBackfillUsd,
   freshBackfillCursor,
   historicalMonitorFields,
+  mergeBackfillCursors,
+  nextBackfillQuery,
   parseHistoricalBackfill,
   quarterlyWindows,
+  shouldAbandonWindow,
   shouldSkipForLookalikes,
+  skipCurrentWindow,
 } from "@/domain/social-listening/backfill";
 import {
   HARVEST_CLAIM_LEASE_MS,
@@ -102,14 +109,15 @@ function spec(platform: Platform, query: string, strategy: "keyword" | "hashtag"
   return backfillQueryPlan().find((item) => item.platform === platform && item.query === query && item.strategy === strategy)!;
 }
 
-function session(overrides: Partial<BackfillDeps> = {}) {
+function session(overrides: Partial<BackfillDeps> = {}, seed?: SocialListenerState["cursors"]) {
   const posts: Post[] = [];
-  const searches: Array<{ query: string; window?: { since: string; until: string } }> = [];
+  const searches: Array<{ query: string; window?: { since: string; until: string }; cursor?: string }> = [];
   const details: string[] = [];
   let listener: SocialListenerState = {
     cursors: {
       lastMonitorAt: "2026-10-09T00:00:00.000Z",
       discovery: [{ queryId: "live", platform: "tiktok", skipResults: 1, done: false }],
+      ...seed,
     },
   };
   let harvestCalls = 0;
@@ -181,6 +189,18 @@ describe("historical backfill plan", () => {
     expect(plan.filter((item) => item.platform !== "x" && item.strategy !== "account").every((item) => item.mode === "paginate")).toBe(true);
     expect(plan.some((item) => item.platform === "x" && item.strategy === "hashtag" && item.query === "utahcity")).toBe(true);
     expect(backfillSearchText(plan.find((item) => item.platform === "x" && item.strategy === "hashtag")!)).toBe("#utahcity");
+    expect(backfillSearchText(plan.find((item) => item.platform === "x" && item.query === "Utah City")!)).toBe('"Utah City"');
+    expect(backfillSearchText(plan.find((item) => item.platform === "x" && item.query === "utahcity" && item.strategy === "keyword")!)).toBe(
+      '"utahcity"'
+    );
+    expect(backfillSearchText(plan.find((item) => item.platform === "youtube" && item.query === "Utah City Vineyard")!)).toBe(
+      '"Utah City Vineyard"'
+    );
+    expect(backfillSearchText(plan.find((item) => item.platform === "reddit" && item.query === "Geneva Vineyard development")!)).toBe(
+      '"Geneva Vineyard development"'
+    );
+    expect(backfillSearchText(plan.find((item) => item.platform === "facebook" && item.query === "Utah City")!)).toBe("Utah City");
+    expect(backfillSearchText(plan.find((item) => item.strategy === "account")!)).toBe("utahcityutah");
     const undated = advanceAfterPage(
       { ...freshBackfillCursor(plan.find((item) => item.mode === "paginate")!), pagesWithoutDate: BACKFILL_UNDATED_PAGE_CAP - 1 },
       { nextCursor: "page-6", done: false, publishedAts: [undefined, undefined] },
@@ -212,20 +232,74 @@ describe("historical backfill plan", () => {
     expect(shouldSkipForLookalikes({ candidates: 10, lookalikes: 7 })).toBe(true);
   });
 
+  it("abandons a window after 100 candidates when the keep rate is under 2%", () => {
+    const weak = freshBackfillCursor(spec("x", "Utah City"));
+    weak.candidates = BACKFILL_WINDOW_SAMPLE;
+    weak.kept = 1;
+    weak.lookalikes = 64;
+    weak.rejected = { rejected_lookalike: 64, rejected_offtopic: 35 };
+    weak.cursor = "page-9";
+    expect(shouldAbandonWindow(weak)).toBe(true);
+    const next = skipCurrentWindow(weak, 14);
+    expect(next.windowIndex).toBe(1);
+    expect(next.cursor).toBeUndefined();
+    expect(next.done).toBe(false);
+    expect(next.windowCandidates).toBe(0);
+    expect(shouldAbandonWindow({ ...weak, kept: 2, windowCandidates: 100, windowKept: 2 })).toBe(false);
+    expect(shouldAbandonWindow({ ...weak, candidates: 99, kept: 0 })).toBe(false);
+
+    const capped = advanceAfterPage(
+      { ...freshBackfillCursor(spec("x", "Utah City")), windowPages: BACKFILL_DATED_PAGE_CAP },
+      { nextCursor: "more", done: false, publishedAts: ["2026-10-02T00:00:00.000Z"] },
+      { windowCount: 14, windowSince: "2026-10-01" }
+    );
+    expect(capped.windowIndex).toBe(1);
+    expect(capped.cursor).toBeUndefined();
+    expect(capped.windowPages).toBe(0);
+  });
+
+  it("round-robins officials and other platforms ahead of X without resetting a saved cursor", () => {
+    const x = { ...freshBackfillCursor(spec("x", "Utah City")), cursor: "page-9", candidates: 40, kept: 4, windowIndex: 0 };
+    const facebook = freshBackfillCursor(spec("facebook", "Utah City"));
+    const official = freshBackfillCursor(spec("tiktok", "utahcityutah", "account"));
+    const merged = mergeBackfillCursors([x], [x, facebook, official].map((item) => ({
+      id: item.id,
+      platform: item.platform as Platform,
+      query: item.query,
+      strategy: item.strategy,
+      mode: item.mode,
+      group: "exact" as const,
+    })));
+    expect(merged[0].cursor).toBe("page-9");
+    expect(merged[0].candidates).toBe(40);
+    expect(merged[0].windowIndex).toBe(0);
+    const first = nextBackfillQuery(merged, emptyBackfillRotation(), new Set());
+    expect(first?.cursor.id).toBe(official.id);
+    const second = nextBackfillQuery(merged, first!.rotation, new Set([official.id]));
+    expect(second?.cursor.id).toBe(facebook.id);
+    const third = nextBackfillQuery(merged, second!.rotation, new Set([official.id, facebook.id]));
+    expect(third).toBeNull();
+    merged[1].done = true;
+    merged[2].done = true;
+    const xTurn = nextBackfillQuery(merged, emptyBackfillRotation(), new Set());
+    expect(xTurn?.cursor.id).toBe(x.id);
+    expect(xTurn?.cursor.cursor).toBe("page-9");
+  });
+
   it("estimates the full walk from the query plan", () => {
     const estimate = estimateHistoricalBackfillUsd(new Date(BACKFILL_COST_AS_OF));
     expect(estimate.quarterlyWindows).toBe(14);
     expect(estimate.queries).toEqual({ dated: 8, paginate: 56, official: 6 });
     const model = BACKFILL_COST_MODEL;
     const treg =
-      estimate.queries.dated * estimate.quarterlyWindows * model.xPageUsd +
+      estimate.queries.dated * estimate.quarterlyWindows * model.pagesPerDatedWindow * model.xPageUsd +
       estimate.queries.paginate * model.pagesPerPaginateQuery * model.otherPageUsd +
       estimate.queries.official * model.pagesPerOfficialQuery * model.otherPageUsd +
       model.expectedNewCandidates * model.transcriptShare * model.transcriptUsd +
       model.expectedNewCandidates * model.detailShare * model.detailUsd +
       estimate.expectedKept * model.firstCrawlUsd;
     const gemini = (model.expectedNewCandidates * model.geminiRelevanceShare * model.geminiRelevanceMicro) / 1_000_000 + model.geminiCommentUsd;
-    expect(estimate.totalUsd).toBe(2.6035);
+    expect(estimate.totalUsd).toBe(3.0515);
     expect(estimate.tregUsd + estimate.geminiUsd).toBeCloseTo(treg + gemini, 6);
     expect(estimate.perCallCaps).toEqual({ tregUsd: BACKFILL_TREG_BUDGET_USD, geminiMicro: BACKFILL_GEMINI_BUDGET_MICRO });
     expect(estimate.balanceFloorUsd).toBe(BACKFILL_MIN_BALANCE_USD);
@@ -278,8 +352,8 @@ describe("backfill-discovery admin task", () => {
     const run = session({
       plan: [spec("x", "Utah City")],
       maxSearchUnits: 1,
-      searchPage: async (input) => {
-        run.searches.push({ query: input.query, window: input.window });
+    searchPage: async (input) => {
+      run.searches.push({ query: input.query, window: input.window, cursor: input.cursor });
         return {
           items: [
             {
@@ -294,7 +368,11 @@ describe("backfill-discovery admin task", () => {
       },
     });
     const result = await runBackfillDiscovery(run.deps);
-    expect(run.searches[0]).toEqual({ query: "Utah City", window: { since: "2026-10-01", until: "2026-10-10" } });
+    expect(run.searches[0]).toEqual({
+      query: '"Utah City"',
+      window: { since: "2026-10-01", until: "2026-10-10" },
+      cursor: undefined,
+    });
     expect(result.candidates).toBe(1);
     expect(result.kept).toBe(1);
     expect(result.calls).toEqual([{ platform: "x", query: "Utah City", kind: "search", usd: 0 }]);
@@ -330,24 +408,64 @@ describe("backfill-discovery admin task", () => {
     expect(result.candidates).toBe(1);
   });
 
-  it("marks a lookalike-heavy query skipped and does not search the next page", async () => {
-    const run = session();
-    run.deps.classify = async () => verdict("rejected_lookalike");
+  it("skips a sampled window under a 2% keep rate and searches the next query", async () => {
+    const weak = {
+      ...freshBackfillCursor(spec("tiktok", "Utah City")),
+      candidates: 600,
+      kept: 2,
+      lookalikes: 384,
+      rejected: { rejected_lookalike: 384, rejected_offtopic: 214 },
+      cursor: "page-30",
+    };
+    const run = session({ plan: [spec("tiktok", "Utah City"), spec("facebook", "Utah City")], maxSearchUnits: 1 }, {
+      historicalBackfill: { queries: [weak] },
+    });
     run.deps.searchPage = async (input) => {
-      run.searches.push({ query: input.query });
-      return {
-        items: Array.from({ length: 8 }, (_, index) => tiktok(String(1000 + index), "2024-05-01T00:00:00.000Z", "best utah city to live")),
-        nextCursor: "page-2",
-        done: false,
-      };
+      run.searches.push({ query: input.query, cursor: input.cursor });
+      return { items: [], done: true };
     };
     const result = await runBackfillDiscovery(run.deps);
-    expect(run.searches).toHaveLength(1);
-    expect(result.candidates).toBe(8);
-    expect(result.kept).toBe(0);
-    expect(result.rejectedByReason.rejected_lookalike).toBe(8);
+    expect(run.searches).toEqual([{ query: "Utah City", cursor: undefined }]);
     expect(result.queriesSkipped).toBe(1);
-    expect(run.listener().cursors?.historicalBackfill?.queries[0]?.skipped).toBe(true);
+    expect(run.listener().cursors?.historicalBackfill?.queries[0]?.done).toBe(true);
+    expect(run.listener().cursors?.historicalBackfill?.queries[0]?.cursor).toBeUndefined();
+    expect(run.listener().cursors?.historicalBackfill?.queries[1]?.id).toBe(spec("facebook", "Utah City").id);
+  });
+
+  it("moves a weak X window forward and does not repeat its page cursor", async () => {
+    const weak = {
+      ...freshBackfillCursor(spec("x", "Utah City")),
+      candidates: 600,
+      kept: 2,
+      lookalikes: 384,
+      cursor: "page-30",
+      windowIndex: 0,
+    };
+    const run = session({ plan: [spec("x", "Utah City")], maxSearchUnits: 1 }, { historicalBackfill: { queries: [weak] } });
+    run.deps.searchPage = async (input) => {
+      run.searches.push({ query: input.query, window: input.window, cursor: input.cursor });
+      return { items: [], done: false, nextCursor: "page-31" };
+    };
+    await runBackfillDiscovery(run.deps);
+    expect(run.searches).toEqual([
+      { query: '"Utah City"', cursor: undefined, window: { since: "2026-07-01", until: "2026-10-01" } },
+    ]);
+    expect(run.listener().cursors?.historicalBackfill?.queries[0]?.cursor).toBe("page-31");
+    expect(run.listener().cursors?.historicalBackfill?.queries[0]?.windowIndex).toBe(1);
+    expect(run.listener().cursors?.discovery?.[0]?.queryId).toBe("live");
+  });
+
+  it("searches an official account and Facebook before spending the run on X", async () => {
+    const run = session({
+      plan: [spec("x", "Utah City"), spec("facebook", "Utah City"), spec("tiktok", "utahcityutah", "account")],
+      maxSearchUnits: 3,
+    });
+    run.deps.searchPage = async (input) => {
+      run.searches.push({ query: input.query });
+      return { items: [], nextCursor: "more", done: false };
+    };
+    await runBackfillDiscovery(run.deps);
+    expect(run.searches.map((item) => item.query)).toEqual(["utahcityutah", "Utah City"]);
   });
 
   it("classifies in-range posts and stops paging when a hit predates 2023", async () => {
