@@ -14,6 +14,24 @@ export const ACCEPTANCE_URL = `https://www.tiktok.com/@${ACCEPTANCE_AUTHOR}/vide
  */
 export const ACCEPTANCE_COVERAGE = 0.9;
 
+/** A first crawl holds the post this long so the listener and the backfill cannot page it together. */
+export const HARVEST_CLAIM_LEASE_MS = 15 * 60 * 1000;
+export const HARVEST_CLAIM_OWNER_MONITOR = "monitor";
+export const HARVEST_CLAIM_OWNER_BACKFILL = "backfill";
+
+/** Same owner may resume. A different owner waits until the lease expires. A missing claim is free. */
+export function harvestClaimAvailable(
+  post: { harvestClaimedAt?: string; harvestClaimOwner?: string } | null | undefined,
+  owner: string,
+  now: number,
+  leaseMs = HARVEST_CLAIM_LEASE_MS
+): boolean {
+  if (!post?.harvestClaimedAt || !post.harvestClaimOwner) return true;
+  if (post.harvestClaimOwner === owner) return true;
+  const at = Date.parse(post.harvestClaimedAt);
+  return !Number.isFinite(at) || now - at >= leaseMs;
+}
+
 export type IncrementalStrategy = "watermark" | "delta_walk";
 
 /**

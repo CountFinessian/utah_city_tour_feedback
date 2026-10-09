@@ -18,6 +18,7 @@ import {
   withSeededExternalIds,
 } from "@/domain/social-listening/relevance";
 import { SocialListenerState, SocialListeningRepository } from "./social-repository";
+import { harvestClaimAvailable } from "@/domain/social-listening/first-crawl";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 
 const DATA_DIR = process.env.DATA_DIR
@@ -66,6 +67,16 @@ async function readStorage(): Promise<StoragePayload> {
 async function writeStorage(data: StoragePayload): Promise<void> {
   await ensureDir();
   await fs.writeFile(STORAGE_FILE, JSON.stringify(data, null, 2), "utf8");
+}
+
+/** Claim columns are written only by claimHarvest / releaseHarvest. */
+function preserveHarvestClaim(previous: Post | undefined, post: Post): Post {
+  if (!previous) return post;
+  return {
+    ...post,
+    harvestClaimedAt: previous.harvestClaimedAt,
+    harvestClaimOwner: previous.harvestClaimOwner,
+  };
 }
 
 export const fileSocialRepository: SocialListeningRepository = {
@@ -155,27 +166,44 @@ export const fileSocialRepository: SocialListeningRepository = {
   async upsertPost(post: Post): Promise<Post> {
     const data = await readStorage();
     const idx = data.posts.findIndex((p) => p.canonicalId === post.canonicalId);
-    if (idx >= 0) {
-      data.posts[idx] = post;
-    } else {
-      data.posts.push(post);
-    }
+    const stored = preserveHarvestClaim(idx >= 0 ? data.posts[idx] : undefined, post);
+    if (idx >= 0) data.posts[idx] = stored;
+    else data.posts.push(stored);
     await writeStorage(data);
-    return post;
+    return stored;
   },
 
   async bulkUpsertPosts(posts: Post[]): Promise<Post[]> {
     const data = await readStorage();
-    for (const post of posts) {
+    const stored = posts.map((post) => {
       const idx = data.posts.findIndex((p) => p.canonicalId === post.canonicalId);
-      if (idx >= 0) {
-        data.posts[idx] = post;
-      } else {
-        data.posts.push(post);
-      }
-    }
+      const next = preserveHarvestClaim(idx >= 0 ? data.posts[idx] : undefined, post);
+      if (idx >= 0) data.posts[idx] = next;
+      else data.posts.push(next);
+      return next;
+    });
     await writeStorage(data);
-    return posts;
+    return stored;
+  },
+
+  async claimHarvest(postId: string, owner: string, now: number, leaseMs: number): Promise<boolean> {
+    const data = await readStorage();
+    const post = data.posts.find((item) => item.id === postId);
+    if (!post) return true;
+    if (!harvestClaimAvailable(post, owner, now, leaseMs)) return false;
+    post.harvestClaimedAt = new Date(now).toISOString();
+    post.harvestClaimOwner = owner;
+    await writeStorage(data);
+    return true;
+  },
+
+  async releaseHarvest(postId: string, owner: string): Promise<void> {
+    const data = await readStorage();
+    const post = data.posts.find((item) => item.id === postId);
+    if (!post || post.harvestClaimOwner !== owner) return;
+    delete post.harvestClaimedAt;
+    delete post.harvestClaimOwner;
+    await writeStorage(data);
   },
 
   async listComments(filter): Promise<Comment[]> {

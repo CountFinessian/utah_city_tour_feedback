@@ -19,6 +19,8 @@ import {
   meetsAcceptanceBar,
   newestStoredComment,
   nextReplyCursor,
+  HARVEST_CLAIM_LEASE_MS,
+  HARVEST_CLAIM_OWNER_MONITOR,
   postNeedsFirstCrawl,
 } from "@/domain/social-listening/first-crawl";
 import { isOfficialAuthor, type OfficialAccountRef } from "@/domain/social-listening/relevance";
@@ -127,6 +129,10 @@ interface CrawlOptions {
   classify?: typeof classifyComments;
   tregSpentUsd?: () => number;
   hasModel?: () => boolean;
+  /** Defaults to the listener. Historical backfill passes its own owner. */
+  claimOwner?: string;
+  claimHarvest?: (postId: string, owner: string, now: number, leaseMs: number) => Promise<boolean>;
+  releaseHarvest?: (postId: string, owner: string) => Promise<void>;
 }
 
 function limitsOf(options: CrawlOptions) {
@@ -671,6 +677,10 @@ export async function runHarvestFirstCrawl(options: CrawlOptions = {}): Promise<
   let replies = 0;
   let stopped: HarvestStop = "done";
   const pendingIds = new Set(queue.map((post) => post.id));
+  const owner = options.claimOwner || HARVEST_CLAIM_OWNER_MONITOR;
+  const claimHarvest =
+    options.claimHarvest ?? ((postId, claimOwner, now, leaseMs) => repo.claimHarvest(postId, claimOwner, now, leaseMs));
+  const releaseHarvest = options.releaseHarvest ?? ((postId, claimOwner) => repo.releaseHarvest(postId, claimOwner));
 
   for (const post of queue) {
     if (processedPosts >= postsPerCall) break;
@@ -679,19 +689,25 @@ export async function runHarvestFirstCrawl(options: CrawlOptions = {}): Promise<
       stopped = early;
       break;
     }
-    const outcome = await crawlOnePost(post, options, limits, officialAccounts, gemini);
-    processedPosts += 1;
-    stored += outcome.added;
-    dropped += outcome.dropped;
-    replies += outcome.replies;
-    if (outcome.post.firstFullCrawlCompletedAt) {
-      completedPosts += 1;
-      pendingIds.delete(outcome.post.id);
-    }
-    summaries.push(summarize(outcome.post, outcome.added, outcome.dropped, outcome.replies));
-    if (outcome.stopped) {
-      stopped = outcome.stopped;
-      break;
+    const claimed = await claimHarvest(post.id, owner, Date.now(), HARVEST_CLAIM_LEASE_MS);
+    if (!claimed) continue;
+    try {
+      const outcome = await crawlOnePost(post, options, limits, officialAccounts, gemini);
+      processedPosts += 1;
+      stored += outcome.added;
+      dropped += outcome.dropped;
+      replies += outcome.replies;
+      if (outcome.post.firstFullCrawlCompletedAt) {
+        completedPosts += 1;
+        pendingIds.delete(outcome.post.id);
+      }
+      summaries.push(summarize(outcome.post, outcome.added, outcome.dropped, outcome.replies));
+      if (outcome.stopped) {
+        stopped = outcome.stopped;
+        break;
+      }
+    } finally {
+      await releaseHarvest(post.id, owner);
     }
   }
 

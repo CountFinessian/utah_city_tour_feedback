@@ -137,6 +137,10 @@ export interface Post {
   relevanceVersion?: number;
   consecutiveUnchangedChecks?: number;
 
+  /** Short lease so the listener and historical backfill do not first-crawl the same post. */
+  harvestClaimedAt?: string;
+  harvestClaimOwner?: string;
+
   rawProviderData?: Record<string, unknown>;
 }
 

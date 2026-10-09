@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: relevance, first-crawl, Instagram reply backfill, or legacy reclassify
+        description: relevance, first-crawl, Instagram reply backfill, legacy reclassify, or historical backfill
         type: choice
         required: true
         default: relevance-eval
@@ -17,6 +17,7 @@ on:
           - acceptance-test
           - ig-replies-backfill
           - reclassify-legacy
+          - backfill-discovery
 
 jobs:
   run-task:
