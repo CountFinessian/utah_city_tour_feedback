@@ -2,375 +2,865 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Minus, Radio, TrendingDown, TrendingUp } from "lucide-react";
-import { SentimentChart, type SentimentChartMonth } from "@/components/social/SentimentChart";
+import {
+  TrendingUp,
+  MessageSquare,
+  Users,
+  Eye,
+  RefreshCw,
+  Sparkles,
+  AlertCircle,
+  ThumbsUp,
+  MinusCircle,
+  ThumbsDown,
+  Radio,
+  MapPin,
+  Compass,
+  ExternalLink,
+  ChevronRight,
+  X,
+  Layers,
+  ArrowUpRight,
+  Flame,
+  Activity,
+  CheckCircle2,
+  FileText,
+} from "lucide-react";
+import {
+  SocialPulseMetrics,
+  NarrativeStory,
+  NarrativeLifecycleState,
+  CommentWithContext,
+  Platform,
+} from "@/domain/social-listening/types";
 
-interface CommentFilter {
-  month?: string;
-  months?: string[];
-  sentiment?: "positive" | "neutral" | "negative";
-  topic?: string;
-  window?: "now" | "then" | "all";
-}
-
-interface NarrativeLink {
-  label: string;
-  filter: CommentFilter;
-}
-
-interface DashboardComment {
-  id: string;
-  text: string;
-  sentiment?: string;
-  topic?: string;
-  createdAt: string;
-  authorUsername: string;
-  platform: string;
-  postUrl: string;
-  postCaption: string;
-}
-
-interface DashboardPayload {
-  rangeLabel: string;
-  months: SentimentChartMonth[];
-  trend: { direction: "up" | "down" | "flat" | "insufficient"; text: string; months: string[] };
-  headline: { net: number | null; positive: number; neutral: number; negative: number; total: number };
-  nowWindow: { label: string; total: number; issues: Array<{ topic: string; label: string; count: number; share: number }> };
-  thenWindow: { label: string; total: number; issues: Array<{ topic: string; label: string; count: number; share: number }> };
-  shifts: Array<{ id: string; month: string; title: string; detail: string; commentCount: number; filter: CommentFilter }>;
-  quotes: Array<{ postId: string; postUrl: string; platform: string; quote: string; publishedAt?: string }>;
-  claims: Array<{ id: string; text: string; links: NarrativeLink[] }>;
-  narrative: { summary: string; generatedOn: string; source: string };
-}
-
-function points(net: number | null): string {
-  if (net == null) return "—";
-  const value = Math.round(net * 100);
-  return `${value > 0 ? "+" : ""}${value}`;
-}
-
-function filterQuery(filter: CommentFilter): string {
-  const params = new URLSearchParams();
-  if (filter.month) params.set("month", filter.month);
-  if (filter.months?.length) params.set("months", filter.months.join(","));
-  if (filter.sentiment) params.set("sentiment", filter.sentiment);
-  if (filter.topic) params.set("topic", filter.topic);
-  if (filter.window) params.set("window", filter.window);
-  return params.toString();
-}
-
-function filterTitle(filter: CommentFilter): string {
-  const parts: string[] = [];
-  if (filter.window === "now") parts.push("last 90 days");
-  if (filter.window === "then") parts.push("about two years ago");
-  if (filter.window === "all") parts.push("since August 2023");
-  if (filter.months?.length) parts.push(filter.months.join(", "));
-  else if (filter.month) parts.push(filter.month);
-  if (filter.sentiment) parts.push(filter.sentiment);
-  if (filter.topic) parts.push(filter.topic.replaceAll("_", " "));
-  return parts.join(" · ") || "Public comments";
-}
-
-function formatWhen(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-}
+const LIFECYCLE_BADGES: Record<
+  NarrativeLifecycleState,
+  { label: string; bg: string; text: string; border: string }
+> = {
+  ACCELERATING: {
+    label: "Accelerating",
+    bg: "bg-amber-500/10",
+    text: "text-amber-400",
+    border: "border-amber-500/20",
+  },
+  GROWING: {
+    label: "Growing",
+    bg: "bg-cyan-500/10",
+    text: "text-cyan-400",
+    border: "border-cyan-500/20",
+  },
+  EMERGING: {
+    label: "Emerging",
+    bg: "bg-emerald-500/10",
+    text: "text-emerald-400",
+    border: "border-emerald-500/20",
+  },
+  STABLE: {
+    label: "Established",
+    bg: "bg-slate-500/10",
+    text: "text-slate-300",
+    border: "border-slate-500/20",
+  },
+  FADING: {
+    label: "Fading",
+    bg: "bg-rose-500/10",
+    text: "text-rose-400",
+    border: "border-rose-500/20",
+  },
+  RESURGENT: {
+    label: "Resurgent",
+    bg: "bg-purple-500/10",
+    text: "text-purple-400",
+    border: "border-purple-500/20",
+  },
+  CONTESTED: {
+    label: "Contested",
+    bg: "bg-indigo-500/10",
+    text: "text-indigo-400",
+    border: "border-indigo-500/20",
+  },
+  INSUFFICIENT_EVIDENCE: {
+    label: "Early Signal",
+    bg: "bg-white/5",
+    text: "text-slate-400",
+    border: "border-white/10",
+  },
+};
 
 export default function SocialPulsePage() {
-  const [data, setData] = useState<DashboardPayload | null>(null);
+  const [data, setData] = useState<SocialPulseMetrics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState<string>("7d");
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [openFilter, setOpenFilter] = useState<CommentFilter | null>(null);
-  const [comments, setComments] = useState<DashboardComment[]>([]);
-  const [commentTotal, setCommentTotal] = useState(0);
-  const [commentsLoading, setCommentsLoading] = useState(false);
-  const [commentsError, setCommentsError] = useState<string | null>(null);
+  const [selectedNarrativeId, setSelectedNarrativeId] = useState<string | null>(null);
+  const [drawerNarrative, setDrawerNarrative] = useState<NarrativeStory | null>(null);
+
+  const fetchData = async (p = period) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch(`/api/social-pulse?period=${p}`);
+      if (!res.ok) throw new Error("Failed to load pulse data");
+      const json: SocialPulseMetrics = await res.json();
+      setData(json);
+
+      // Default selected narrative for interactive timeline
+      if (json.narratives && json.narratives.length > 0) {
+        setSelectedNarrativeId((prev) => prev || json.narratives![0].id);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch("/api/social-pulse/dashboard");
-        if (!res.ok) throw new Error("Failed to load the conversation");
-        const json = (await res.json()) as DashboardPayload;
-        if (!cancelled) setData(json);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load the conversation");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    fetchData(period);
+  }, [period]);
 
-  async function openComments(filter: CommentFilter) {
-    setOpenFilter(filter);
-    setCommentsLoading(true);
-    setCommentsError(null);
+  const handleRefresh = async () => {
+    setRefreshing(true);
     try {
-      const res = await fetch(`/api/social-pulse/comments?${filterQuery(filter)}`);
-      if (!res.ok) throw new Error("Failed to load comments");
-      const json = (await res.json()) as { comments: DashboardComment[]; total: number };
-      setComments(json.comments);
-      setCommentTotal(json.total);
-    } catch (err) {
-      setComments([]);
-      setCommentTotal(0);
-      setCommentsError(err instanceof Error ? err.message : "Failed to load comments");
-    } finally {
-      setCommentsLoading(false);
+      // Trigger live sync cycle
+      await fetch("/api/social-pulse/cron");
+    } catch {
+      // fallback to regular fetch
     }
-  }
+    await fetchData(period);
+  };
 
-  const direction = data?.trend.direction;
-  const TrendIcon = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
+  const formatNumber = (num?: number): string => {
+    if (!num) return "0";
+    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + "M";
+    if (num >= 1_000) return (num / 1_000).toFixed(1) + "K";
+    return num.toLocaleString();
+  };
+
+  const selectedNarrative = data?.narratives?.find((n) => n.id === selectedNarrativeId) || data?.narratives?.[0];
 
   return (
     <div className="space-y-8">
-      <header className="flex flex-col gap-3 pb-6 border-b border-white/10 sm:flex-row sm:items-end sm:justify-between">
+      {/* Leadership Header */}
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-white/10">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
-            <Radio className="w-6 h-6 text-[#20d0c3]" />
-            Social Pulse
-          </h1>
-          <p className="text-sm text-slate-400 mt-1 max-w-2xl">
-            Net sentiment from public comments, August 2023 through today. Counts use comments on relevant posts and other people&apos;s comments on official posts. Official accounts&apos; own posts stay out, and comments on rejected posts stay hidden.
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
+              <Radio className="w-6 h-6 text-[#20d0c3]" />
+              Social Listener
+            </h1>
+            <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-[#20d0c3]/10 text-[#20d0c3] border border-[#20d0c3]/20">
+              3-HOUR LIVE SYNC
+            </span>
+          </div>
+          <p className="text-sm text-slate-400 mt-1">
+            Narrative intelligence, public storyline velocity, and verified organic evidence across social communities
           </p>
         </div>
-        <Link href="/social-pulse/admin" className="text-xs text-slate-500 hover:text-slate-300">
-          Listening setup
-        </Link>
+
+        <div className="flex items-center gap-2">
+          <span className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white/[0.04] text-slate-300 border border-white/10">
+            <RefreshCw className="w-3.5 h-3.5 text-[#20d0c3]" />
+            Continuous Cycle: 3 Hours
+          </span>
+
+          <div className="flex bg-white/[0.04] border border-white/10 rounded-lg p-1">
+            {["24h", "7d", "30d"].map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  period === p
+                    ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30 shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {p === "24h" ? "24 Hours" : p === "7d" ? "7 Days" : "30 Days"}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-2 text-slate-400 hover:text-white bg-white/[0.04] border border-white/10 rounded-lg hover:bg-white/[0.08] transition"
+            title="Trigger immediate 3-hour sync cycle"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#20d0c3]" : ""}`} />
+          </button>
+        </div>
       </header>
 
-      {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+      {error && (
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {loading && !data ? (
-        <p className="text-sm text-slate-500">Loading the conversation…</p>
+        <div className="p-16 text-center text-slate-500 flex flex-col items-center justify-center gap-3">
+          <RefreshCw className="w-6 h-6 animate-spin text-[#20d0c3]" />
+          <p className="text-sm font-medium">Extracting narrative intelligence and public storylines...</p>
+        </div>
       ) : data ? (
         <div className="space-y-8">
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button
-              type="button"
-              onClick={() => openComments({ window: "all" })}
-              className="text-left bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-[#20d0c3]/40"
-            >
-              <div className="text-xs font-medium text-slate-400">Net sentiment</div>
-              <div className="mt-2 text-4xl font-extrabold text-white">{points(data.headline.net)}</div>
-              <div className="mt-1 text-xs text-slate-500">{data.rangeLabel}</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => openComments({ window: "all" })}
-              className="text-left bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-[#20d0c3]/40"
-            >
-              <div className="text-xs font-medium text-slate-400">Public comments</div>
-              <div className="mt-2 text-4xl font-extrabold text-white">{data.headline.total.toLocaleString()}</div>
-              <div className="mt-2 flex gap-3 text-xs">
-                <span className="text-emerald-300">{data.headline.positive} positive</span>
-                <span className="text-slate-400">{data.headline.neutral} neutral</span>
-                <span className="text-rose-300">{data.headline.negative} negative</span>
+          {/* 1. EXECUTIVE NARRATIVE PULSE (HERO) */}
+          <section className="bg-gradient-to-r from-white/[0.06] to-white/[0.02] border border-white/10 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-[#20d0c3] uppercase">
+                <Sparkles className="w-4 h-4 text-[#20d0c3]" />
+                Executive Narrative Pulse
               </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => openComments({ months: data.trend.months })}
-              className="text-left bg-white/[0.03] border border-white/10 rounded-2xl p-5 hover:border-[#20d0c3]/40"
-            >
-              <div className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
-                <TrendIcon className="w-3.5 h-3.5 text-[#20d0c3]" />
-                Direction
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span>Confidence:</span>
+                <span
+                  className={`font-semibold px-2 py-0.5 rounded text-[11px] ${
+                    data.narrativeConfidence === "HIGH"
+                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                      : data.narrativeConfidence === "MEDIUM"
+                      ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                      : "bg-white/10 text-slate-300"
+                  }`}
+                >
+                  {data.narrativeConfidence}
+                </span>
               </div>
-              <div className="mt-2 text-lg font-semibold text-white leading-snug">{data.trend.text}</div>
-            </button>
-          </section>
-
-          <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">Sentiment over time</h2>
-              <span className="text-xs text-slate-500">Click a month</span>
             </div>
-            <SentimentChart months={data.months} onSelectMonth={(month) => openComments({ month })} />
-            <div className="mt-4 flex flex-wrap gap-2">
-              <CountButton label={`${data.headline.positive} positive`} onClick={() => openComments({ window: "all", sentiment: "positive" })} />
-              <CountButton label={`${data.headline.negative} negative`} onClick={() => openComments({ window: "all", sentiment: "negative" })} />
-              <CountButton label={`${data.headline.neutral} neutral`} onClick={() => openComments({ window: "all", sentiment: "neutral" })} />
-            </div>
+            <p className="text-base sm:text-lg text-slate-100 leading-relaxed font-normal">
+              {data.narrative || "Synthesizing conversational evidence..."}
+            </p>
           </section>
 
-          <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <IssueColumn
-              title="Issues now"
-              windowLabel={data.nowWindow.label}
-              total={data.nowWindow.total}
-              issues={data.nowWindow.issues}
-              onCount={(topic) => openComments({ window: "now", topic })}
-              onTotal={() => openComments({ window: "now" })}
-            />
-            <IssueColumn
-              title="About two years ago"
-              windowLabel={data.thenWindow.label}
-              total={data.thenWindow.total}
-              issues={data.thenWindow.issues}
-              onCount={(topic) => openComments({ window: "then", topic })}
-              onTotal={() => openComments({ window: "then" })}
-            />
-          </section>
-
-          <section className="bg-gradient-to-r from-white/[0.06] to-white/[0.02] border border-white/10 rounded-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-[#20d0c3]">How commenters&apos; views changed</h2>
-              <span className="text-[11px] text-slate-500">
-                {data.narrative.source === "cache" ? "Cached" : data.narrative.source === "model" ? "Fresh brief" : "Grounded brief"} · {data.narrative.generatedOn}
+          {/* 2. INTERACTIVE NARRATIVE TRAJECTORY & STORYLINE VELOCITY (REPLACES RANDOM DOTS) */}
+          <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-[#20d0c3] flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-[#20d0c3]" />
+                  Narrative Trajectory & Storyline Velocity
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Click through storylines below to inspect how public narratives evolve and accelerate over time
+                </p>
+              </div>
+              <span className="text-xs text-slate-400">
+                Period: Last {data.periodDays} Days
               </span>
             </div>
-            <p className="text-base text-slate-100 leading-relaxed">{data.narrative.summary}</p>
-            <ul className="space-y-3">
-              {data.claims.map((claim) => (
-                <li key={claim.id} className="text-sm text-slate-200 leading-relaxed">
-                  <p>{claim.text}</p>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {claim.links.map((link) => (
-                      <CountButton key={link.label} label={link.label} onClick={() => openComments(link.filter)} />
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
 
-          <section className="space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">Conversation shifts</h2>
-            {data.shifts.length === 0 ? (
-              <p className="text-sm text-slate-500">No month yet has enough comments to mark a shift.</p>
-            ) : (
-              <ol className="space-y-3 border-l border-white/10 ml-2">
-                {[...data.shifts].reverse().slice(0, 8).map((shift) => (
-                  <li key={shift.id} className="pl-4">
-                    <div className="text-xs text-slate-500">{shift.month}</div>
-                    <div className="text-sm font-semibold text-white">{shift.title}</div>
-                    <p className="text-sm text-slate-300">{shift.detail}</p>
-                    <CountButton label={`${shift.commentCount} comments`} onClick={() => openComments(shift.filter)} />
-                  </li>
-                ))}
-              </ol>
+            {/* Click-through Narrative Selector Tabs */}
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+              {(data.narratives || []).map((narrative) => {
+                const isSelected = selectedNarrative?.id === narrative.id;
+                const badge = LIFECYCLE_BADGES[narrative.lifecycleState];
+                return (
+                  <button
+                    key={narrative.id}
+                    onClick={() => setSelectedNarrativeId(narrative.id)}
+                    className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-medium border whitespace-nowrap transition-all ${
+                      isSelected
+                        ? "bg-[#20d0c3]/15 text-[#20d0c3] border-[#20d0c3]/40 shadow-sm"
+                        : "bg-white/[0.02] text-slate-300 border-white/5 hover:border-white/20 hover:bg-white/[0.05]"
+                    }`}
+                  >
+                    <span>{narrative.canonicalTitle}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full border ${badge.bg} ${badge.text} ${badge.border}`}>
+                      {badge.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Selected Narrative Dossier Card */}
+            {selectedNarrative && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 p-5 rounded-xl bg-white/[0.02] border border-white/5">
+                <div className="lg:col-span-8 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-sm font-bold text-white">
+                        {selectedNarrative.canonicalTitle}
+                      </span>
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-slate-300 border border-white/10">
+                        Framing: {selectedNarrative.framing}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400">Velocity:</span>
+                      <span className="text-xs font-bold text-[#20d0c3]">
+                        {selectedNarrative.momentum.velocityScore}/100
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-slate-300 leading-relaxed">
+                    {selectedNarrative.centralStoryline}
+                  </p>
+
+                  {/* Leadership Takeaway Box */}
+                  <div className="p-3.5 rounded-xl bg-[#20d0c3]/10 border border-[#20d0c3]/20 text-xs text-slate-200 flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#20d0c3] shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold text-[#20d0c3]">Leadership Action / Implication: </span>
+                      {selectedNarrative.leadershipTakeaway}
+                    </div>
+                  </div>
+
+                  {/* Verbatim Supporting Evidence Preview */}
+                  {selectedNarrative.representativeEvidence.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                        Representative Verbatim Evidence (No Timestamps)
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {selectedNarrative.representativeEvidence.slice(0, 2).map((ev, i) => (
+                          <div
+                            key={ev.id || i}
+                            className="p-3 rounded-lg bg-black/30 border border-white/5 text-xs text-slate-300 flex flex-col justify-between space-y-2"
+                          >
+                            <p className="italic font-normal text-slate-200">
+                              "{ev.text}"
+                            </p>
+                            <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-white/5">
+                              <span>@{ev.authorUsername} ({ev.platform})</span>
+                              {ev.postUrl && (
+                                <a
+                                  href={ev.postUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[#20d0c3] hover:underline flex items-center gap-1"
+                                >
+                                  Source <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column: Narrative Dynamics & Platforms */}
+                <div className="lg:col-span-4 flex flex-col justify-between p-4 rounded-xl bg-black/20 border border-white/5 space-y-4">
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                      Narrative Momentum
+                    </span>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Tracked Volume:</span>
+                      <span className="font-bold text-white">
+                        {selectedNarrative.momentum.volume} posts & comments
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Direction of Travel:</span>
+                      <span
+                        className={`font-bold ${
+                          selectedNarrative.momentum.volumeChangePct >= 0
+                            ? "text-emerald-400"
+                            : "text-rose-400"
+                        }`}
+                      >
+                        {selectedNarrative.momentum.volumeChangePct >= 0 ? "+" : ""}
+                        {Math.round(selectedNarrative.momentum.volumeChangePct * 100)}% vs prev period
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">Unique Contributors:</span>
+                      <span className="font-bold text-white">
+                        {selectedNarrative.momentum.uniqueContributors} accounts
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 pt-2 border-t border-white/5">
+                      <span className="text-[11px] text-slate-400 block">Active Communities / Platforms:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedNarrative.momentum.crossPlatformSpread.map((plat) => (
+                          <span
+                            key={plat}
+                            className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300"
+                          >
+                            {plat}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setDrawerNarrative(selectedNarrative)}
+                    className="w-full py-2 px-3 text-xs font-semibold rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 flex items-center justify-center gap-1.5 transition"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-[#20d0c3]" />
+                    Inspect Complete Evidence Corpus
+                  </button>
+                </div>
+              </div>
             )}
           </section>
 
-          {data.quotes.length > 0 ? (
-            <section className="space-y-3">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">On camera</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {data.quotes.map((quote) => (
-                  <a
-                    key={quote.postId}
-                    href={quote.postUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block bg-white/[0.03] border border-white/10 rounded-2xl p-4 hover:border-[#20d0c3]/40"
-                  >
-                    <p className="text-sm text-slate-100 leading-relaxed">&ldquo;{quote.quote}&rdquo;</p>
-                    <div className="mt-3 text-xs text-[#20d0c3] flex items-center gap-1">
-                      Open post <ExternalLink className="w-3 h-3" />
-                    </div>
-                  </a>
-                ))}
+          {/* 3. NARRATIVES GAINING MOMENTUM (RANKED STORY CARDS) */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-amber-400" />
+                  Narratives Shaping Public Perception
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Ranked by acceleration velocity, cross-platform spread, and community impact
+                </p>
               </div>
-            </section>
-          ) : null}
+              <span className="text-xs text-slate-500">
+                {data.narratives?.length || 0} Core Storylines Tracked
+              </span>
+            </div>
 
-          {openFilter ? (
-            <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold text-white">{filterTitle(openFilter)}</h2>
-                <span className="text-xs text-slate-500">{commentTotal.toLocaleString()} comments</span>
-              </div>
-              {commentsLoading ? <p className="text-sm text-slate-500">Loading comments…</p> : null}
-              {commentsError ? <p className="text-sm text-rose-300">{commentsError}</p> : null}
-              {!commentsLoading && comments.length === 0 ? (
-                <p className="text-sm text-slate-500">No public comments in this slice.</p>
-              ) : null}
-              <ul className="space-y-3">
-                {comments.map((comment) => (
-                  <li key={comment.id} className="border-t border-white/5 pt-3">
-                    <p className="text-sm text-slate-100 leading-relaxed">{comment.text}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                      <span>{formatWhen(comment.createdAt)}</span>
-                      {comment.sentiment ? <span>{comment.sentiment}</span> : null}
-                      {comment.topic ? <span>{comment.topic.replaceAll("_", " ")}</span> : null}
-                      <span>@{comment.authorUsername}</span>
-                      {comment.postUrl ? (
-                        <a href={comment.postUrl} target="_blank" rel="noopener noreferrer" className="text-[#20d0c3] inline-flex items-center gap-1">
-                          Original post <ExternalLink className="w-3 h-3" />
-                        </a>
-                      ) : null}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {(data.narratives || []).map((narrative) => {
+                const badge = LIFECYCLE_BADGES[narrative.lifecycleState];
+                return (
+                  <div
+                    key={narrative.id}
+                    className="p-5 bg-white/[0.03] border border-white/10 hover:border-white/20 rounded-2xl flex flex-col justify-between transition space-y-4"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${badge.bg} ${badge.text} ${badge.border}`}>
+                          {badge.label}
+                        </span>
+                        <span className="text-[11px] text-[#20d0c3] font-bold">
+                          Velocity {narrative.momentum.velocityScore}/100
+                        </span>
+                      </div>
+
+                      <h3 className="text-sm font-bold text-white leading-snug">
+                        {narrative.canonicalTitle}
+                      </h3>
+
+                      <p className="text-xs text-slate-300 leading-relaxed line-clamp-3">
+                        {narrative.centralStoryline}
+                      </p>
+
+                      {/* Direction & Cross Platform Badges */}
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-white/5">
+                        <span
+                          className={`font-semibold ${
+                            narrative.momentum.volumeChangePct >= 0
+                              ? "text-emerald-400"
+                              : "text-rose-400"
+                          }`}
+                        >
+                          {narrative.momentum.volumeChangePct >= 0 ? "+" : ""}
+                          {Math.round(narrative.momentum.volumeChangePct * 100)}% shift
+                        </span>
+                        <div className="flex gap-1">
+                          {narrative.momentum.crossPlatformSpread.map((p) => (
+                            <span key={p} className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-white/5 text-slate-300">
+                              {p}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Clean verbatim quote preview */}
+                      {narrative.representativeEvidence[0] && (
+                        <div className="p-2.5 rounded-lg bg-black/20 border border-white/5 text-[11px] text-slate-300 italic">
+                          "{narrative.representativeEvidence[0].text.slice(0, 110)}..."
+                        </div>
+                      )}
                     </div>
-                    {comment.postCaption ? <p className="mt-1 text-xs text-slate-500">{comment.postCaption}</p> : null}
-                  </li>
-                ))}
-              </ul>
-              {commentTotal > comments.length ? (
-                <p className="text-xs text-slate-500">Showing {comments.length} of {commentTotal}.</p>
-              ) : null}
+
+                    <button
+                      onClick={() => setDrawerNarrative(narrative)}
+                      className="w-full py-1.5 text-[11px] font-semibold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 flex items-center justify-center gap-1 transition"
+                    >
+                      View Narrative Dossier <ChevronRight className="w-3 h-3 text-[#20d0c3]" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* 4. KEY PUBLIC FEEDBACK & OPERATIONAL SIGNALS */}
+          {data.actionableFeedback && data.actionableFeedback.length > 0 && (
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-[#20d0c3] flex items-center gap-2">
+                    <Compass className="w-4 h-4 text-[#20d0c3]" />
+                    Key Public Feedback & Operational Signals
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Critical public feedback requiring leadership awareness — wayfinding confusions, lake perceptions, and community friction
+                  </p>
+                </div>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 font-medium">
+                  {data.actionableFeedback.length} Action Items
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {data.actionableFeedback.map((item, idx) => {
+                  const textLower = (item.text || "").toLowerCase();
+                  let tag = "Public Feedback";
+                  let tagColor = "bg-slate-500/10 text-slate-300 border-slate-500/20";
+
+                  if (
+                    item.topic === "wayfinding_and_access" ||
+                    textLower.includes("map") ||
+                    textLower.includes("address") ||
+                    textLower.includes("direction") ||
+                    textLower.includes("parking")
+                  ) {
+                    tag = "Wayfinding & Access";
+                    tagColor = "bg-cyan-500/10 text-cyan-300 border-cyan-500/20";
+                  } else if (
+                    item.topic === "environment" ||
+                    textLower.includes("lake") ||
+                    textLower.includes("algae") ||
+                    textLower.includes("water") ||
+                    textLower.includes("shallow")
+                  ) {
+                    tag = "Utah Lake Perception";
+                    tagColor = "bg-teal-500/10 text-teal-300 border-teal-500/20";
+                  } else if (
+                    item.topic === "traffic_and_infrastructure" ||
+                    textLower.includes("traffic") ||
+                    textLower.includes("road")
+                  ) {
+                    tag = "Traffic & Capacity";
+                    tagColor = "bg-rose-500/10 text-rose-300 border-rose-500/20";
+                  }
+
+                  return (
+                    <div
+                      key={item.id || idx}
+                      className="p-4 bg-white/[0.03] border border-white/10 hover:border-white/20 rounded-2xl flex flex-col justify-between transition space-y-3"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${tagColor}`}>
+                            {tag}
+                          </span>
+                          <span className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">
+                            {item.platform}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-100 font-medium leading-relaxed italic">
+                          "{item.text}"
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
+                        <span>@{item.authorUsername}</span>
+                        <div className="flex items-center gap-3">
+                          <span>{item.likeCount} likes</span>
+                          {item.postUrl && (
+                            <a
+                              href={item.postUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[#20d0c3] hover:underline flex items-center gap-1"
+                            >
+                              Post <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </section>
-          ) : null}
+          )}
+
+          {/* 5. ATTENTION KPIS & HONEST SENTIMENT BALANCE */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Attention & Velocity KPIs */}
+            <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  ATTENTION & EXPOSURE VELOCITY
+                </h2>
+                <span className="text-xs text-slate-500">vs prev {data.periodDays} days</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
+                  <span className="text-xs text-slate-400 block mb-1">Tracked Views</span>
+                  <div className="text-2xl font-extrabold text-white">
+                    {formatNumber(data.attention.views)}
+                  </div>
+                  <span className="text-[11px] font-semibold text-emerald-400">
+                    {data.attention.viewsChange >= 0 ? "+" : ""}
+                    {Math.round(data.attention.viewsChange * 100)}% shift
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
+                  <span className="text-xs text-slate-400 block mb-1">Active Posts</span>
+                  <div className="text-2xl font-extrabold text-white">
+                    {data.attention.relevantPosts}
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    {data.attention.relevantPostsChange >= 0 ? "+" : ""}
+                    {Math.round(data.attention.relevantPostsChange * 100)}% shift
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
+                  <span className="text-xs text-slate-400 block mb-1">Total Comments</span>
+                  <div className="text-2xl font-extrabold text-white">
+                    {data.attention.commentsCount}
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    Verified feedback
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
+                  <span className="text-xs text-slate-400 block mb-1">Unique Creators</span>
+                  <div className="text-2xl font-extrabold text-white">
+                    {data.attention.uniqueCreators}
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    Distinct posters
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            {/* Honest Sentiment Analysis */}
+            <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  PUBLIC SENTIMENT BALANCE
+                </h2>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">Net Score:</span>
+                  <span className={`text-xs font-bold ${
+                    data.sentiment.netScore !== null && data.sentiment.netScore > 0
+                      ? "text-emerald-400"
+                      : data.sentiment.netScore !== null && data.sentiment.netScore < 0
+                      ? "text-rose-400"
+                      : "text-slate-300"
+                  }`}>
+                    {data.sentiment.netScore !== null
+                      ? `${data.sentiment.netScore >= 0 ? "+" : ""}${data.sentiment.netScore}`
+                      : "Establishing Baseline"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-1">
+                {/* Positive */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span className="text-emerald-400">Positive / Enthusiastic</span>
+                    <span className="text-slate-200">
+                      {Math.round(data.sentiment.commentWeighted.positivePct * 100)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 rounded-full"
+                      style={{ width: `${Math.round(data.sentiment.commentWeighted.positivePct * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Neutral */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span className="text-slate-300">Neutral / Inquiring</span>
+                    <span className="text-slate-200">
+                      {Math.round(data.sentiment.commentWeighted.neutralPct * 100)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-slate-400 rounded-full"
+                      style={{ width: `${Math.round(data.sentiment.commentWeighted.neutralPct * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Negative */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span className="text-rose-400">Concerns & Critical</span>
+                    <span className="text-slate-200">
+                      {Math.round(data.sentiment.commentWeighted.negativePct * 100)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-rose-500 rounded-full"
+                      style={{ width: `${Math.round(data.sentiment.commentWeighted.negativePct * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-white/5 text-[11px] text-slate-500">
+                  Evaluated across {data.attention.commentsCount} community comments. Official promotional posts excluded from public perception balance.
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
       ) : null}
-    </div>
-  );
-}
 
-function CountButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex text-xs font-semibold text-[#20d0c3] underline decoration-[#20d0c3]/40 underline-offset-2 hover:decoration-[#20d0c3]"
-    >
-      {label}
-    </button>
-  );
-}
+      {/* 6. NARRATIVE DETAIL SLIDE-OVER DRAWER */}
+      {drawerNarrative && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-xl h-full bg-[#0d121c] border-l border-white/10 p-6 sm:p-8 overflow-y-auto space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-[#20d0c3] uppercase tracking-wider">
+                  Narrative Intelligence Dossier
+                </span>
+              </div>
+              <button
+                onClick={() => setDrawerNarrative(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-function IssueColumn({
-  title,
-  windowLabel,
-  total,
-  issues,
-  onCount,
-  onTotal,
-}: {
-  title: string;
-  windowLabel: string;
-  total: number;
-  issues: Array<{ topic: string; label: string; count: number; share: number }>;
-  onCount: (topic: string) => void;
-  onTotal: () => void;
-}) {
-  return (
-    <section className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 space-y-3">
-      <div>
-        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">{title}</h2>
-        <p className="text-xs text-slate-500 mt-1">{windowLabel}</p>
-      </div>
-      <CountButton label={`${total} comments`} onClick={onTotal} />
-      {issues.length === 0 ? (
-        <p className="text-sm text-slate-500">No topic tags in this window.</p>
-      ) : (
-        <ul className="space-y-2">
-          {issues.map((issue) => (
-            <li key={issue.topic} className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-slate-200">{issue.label}</span>
-              <CountButton label={`${issue.count}`} onClick={() => onCount(issue.topic)} />
-            </li>
-          ))}
-        </ul>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                    LIFECYCLE_BADGES[drawerNarrative.lifecycleState].bg
+                  } ${LIFECYCLE_BADGES[drawerNarrative.lifecycleState].text} ${
+                    LIFECYCLE_BADGES[drawerNarrative.lifecycleState].border
+                  }`}
+                >
+                  {LIFECYCLE_BADGES[drawerNarrative.lifecycleState].label}
+                </span>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-white/5 text-slate-300 border border-white/10">
+                  Framing: {drawerNarrative.framing}
+                </span>
+              </div>
+              <h2 className="text-xl font-extrabold text-white">
+                {drawerNarrative.canonicalTitle}
+              </h2>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                {drawerNarrative.centralStoryline}
+              </p>
+            </div>
+
+            {/* Strategic Implication */}
+            <div className="p-4 rounded-xl bg-[#20d0c3]/10 border border-[#20d0c3]/20 space-y-1.5">
+              <span className="text-xs font-bold text-[#20d0c3] uppercase tracking-wider block">
+                Executive Action Recommendation
+              </span>
+              <p className="text-xs text-slate-200 leading-relaxed">
+                {drawerNarrative.leadershipTakeaway}
+              </p>
+            </div>
+
+            {/* Dynamics */}
+            <div className="grid grid-cols-3 gap-3 p-4 rounded-xl bg-white/[0.02] border border-white/5 text-center">
+              <div>
+                <span className="text-[10px] text-slate-400 block uppercase">Velocity</span>
+                <span className="text-base font-bold text-[#20d0c3]">
+                  {drawerNarrative.momentum.velocityScore}/100
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block uppercase">Volume Shift</span>
+                <span className="text-base font-bold text-white">
+                  {drawerNarrative.momentum.volumeChangePct >= 0 ? "+" : ""}
+                  {Math.round(drawerNarrative.momentum.volumeChangePct * 100)}%
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block uppercase">Contributors</span>
+                <span className="text-base font-bold text-white">
+                  {drawerNarrative.momentum.uniqueContributors}
+                </span>
+              </div>
+            </div>
+
+            {/* Verbatim Supporting Evidence Corpus */}
+            <div className="space-y-3">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                Supporting Evidence Corpus (Cleaned Quotes)
+              </span>
+              <div className="space-y-3">
+                {drawerNarrative.representativeEvidence.map((ev, i) => (
+                  <div
+                    key={ev.id || i}
+                    className="p-3.5 rounded-xl bg-black/40 border border-white/10 text-xs space-y-2"
+                  >
+                    <p className="text-slate-200 italic leading-relaxed">
+                      "{ev.text}"
+                    </p>
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-white/5">
+                      <span>@{ev.authorUsername} ({ev.platform})</span>
+                      <div className="flex items-center gap-3">
+                        <span>{ev.likeCount} likes</span>
+                        {ev.postUrl && (
+                          <a
+                            href={ev.postUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[#20d0c3] hover:underline flex items-center gap-1"
+                          >
+                            Original Post <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Contradictory Evidence / Counter Opinions */}
+            {drawerNarrative.contradictoryEvidence && drawerNarrative.contradictoryEvidence.length > 0 && (
+              <div className="space-y-3 pt-2 border-t border-white/10">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                  Counter-Evidence & Conflicting Opinions
+                </span>
+                <div className="space-y-2">
+                  {drawerNarrative.contradictoryEvidence.map((ev, i) => (
+                    <div
+                      key={ev.id || i}
+                      className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5 text-xs space-y-2"
+                    >
+                      <p className="text-slate-300 italic leading-relaxed">
+                        "{ev.text}"
+                      </p>
+                      <div className="flex items-center justify-between text-[11px] text-slate-500">
+                        <span>@{ev.authorUsername} ({ev.platform})</span>
+                        {ev.postUrl && (
+                          <a
+                            href={ev.postUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[#20d0c3] hover:underline flex items-center gap-1"
+                          >
+                            Post <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
-    </section>
+    </div>
   );
 }

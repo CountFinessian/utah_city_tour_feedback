@@ -12,6 +12,8 @@ import { dispatchSocialPulseAlerts, shouldSendDailyDigest } from "@/server/servi
 import { comparePostsForCommentSync } from "@/server/services/social-scheduler";
 import { tregClient } from "@/server/services/treg-client";
 import { Post, Comment } from "@/domain/social-listening/types";
+import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
+import { buildNarrativeIntelligence } from "@/server/intelligence/narrative-engine";
 
 function makePost(partial: Partial<Post> & { id: string; publishedAt: string; caption: string }): Post {
   return {
@@ -232,6 +234,139 @@ describe("Social Listening Engine Tests", () => {
       expect(metrics.attention.views).toBe(150000);
       expect(metrics.attention.viewsChange).toBe(0.5); // (150K - 100K) / 100K = +50%
       expect(metrics.sentiment.commentWeighted.positivePct).toBe(1.0);
+      expect(metrics.sentiment.netScore).toBe(100);
+    });
+  });
+
+  describe("Transcript Timestamp Stripping", () => {
+    it("strips bracketed, parenthetical, and raw timestamps from video transcripts", () => {
+      const raw1 = "[0:04] Utah City is building a new downtown (01:23) right here by the lake [00:02:15].";
+      const cleaned1 = stripTranscriptTimestamps(raw1);
+      expect(cleaned1).toBe("Utah City is building a new downtown right here by the lake.");
+
+      const raw2 = "0:12 Traffic on Geneva Road is already backed up: 12:45 why add more cars?";
+      const cleaned2 = stripTranscriptTimestamps(raw2);
+      expect(cleaned2).not.toMatch(/\d{1,2}:\d{2}/);
+    });
+  });
+
+  describe("Narrative Intelligence Engine", () => {
+    it("identifies and clusters narratives, computes momentum and lifecycle states", () => {
+
+      const posts: Post[] = [
+        {
+          id: "p1",
+          canonicalId: "tiktok:1",
+          platform: "tiktok",
+          platformContentId: "1",
+          url: "https://tiktok.com/@u/video/1",
+          authorUsername: "creator1",
+          caption: "Utah City downtown development",
+          firstSeenAt: "2026-10-06T00:00:00Z",
+          lastSeenAt: "2026-10-06T00:00:00Z",
+          lastCheckedAt: "2026-10-06T00:00:00Z",
+          viewCount: 20000,
+          likeCount: 500,
+          commentCount: 4,
+          shareCount: 20,
+          lastCommentCount: 4,
+          lastViewCount: 20000,
+          activityState: "ACTIVE",
+          relevanceScore: 1,
+          relevanceStatus: "relevant",
+          matchedEntities: ["Utah City"],
+          isRelevant: true,
+        },
+      ];
+
+      const comments: Comment[] = [
+        {
+          id: "c1",
+          canonicalId: "c:1",
+          platform: "tiktok",
+          platformCommentId: "c1",
+          postId: "p1",
+          authorUsername: "driver1",
+          text: "[0:05] The traffic on 1600 North is already a total gridlock bottleneck",
+          createdAt: "2026-10-06T01:00:00Z",
+          firstSeenAt: "2026-10-06T01:00:00Z",
+          lastSeenAt: "2026-10-06T01:00:00Z",
+          likeCount: 45,
+          replyCount: 0,
+          sentiment: "negative",
+          topic: "traffic_and_infrastructure",
+        },
+        {
+          id: "c2",
+          canonicalId: "c:2",
+          platform: "reddit",
+          platformCommentId: "c2",
+          postId: "p1",
+          authorUsername: "local2",
+          text: "Utah Lake is shallow and has algae blooms every summer, kind of gross",
+          createdAt: "2026-10-06T02:00:00Z",
+          firstSeenAt: "2026-10-06T02:00:00Z",
+          lastSeenAt: "2026-10-06T02:00:00Z",
+          likeCount: 30,
+          replyCount: 0,
+          sentiment: "negative",
+          topic: "environment",
+        },
+        {
+          id: "c3",
+          canonicalId: "c:3",
+          platform: "instagram",
+          platformCommentId: "c3",
+          postId: "p1",
+          authorUsername: "visitor3",
+          text: "Greenline doesn't show up on Google Maps, had trouble finding where to park",
+          createdAt: "2026-10-06T03:00:00Z",
+          firstSeenAt: "2026-10-06T03:00:00Z",
+          lastSeenAt: "2026-10-06T03:00:00Z",
+          likeCount: 25,
+          replyCount: 0,
+          sentiment: "neutral",
+          topic: "wayfinding_and_access",
+        },
+        {
+          id: "c4",
+          canonicalId: "c:4",
+          platform: "tiktok",
+          platformCommentId: "c4",
+          postId: "p1",
+          authorUsername: "foodie4",
+          text: "So excited for Fini Pizza and walkable dining in Utah County!",
+          createdAt: "2026-10-06T04:00:00Z",
+          firstSeenAt: "2026-10-06T04:00:00Z",
+          lastSeenAt: "2026-10-06T04:00:00Z",
+          likeCount: 60,
+          replyCount: 0,
+          sentiment: "positive",
+          topic: "restaurants_and_amenities",
+        },
+      ];
+
+      const result = buildNarrativeIntelligence({
+        posts,
+        comments,
+        periodDays: 7,
+        now: new Date("2026-10-07T00:00:00Z"),
+      });
+
+      expect(result.narratives.length).toBeGreaterThanOrEqual(4);
+
+      const trafficStory = result.narratives.find((n: any) => n.id === "narrative_traffic_capacity");
+      expect(trafficStory).toBeDefined();
+      expect(trafficStory!.canonicalTitle).toContain("Road Capacity");
+      // Timestamps stripped from representative evidence
+      expect(trafficStory!.representativeEvidence[0].text).not.toContain("[0:05]");
+
+      const wayfindingStory = result.narratives.find((n: any) => n.id === "narrative_wayfinding_maps");
+      expect(wayfindingStory).toBeDefined();
+      expect(wayfindingStory!.leadershipTakeaway).toContain("Google Maps");
+
+      expect(result.actionableFeedback.length).toBeGreaterThan(0);
+      expect(result.trajectories.length).toBe(5);
     });
   });
 

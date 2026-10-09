@@ -1,5 +1,6 @@
 import type { Observation } from "./observation";
 import type { EvidenceItem } from "@/components/domain/EvidencePopover";
+import { sanitizeTranscript } from "./sanitize-text";
 
 export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -65,7 +66,7 @@ const STOPWORDS = new Set([
  */
 export function extractCleanExcerpt(transcript: string, terms: string[], fallback?: string): string {
   const quotedFallback = fallback?.trim() ? `"${fallback.trim().replace(/^["']|["']$/g, "")}"` : null;
-  const cleanText = transcript.trim();
+  const cleanText = sanitizeTranscript(transcript.trim());
   if (!cleanText) return quotedFallback || "Transcript evidence unavailable.";
 
   const normalizedTerms = terms.map((t) => t.toLowerCase().trim()).filter(Boolean);

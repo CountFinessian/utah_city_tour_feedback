@@ -237,6 +237,53 @@ export interface SearchTermSuggestion {
   reviewedAt?: string;
 }
 
+export type NarrativeLifecycleState =
+  | "EMERGING"
+  | "GROWING"
+  | "ACCELERATING"
+  | "STABLE"
+  | "FADING"
+  | "RESURGENT"
+  | "CONTESTED"
+  | "INSUFFICIENT_EVIDENCE";
+
+export interface NarrativeMomentum {
+  volume: number; // count of relevant comments/posts
+  volumeChangePct: number; // e.g. +0.35 (+35%)
+  velocityScore: number; // 0-100 acceleration
+  visibilityScore: number; // aggregate views/likes
+  crossPlatformSpread: Platform[]; // platforms where narrative is active
+  uniqueContributors: number;
+}
+
+export interface NarrativeStory {
+  id: string;
+  canonicalTitle: string; // e.g. "Vineyard Road Capacity & Infrastructure Load"
+  centralStoryline: string; // plain English executive storyline
+  framing: string; // e.g. "Infrastructure Strain", "Environmental Quality", "Wayfinding Friction", "Progress"
+  lifecycleState: NarrativeLifecycleState;
+  primaryTopics: Topic[];
+  sentimentBalance: {
+    positivePct: number;
+    neutralPct: number;
+    negativePct: number;
+    dominantSentiment: Sentiment;
+    netScore: number; // -100 to +100
+  };
+  momentum: NarrativeMomentum;
+  representativeEvidence: CommentWithContext[];
+  contradictoryEvidence?: CommentWithContext[];
+  leadershipTakeaway: string; // concise action/implication for Utah City leadership
+  confidence: "LOW" | "MEDIUM" | "HIGH";
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface NarrativeTrajectoryPoint {
+  date: string;
+  [key: string]: string | number;
+}
+
 export interface SocialPulseMetrics {
   periodDays: number;
   startDate: string;
@@ -254,6 +301,8 @@ export interface SocialPulseMetrics {
     commentsChange: number;
   };
   sentiment: {
+    hasData: boolean;
+    netScore: number | null; // -100 to +100 or null if empty
     commentWeighted: {
       positivePct: number;
       neutralPct: number;
@@ -280,6 +329,8 @@ export interface SocialPulseMetrics {
     negative: CommentWithContext[];
   };
   actionableFeedback?: CommentWithContext[];
+  narratives?: NarrativeStory[];
+  narrativeTrajectories?: NarrativeTrajectoryPoint[];
   narrative?: string;
   narrativeConfidence: "LOW" | "MEDIUM" | "HIGH";
   narrativeGroundingFacts: string[];
@@ -291,4 +342,5 @@ export interface CommentWithContext extends Comment {
   feedbackKind?: "wayfinding_and_access" | "environment" | "brand_operational" | "generic_sentiment";
   leadershipAction?: string;
 }
+
 

@@ -15,6 +15,7 @@ import { SocialListenerState, SocialListeningRepository, type IgReplyBackfillCur
 import { fileSocialRepository } from "./file-social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 import { stage1Statements } from "@/server/db/migrations/stage1";
+import { sanitizeTranscript } from "@/domain/sanitize-text";
 
 function db() {
   const url = getPgUrl();
@@ -337,7 +338,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
       ) values (
         ${post.id}, ${post.canonicalId}, ${post.platform}, ${post.platformContentId}, ${post.url},
         ${post.authorId || null}, ${post.authorUsername}, ${post.authorDisplayName || null},
-        ${post.caption}, ${post.title || null}, ${post.description || null}, ${post.transcript || null},
+        ${post.caption}, ${post.title || null}, ${post.description || null}, ${post.transcript ? sanitizeTranscript(post.transcript) : null},
         ${post.publishedAt || null}, ${post.firstSeenAt}, ${post.lastSeenAt}, ${post.lastCheckedAt},
         ${post.viewCount}, ${post.likeCount}, ${post.commentCount}, ${post.shareCount},
         ${post.lastCommentCount}, ${post.lastViewCount}, ${post.activityState}, ${post.relevanceScore},
@@ -768,7 +769,7 @@ function mapPostRow(r: any): Post {
     caption: r.caption,
     title: r.title || undefined,
     description: r.description || undefined,
-    transcript: r.transcript || undefined,
+    transcript: r.transcript ? sanitizeTranscript(r.transcript) : undefined,
     publishedAt: r.published_at ? new Date(r.published_at).toISOString() : undefined,
     firstSeenAt: new Date(r.first_seen_at).toISOString(),
     lastSeenAt: new Date(r.last_seen_at).toISOString(),
