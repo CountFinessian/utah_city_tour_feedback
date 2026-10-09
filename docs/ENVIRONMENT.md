@@ -63,7 +63,7 @@ The app uses a priority cascade — it tries providers in order and falls back g
 
 Live listening uses the treg catalog (`utah-city-intelligence` team). Do not commit `TREG_TOKEN`.
 
-The listener schedule lives in `.github/workflows/social-pulse-listener.yml`: `17 */3 * * *` and a nudge at `47 1-23/3 * * *` (both UTC), with `concurrency.cancel-in-progress` so a delayed slot does not overlap the next one. GitHub only registers cron from the default branch. Re-enabling the workflow in the Actions UI does not pick up a cron expression that changed while the workflow was disabled — the 2026-10-09 06:17 and 09:17 UTC runs never started after the switch from `0 */3` / `30 */6` to `17 */3`, while manual dispatch still succeeded. A commit that changes this workflow file is what re-registers the schedule.
+The listener schedule lives in `.github/workflows/social-pulse-listener.yml`: `17 */3 * * *` and a nudge at `47 1-23/3 * * *` (both UTC). The nudge checks recent successful `schedule` runs and exits before calling production when one completed in the last 2 hours, so it does not spend Treg or Gemini after a slot that already ran. Concurrency waits for an in-progress `:17` run instead of cancelling it. GitHub only registers cron from the default branch. Re-enabling the workflow in the Actions UI does not pick up a cron expression that changed while the workflow was disabled — the 2026-10-09 06:17 and 09:17 UTC runs never started after the switch from `0 */3` / `30 */6` to `17 */3`, while manual dispatch still succeeded. A commit that changes this workflow file is what re-registers the schedule.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|

@@ -261,14 +261,14 @@ describe("production relevance jobs", () => {
     });
 
     expect(classifications).toBe(1);
-    expect(result.version).toBe(5);
+    expect(result.version).toBe(RELEVANCE_VERSION);
     expect(result.processed).toBe(4);
     expect(result.rejected).toBe(3);
     expect(result.kept).toBe(1);
     const rejected = upserts.filter((item) => item.id !== "real");
     expect(rejected).toHaveLength(3);
     expect(rejected.every((item) => item.relevanceStatus === "rejected_offtopic" && item.isRelevant === false)).toBe(true);
-    expect(rejected.every((item) => item.relevanceVersion === 5)).toBe(true);
+    expect(rejected.every((item) => item.relevanceVersion === RELEVANCE_VERSION)).toBe(true);
     expect(upserts.find((item) => item.id === "real")?.isRelevant).toBe(true);
 
     const comments: Comment[] = [

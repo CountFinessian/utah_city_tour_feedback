@@ -742,7 +742,9 @@ describe("scheduler wiring", () => {
     const route = readFileSync(path.join(process.cwd(), "src/app/api/social-pulse/cron/route.ts"), "utf8");
     expect(listener).toContain('cron: "17 */3 * * *"');
     expect(listener).toContain('cron: "47 1-23/3 * * *"');
-    expect(listener).toContain("cancel-in-progress: true");
+    expect(listener).toContain("cancel-in-progress: false");
+    expect(listener).toContain("now - 7200");
+    expect(listener).toContain("steps.backup.outputs.skip != 'true'");
     expect(listener).toContain("group: social-pulse-listener");
     expect(listener).toContain("mode=monitor");
     expect(listener).toContain("--max-time 280");
