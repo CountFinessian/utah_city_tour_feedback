@@ -32,6 +32,8 @@ export interface SocialListeningRepository {
     endDate?: string;
     /** Include posts whose relevance_version is null or strictly below this generation. */
     relevanceVersionBelow?: number;
+    /** relevant and official posts that have not finished a first comment crawl. */
+    needsFirstCrawl?: boolean;
     limit?: number;
   }): Promise<Post[]>;
   listOfficialAccounts(): Promise<OfficialAccountRef[]>;

@@ -7,7 +7,11 @@ export const DROP_REASONS = [
   "filler_word",
   "mention_only",
   "link_promo",
+  "tags_only",
 ] as const;
+
+/** Sentiment/topic generation stored on each classified comment. Bump to re-score. */
+export const COMMENT_CLASSIFICATION_VERSION = 1;
 
 export type DropReason = (typeof DROP_REASONS)[number];
 
@@ -73,8 +77,10 @@ export function commentDropReason(text: string): DropReason | null {
   const withoutEmoji = raw.replace(/\p{Extended_Pictographic}/gu, "").replace(/[\u200d\ufe0f]/g, "").trim();
   if (!withoutEmoji) return "emoji_only";
 
+  const hashtags = withoutEmoji.match(/#[\w.]+/g) || [];
   const mentions = withoutEmoji.match(/@[\w.]+/g) || [];
-  const withoutMentions = withoutEmoji.replace(/@[\w.]+/g, " ");
+  const withoutTags = withoutEmoji.replace(/#[\w.]+/g, " ");
+  const withoutMentions = withoutTags.replace(/@[\w.]+/g, " ");
   const stripped = withoutMentions
     .replace(/https?:\/\/\S+|www\.\S+/gi, " ")
     .replace(/[^\p{L}\p{N}\s']/gu, " ")
@@ -84,6 +90,7 @@ export function commentDropReason(text: string): DropReason | null {
   const tokens = stripped.split(" ").filter(Boolean);
   const content = tokens.filter((token) => !fillerToken(token));
 
+  if (hashtags.length > 0 && content.length === 0 && mentions.length === 0) return "tags_only";
   if (mentions.length > 0 && content.length === 0) return "mention_only";
 
   const promo = SPAM.test(raw) || URL.test(raw);
@@ -102,4 +109,20 @@ export function isLowSignalCommentText(text: string): boolean {
 
 export function isLowSignalStoredComment(comment: { sentimentReason?: string; dropReason?: string }): boolean {
   return comment.sentimentReason === LOW_SIGNAL_REASON || isExplicitDropReason(comment.sentimentReason) || isExplicitDropReason(comment.dropReason);
+}
+
+/** Official-account replies stay on the thread and are not public opinion. */
+export function isOfficialStoredComment(comment: { isOfficialAuthor?: boolean; commentRelevance?: string }): boolean {
+  return comment.isOfficialAuthor === true || comment.commentRelevance === "official";
+}
+
+export function isPublicOpinionComment(comment: {
+  sentimentReason?: string;
+  dropReason?: string;
+  dropped?: boolean;
+  isOfficialAuthor?: boolean;
+  commentRelevance?: string;
+}): boolean {
+  if (comment.dropped || isLowSignalStoredComment(comment) || isOfficialStoredComment(comment)) return false;
+  return true;
 }

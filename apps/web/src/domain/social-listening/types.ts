@@ -1,3 +1,5 @@
+import type { CommentSyncState } from "./comment-sync";
+
 export type Platform = "tiktok" | "instagram" | "youtube" | "x" | "facebook" | "reddit" | "linkedin" | "other";
 
 export type SearchGroup =
@@ -122,6 +124,9 @@ export interface Post {
   lastActivityAt?: string;
   newestCommentCreatedAt?: string;
   newestCommentId?: string;
+  /** Provider pagination bookmark. Page 1 is not assumed to be newest. */
+  commentHarvestCursor?: CommentSyncState;
+  firstFullCrawlCompletedAt?: string;
   storedTotal?: number;
   droppedLowSignalCount?: number;
   transcriptProvider?: string;
@@ -155,6 +160,10 @@ export interface Comment {
   platformCommentId: string;
   postId: string; // Points to Post.id
   parentCommentId?: string;
+  /** 0 = top-level comment. Each reply level adds one. */
+  threadDepth?: number;
+  /** Official account speaking inside a thread. Kept, not shown as public opinion. */
+  isOfficialAuthor?: boolean;
   authorId?: string;
   authorUsername: string;
   authorDisplayName?: string;

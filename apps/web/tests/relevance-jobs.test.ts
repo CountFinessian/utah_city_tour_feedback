@@ -68,6 +68,8 @@ describe("production relevance jobs", () => {
     expect(workflow).toContain("relevance-eval");
     expect(workflow).toContain("relevance-reeval");
     expect(workflow).toContain("lookup-debug");
+    expect(workflow).toContain("harvest-first-crawl");
+    expect(workflow).toContain("acceptance-test");
     expect(workflow).toContain("Authorization: Bearer ${CRON_SECRET}");
     expect(workflow).toContain("https://www.utahcity.app/api/social-pulse/cron?mode=${TASK}");
   });

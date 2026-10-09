@@ -55,6 +55,8 @@ alter table social_comments add column if not exists reply_count_at_last_check i
 alter table social_comments add column if not exists replies_checked_at timestamptz;
 alter table social_comments add column if not exists dropped boolean not null default false;
 alter table social_comments add column if not exists drop_reason text;
+alter table social_comments add column if not exists thread_depth integer;
+alter table social_comments add column if not exists is_official_author boolean not null default false;
 
 create unique index if not exists idx_social_comments_platform_comment
   on social_comments (platform, platform_comment_id);

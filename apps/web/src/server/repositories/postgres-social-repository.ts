@@ -264,6 +264,13 @@ export const postgresSocialRepository: SocialListeningRepository = {
           ${filter?.relevanceVersionBelow ?? null}::int is null
           or coalesce(relevance_version, 0) < ${filter?.relevanceVersionBelow ?? null}::int
         )
+        and (
+          ${filter?.needsFirstCrawl === true}::boolean = false
+          or (
+            relevance_status in ('relevant', 'official_comment_source')
+            and first_full_crawl_completed_at is null
+          )
+        )
       order by coalesce(published_at, first_seen_at) desc
       limit ${filter?.limit || 2000}
     `;
@@ -340,7 +347,10 @@ export const postgresSocialRepository: SocialListeningRepository = {
         ${post.transcriptProvider || null}, ${post.transcriptFetchedAt || null}, ${post.monitoringState || null},
         ${post.nextCommentCheckAt || null}, ${post.lastCommentCheckAt || null}, ${post.lastPlatformCommentCount ?? null},
         ${post.lastNewCommentAt || null}, ${post.lastActivityAt || null}, ${post.newestCommentCreatedAt || null},
-        ${post.newestCommentId || null}, ${null}, ${null}, ${post.storedTotal ?? null},
+        ${post.newestCommentId || null},
+        ${post.commentHarvestCursor ? JSON.stringify(post.commentHarvestCursor) : null},
+        ${post.firstFullCrawlCompletedAt || null},
+        ${post.storedTotal ?? null},
         ${post.droppedLowSignalCount || 0}, ${post.consecutiveUnchangedChecks || 0}
       )
       on conflict (canonical_id) do update set
@@ -388,6 +398,8 @@ export const postgresSocialRepository: SocialListeningRepository = {
         last_activity_at = coalesce(excluded.last_activity_at, social_posts.last_activity_at),
         newest_comment_created_at = coalesce(excluded.newest_comment_created_at, social_posts.newest_comment_created_at),
         newest_comment_id = coalesce(excluded.newest_comment_id, social_posts.newest_comment_id),
+        comment_harvest_cursor = coalesce(excluded.comment_harvest_cursor, social_posts.comment_harvest_cursor),
+        first_full_crawl_completed_at = coalesce(excluded.first_full_crawl_completed_at, social_posts.first_full_crawl_completed_at),
         stored_total = coalesce(excluded.stored_total, social_posts.stored_total),
         dropped_low_signal_count = greatest(social_posts.dropped_low_signal_count, coalesce(excluded.dropped_low_signal_count, 0)),
         consecutive_unchanged_checks = coalesce(excluded.consecutive_unchanged_checks, social_posts.consecutive_unchanged_checks)
@@ -434,7 +446,8 @@ export const postgresSocialRepository: SocialListeningRepository = {
           last_seen_at, like_count, reply_count, sentiment, sentiment_confidence,
           sentiment_reason, sentiment_target, topic, evidence_score, raw_provider_data,
           intent, relevance, signal_score, classification_version, classified_at,
-          is_leadership_signal, reply_count_at_last_check, replies_checked_at, dropped, drop_reason
+          is_leadership_signal, reply_count_at_last_check, replies_checked_at, dropped, drop_reason,
+          thread_depth, is_official_author
         ) values (
           ${c.id}, ${c.canonicalId}, ${c.platform}, ${c.platformCommentId}, ${c.postId},
           ${c.parentCommentId || null}, ${c.authorId || null}, ${c.authorUsername},
@@ -446,7 +459,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
           ${c.intent || null}, ${c.commentRelevance || null}, ${c.signalScore ?? null},
           ${c.classificationVersion ?? null}, ${c.classifiedAt || null}, ${c.isLeadershipSignal || false},
           ${c.replyCountAtLastCheck ?? null}, ${c.repliesCheckedAt || null}, ${c.dropped || false},
-          ${c.dropReason || null}
+          ${c.dropReason || null}, ${c.threadDepth ?? (c.parentCommentId ? 1 : 0)}, ${c.isOfficialAuthor || false}
         )
         on conflict (canonical_id) do update set
           parent_comment_id = coalesce(social_comments.parent_comment_id, excluded.parent_comment_id),
@@ -468,7 +481,9 @@ export const postgresSocialRepository: SocialListeningRepository = {
           reply_count_at_last_check = coalesce(excluded.reply_count_at_last_check, social_comments.reply_count_at_last_check),
           replies_checked_at = coalesce(excluded.replies_checked_at, social_comments.replies_checked_at),
           dropped = social_comments.dropped or excluded.dropped,
-          drop_reason = coalesce(excluded.drop_reason, social_comments.drop_reason)
+          drop_reason = coalesce(excluded.drop_reason, social_comments.drop_reason),
+          thread_depth = coalesce(excluded.thread_depth, social_comments.thread_depth),
+          is_official_author = social_comments.is_official_author or excluded.is_official_author
       `;
     }
     return comments;
@@ -627,6 +642,19 @@ function mapQueryRow(r: any): SearchQuery {
   };
 }
 
+function parseHarvestCursor(value: unknown): Post["commentHarvestCursor"] {
+  try {
+    if (!value) return undefined;
+    const raw = typeof value === "string" ? JSON.parse(value) : value;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const sync = raw as Post["commentHarvestCursor"];
+    if (!sync || (sync.phase !== "comments" && sync.phase !== "replies")) return undefined;
+    return sync;
+  } catch {
+    return undefined;
+  }
+}
+
 function mapPostRow(r: any): Post {
   return {
     id: r.id,
@@ -674,6 +702,10 @@ function mapPostRow(r: any): Post {
     lastActivityAt: r.last_activity_at ? new Date(r.last_activity_at).toISOString() : undefined,
     newestCommentCreatedAt: r.newest_comment_created_at ? new Date(r.newest_comment_created_at).toISOString() : undefined,
     newestCommentId: r.newest_comment_id || undefined,
+    commentHarvestCursor: parseHarvestCursor(r.comment_harvest_cursor),
+    firstFullCrawlCompletedAt: r.first_full_crawl_completed_at
+      ? new Date(r.first_full_crawl_completed_at).toISOString()
+      : undefined,
     storedTotal: r.stored_total == null ? undefined : Number(r.stored_total),
     droppedLowSignalCount: Number(r.dropped_low_signal_count || 0),
     transcriptProvider: r.transcript_provider || undefined,
@@ -701,6 +733,8 @@ function mapCommentRow(r: any): Comment {
     platformCommentId: r.platform_comment_id,
     postId: r.post_id,
     parentCommentId: r.parent_comment_id || undefined,
+    threadDepth: r.thread_depth == null ? (r.parent_comment_id ? 1 : 0) : Number(r.thread_depth),
+    isOfficialAuthor: Boolean(r.is_official_author),
     authorId: r.author_id || undefined,
     authorUsername: r.author_username,
     authorDisplayName: r.author_display_name || undefined,

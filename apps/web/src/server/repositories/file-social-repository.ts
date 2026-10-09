@@ -128,6 +128,13 @@ export const fileSocialRepository: SocialListeningRepository = {
     if (filter?.relevanceVersionBelow != null) {
       res = res.filter((p) => postNeedsRelevanceRecheck(p, filter.relevanceVersionBelow));
     }
+    if (filter?.needsFirstCrawl) {
+      res = res.filter(
+        (p) =>
+          (p.relevanceStatus === "relevant" || p.relevanceStatus === "official_comment_source") &&
+          !p.firstFullCrawlCompletedAt
+      );
+    }
     res.sort((a, b) => (b.publishedAt || b.firstSeenAt).localeCompare(a.publishedAt || a.firstSeenAt));
     if (filter?.limit) {
       res = res.slice(0, filter.limit);
