@@ -9,6 +9,7 @@ import {
   SearchTermSuggestion,
   SocialPipelineEvent,
 } from "@/domain/social-listening/types";
+import { parseHistoricalBackfill } from "@/domain/social-listening/backfill";
 import { SEEDED_OFFICIAL_ACCOUNTS, withSeededExternalIds } from "@/domain/social-listening/relevance";
 import { SocialListenerState, SocialListeningRepository, type IgReplyBackfillCursor } from "./social-repository";
 import { fileSocialRepository } from "./file-social-repository";
@@ -173,6 +174,8 @@ async function ensureSocialSchema(): Promise<void> {
         );
       `;
       await sql`alter table social_listener_state add column if not exists cursors jsonb not null default '{}'::jsonb`;
+      await sql`alter table social_posts add column if not exists harvest_claimed_at timestamptz`;
+      await sql`alter table social_posts add column if not exists harvest_claim_owner text`;
 
       // Seed queries if table empty
       const countRes = await sql`select count(*) as cnt from social_search_queries`;
@@ -415,6 +418,37 @@ export const postgresSocialRepository: SocialListeningRepository = {
     return posts;
   },
 
+  async claimHarvest(postId: string, owner: string, now: number, leaseMs: number): Promise<boolean> {
+    await ensureSocialSchema();
+    const sql = db();
+    const claimedAt = new Date(now).toISOString();
+    const expiredAt = new Date(now - leaseMs).toISOString();
+    const claimed = await sql`
+      update social_posts
+      set harvest_claimed_at = ${claimedAt}, harvest_claim_owner = ${owner}
+      where id = ${postId}
+        and (
+          harvest_claimed_at is null
+          or harvest_claim_owner = ${owner}
+          or harvest_claimed_at <= ${expiredAt}
+        )
+      returning id
+    `;
+    if (claimed.length > 0) return true;
+    const existing = await sql`select id from social_posts where id = ${postId}`;
+    return existing.length === 0;
+  },
+
+  async releaseHarvest(postId: string, owner: string): Promise<void> {
+    await ensureSocialSchema();
+    const sql = db();
+    await sql`
+      update social_posts
+      set harvest_claimed_at = null, harvest_claim_owner = null
+      where id = ${postId} and harvest_claim_owner = ${owner}
+    `;
+  },
+
   async listComments(filter): Promise<Comment[]> {
     await ensureSocialSchema();
     const sql = db();
@@ -651,7 +685,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
   },
 };
 
-function parseListenerCursors(value: unknown): SocialListenerState["cursors"] {
+export function parseListenerCursors(value: unknown): SocialListenerState["cursors"] {
   try {
     if (!value) return undefined;
     const raw = typeof value === "string" ? JSON.parse(value) : value;
@@ -686,6 +720,7 @@ function parseListenerCursors(value: unknown): SocialListenerState["cursors"] {
       lastMonitorAt: typeof record.lastMonitorAt === "string" ? record.lastMonitorAt : undefined,
       igReplyBackfill,
       discovery,
+      historicalBackfill: parseHistoricalBackfill(record.historicalBackfill),
     };
   } catch {
     return undefined;
@@ -779,6 +814,8 @@ function mapPostRow(r: any): Post {
     relevanceCheckedAt: r.relevance_checked_at ? new Date(r.relevance_checked_at).toISOString() : undefined,
     relevanceVersion: r.relevance_version == null ? undefined : Number(r.relevance_version),
     consecutiveUnchangedChecks: Number(r.consecutive_unchanged_checks || 0),
+    harvestClaimedAt: r.harvest_claimed_at ? new Date(r.harvest_claimed_at).toISOString() : undefined,
+    harvestClaimOwner: r.harvest_claim_owner || undefined,
     rawProviderData: typeof r.raw_provider_data === "string" ? JSON.parse(r.raw_provider_data) : (r.raw_provider_data || {}),
     commentsFetchedAt: (() => {
       const raw =

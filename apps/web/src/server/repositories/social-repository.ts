@@ -1,3 +1,4 @@
+import type { HistoricalBackfillState } from "@/domain/social-listening/backfill";
 import type { DiscoveryQueryCursor } from "@/domain/social-listening/monitoring";
 import type { OfficialAccountRef } from "@/domain/social-listening/relevance";
 import {
@@ -23,6 +24,8 @@ export interface SocialListenerCursors {
   igReplyBackfill?: IgReplyBackfillCursor;
   /** Per-query discovery progress. The next monitor run resumes the unfinished query. */
   discovery?: DiscoveryQueryCursor[];
+  /** Historical walk back to the 2023 announcement. Admin backfill only. */
+  historicalBackfill?: HistoricalBackfillState;
 }
 
 export interface SocialListenerState {
@@ -59,6 +62,12 @@ export interface SocialListeningRepository {
   getPostByCanonicalId(canonicalId: string): Promise<Post | null>;
   upsertPost(post: Post): Promise<Post>;
   bulkUpsertPosts(posts: Post[]): Promise<Post[]>;
+  /**
+   * Lease a first crawl. Returns false when another owner holds an unexpired lease.
+   * A missing post returns true so an in-memory test row is not blocked.
+   */
+  claimHarvest(postId: string, owner: string, now: number, leaseMs: number): Promise<boolean>;
+  releaseHarvest(postId: string, owner: string): Promise<void>;
 
   // Comments
   listComments(filter?: {
