@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { hasRelevanceModel } from "@/server/ai/model-config";
 import { acceptSocialListeningCycle } from "@/server/services/social-cycle";
+import { runAcceptanceTest, runHarvestFirstCrawl } from "@/server/services/first-crawl-job";
 import { runLookupDebug, runReferenceEval, runRelevanceReeval } from "@/server/services/relevance-jobs";
 
 const RELEVANCE_MODES = new Set(["relevance-eval", "relevance-reeval", "lookup-debug"]);
+const HARVEST_MODES = new Set(["harvest-first-crawl", "acceptance-test"]);
 
 /** Keep as high as the plan allows — discovery-only cycles should finish well under this. */
 export const maxDuration = 300;
@@ -48,6 +50,18 @@ export async function GET(request: Request) {
           : mode === "relevance-reeval"
             ? await runRelevanceReeval()
             : await runLookupDebug();
+      console.log(`[CRON /api/social-pulse/cron] ${JSON.stringify(result)}`);
+      return NextResponse.json(result);
+    }
+
+    if (HARVEST_MODES.has(mode)) {
+      if (!process.env.CRON_SECRET || !authorizeCron(request)) {
+        return NextResponse.json({ error: "Unauthorized cron execution" }, { status: 401 });
+      }
+      if (!process.env.TREG_TOKEN) {
+        return NextResponse.json({ error: "TREG_TOKEN is not configured in this environment" }, { status: 503 });
+      }
+      const result = mode === "acceptance-test" ? await runAcceptanceTest() : await runHarvestFirstCrawl();
       console.log(`[CRON /api/social-pulse/cron] ${JSON.stringify(result)}`);
       return NextResponse.json(result);
     }

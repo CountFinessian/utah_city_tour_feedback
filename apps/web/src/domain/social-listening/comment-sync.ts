@@ -1,4 +1,4 @@
-import { Post } from "@/domain/social-listening/types";
+import type { Post } from "@/domain/social-listening/types";
 
 /** Provider pagination bookmark stored on the post until the thread is fully harvested. */
 export interface CommentSyncState {
@@ -17,6 +17,10 @@ export interface CommentSyncState {
   updatedAt: string;
   /** Tokens required to expand a parent (Facebook feedback_id, YouTube continuation, Reddit more.cursor). */
   replyMeta?: Record<string, { feedbackId?: string; expansionToken?: string; replyContinuationToken?: string }>;
+  /** Provider order for this crawl. Stage 4 must not assume page 1 is newest. */
+  ordering?: "newest_first" | "ranked" | "relevance";
+  /** watermark = stop at newest id/time. delta_walk = ranked or relevance pages. */
+  incremental?: "watermark" | "delta_walk";
 }
 
 const DEFAULT_DEADLINE_MS = 240_000;
@@ -95,6 +99,11 @@ export function readCommentSync(post: Post): CommentSyncState | null {
       sync.replyMeta && typeof sync.replyMeta === "object" && !Array.isArray(sync.replyMeta)
         ? sync.replyMeta
         : undefined,
+    ordering:
+      sync.ordering === "newest_first" || sync.ordering === "ranked" || sync.ordering === "relevance"
+        ? sync.ordering
+        : undefined,
+    incremental: sync.incremental === "watermark" || sync.incremental === "delta_walk" ? sync.incremental : undefined,
   };
 }
 

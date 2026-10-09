@@ -1,4 +1,4 @@
-import { isLowSignalStoredComment } from "@/domain/social-listening/comment-signal";
+import { isPublicOpinionComment } from "@/domain/social-listening/comment-signal";
 import {
   Post,
   Comment,
@@ -209,7 +209,7 @@ export function calculateDeterministicSocialMetrics(params: {
     return at >= previousCutoff && at < currentCutoff;
   });
   const commentsChange = calcChange(currentComments.length, prevComments.length);
-  const signalComments = currentComments.filter((comment) => !isLowSignalStoredComment(comment));
+  const signalComments = currentComments.filter((comment) => isPublicOpinionComment(comment));
 
   // Comment-weighted sentiment ignores emoji, filler, mentions, and promos.
   let posComments = 0;

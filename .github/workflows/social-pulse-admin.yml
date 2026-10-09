@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: relevance-eval, relevance-reeval, or lookup-debug
+        description: relevance, first-crawl harvest, or the TikTok acceptance crawl
         type: choice
         required: true
         default: relevance-eval
@@ -13,13 +13,15 @@ on:
           - relevance-eval
           - relevance-reeval
           - lookup-debug
+          - harvest-first-crawl
+          - acceptance-test
 
 jobs:
   run-task:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
-      - name: Run production relevance task
+      - name: Run production admin task
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           TASK: ${{ github.event.inputs.task }}
