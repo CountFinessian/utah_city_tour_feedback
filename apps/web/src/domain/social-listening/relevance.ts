@@ -18,8 +18,11 @@ import type { Platform, RelevanceStatus } from "./types";
  * 6 — Fini Pizza and Fini cafe spellings, @Utah City, and "UT City" name the
  *     development. Lowercase "Utah city" with place context goes to the
  *     classifier instead of a hard generic reject.
+ * 7 — The named-subject check reads the caption, title, hashtags, mentions,
+ *     and transcript together. A garbled transcript no longer hides a written
+ *     @Fini Pizza or UT City. Finny Pizza, Phineas Cafe, and Finis count as Fini.
  */
-export const RELEVANCE_VERSION = 6;
+export const RELEVANCE_VERSION = 7;
 
 const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{6,}$/;
 
@@ -215,9 +218,12 @@ export function isOfficialAuthor(
  * Nearby places that can be the Vineyard development. Bare "Vineyard" is not one of them.
  * Martha's Vineyard is not one of them.
  */
-/** Fini Cafe / Fini's Cafe / Finis cafe / Fini Pizza, plus @finipizza and @fini_cafe. */
+/**
+ * Fini Cafe / Fini's Cafe / Finis cafe / Fini Pizza, plus @finipizza and @fini_cafe.
+ * Speech-to-text often writes Finny Pizza, Phineas Cafe, or a bare Finis.
+ */
 const FINI_VENUE =
-  /\bfini(?:['’]?s)?\s*caf[eé]\b|\bfini(?:['’]?s)?\s*pizza\b|@fini_?pizza\b|@fini_?caf[eé]\b|(?:^|[^a-z0-9])fini(?:cafe|pizza)(?![a-z0-9])/i;
+  /\bfini(?:['’]?s)?\s*caf[eé]\b|\bfini(?:['’]?s)?\s*pizza\b|\bfinny(?:['’]?s)?\s*pizza\b|\bphineas(?:['’]?s)?\s*caf[eé]\b|\bfinis\b|@fini_?pizza\b|@fini_?caf[eé]\b|(?:^|[^a-z0-9])fini(?:cafe|pizza)(?![a-z0-9])/i;
 
 const LOCAL_PLACE =
   /\borem\b|\blindon\b|\butah\s+county\b|\bgeneva\b|\bgreenline\b|\bbella'?s?\s+market\b|\bracquet\s+club\b|\bbuilt\s+for\s+becoming\b|\b120\s*bend\b|\b220\s*bend\b/i;
@@ -311,13 +317,19 @@ function textNamesDevelopment(text: string): boolean {
 }
 
 /**
- * The caption or transcript names the development or a tenant.
- * @Utah City and "UT City" count. A transcript that names something else does not.
+ * Caption, title, hashtags, mentions, and transcript are one subject.
+ * A written @Fini Pizza or UT City still counts when speech-to-text garbles the name.
  */
-export function hasNamedUtahCitySubject(caption: string, transcript?: string): boolean {
+export function hasNamedUtahCitySubject(caption: string, transcript?: string, title?: string): boolean {
+  const combined = [title, caption, transcript].filter((part) => (part || "").trim()).join("\n");
+  return textNamesDevelopment(combined) || hasUtahCityBrandMark(combined);
+}
+
+/** The transcript on its own names the development or a tenant, including Fini speech aliases. */
+export function transcriptNamesUtahCitySubject(transcript?: string): boolean {
   const spoken = (transcript || "").trim();
-  if (spoken) return textNamesDevelopment(spoken);
-  return textNamesDevelopment(caption || "") || hasUtahCityBrandMark(caption || "");
+  if (!spoken) return false;
+  return textNamesDevelopment(spoken) || hasUtahCityBrandMark(spoken);
 }
 
 /** Enough words that a "no mention" reject is about the post, not a failed lookup. */

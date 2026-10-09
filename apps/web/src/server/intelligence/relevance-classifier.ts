@@ -7,6 +7,7 @@ import {
   hasContextualUtahCity,
   hasKnownVenue,
   hasNamedUtahCitySubject,
+  transcriptNamesUtahCitySubject,
   hasProperUtahCityPlace,
   hasUtCity,
   hasProtectedUtahCitySignal,
@@ -208,7 +209,7 @@ async function callModel(caption: string, transcript?: string): Promise<{ decisi
 
   const prompt = `Decide if this public post is about Utah City, the master-planned development in Vineyard, Utah (former Geneva Steel site on Utah Lake, the Greenline, 120 Bend, 220 Bend, about $1.8 billion).
 
-relevant: the post is about that development, its downtown, streets, buildings, trails, parks, public reaction to it, or a business or place there (Fini Cafe, Fini's Cafe, Finis cafe, Fini Pizza, @finipizza, @fini_cafe, Bella's Market, Utah City Racquet Club, the Greenline, 120 Bend, 220 Bend). "Utah City", @Utah City, "UT City", #utahcity, utahcity.com, and utah.city name the development. Lowercase "Utah city" also counts when the post is about that place (Vineyard, shaping up, trails, Greenline, a venue, downtown, park, or the development). Orem, Lindon, Utah County, and Geneva count only when the post is about that place.
+relevant: the post is about that development, its downtown, streets, buildings, trails, parks, public reaction to it, or a business or place there (Fini Cafe, Fini's Cafe, Finis cafe, Fini Pizza, @finipizza, @fini_cafe, Bella's Market, Utah City Racquet Club, the Greenline, 120 Bend, 220 Bend). Transcripts often garble Fini as Finny Pizza, Phineas Cafe, or Finis — those are the same venues. Judge the caption, title, hashtags, mentions, and transcript together. "Utah City", @Utah City, "UT City", #utahcity, utahcity.com, and utah.city name the development. Lowercase "Utah city" also counts when the post is about that place (Vineyard, shaping up, trails, Greenline, a venue, downtown, park, or the development). Orem, Lindon, Utah County, and Geneva count only when the post is about that place.
 rejected_lookalike: Park City, Salt Lake City, SLC, "best Utah city to live in", "best/worst/every Utah City", "Utah cities", or "what is Utah City" used as a generic city in Utah. Do not treat those as the Vineyard development. "Vineyard" alone is not enough.
 rejected_offtopic: something else, including a Vineyard, Utah post that names neither Utah City nor a known venue. Do not choose relevant because the post merely matches the city's characteristics.
 rejected_unverifiable: a specific claim about Utah City that is made up or cannot be checked, such as an invented price, a secret payment, or a logo that cost a large unpublished sum. The published $1.8 billion project figure is fine.
@@ -367,7 +368,9 @@ export async function classifyRelevance(
     const combined = `${caption}\n${transcript || ""}`;
     const properNoun = hasProperUtahCityPlace(combined) || hasUtahCityDomain(combined) || hasUtCity(combined);
     const genericOnly = isGenericUtahCityPhrasing(caption) && !properNoun && !hasUtahCityBrandMark(caption);
-    if (decision === "rejected_lookalike" && !genericOnly && properNoun && hasNamedUtahCitySubject(caption, transcript)) {
+    const spoken = (transcript || "").trim();
+    const spokenAgrees = !spoken || transcriptNamesUtahCitySubject(spoken);
+    if (decision === "rejected_lookalike" && !genericOnly && properNoun && spokenAgrees && hasNamedUtahCitySubject(caption, transcript)) {
       decision = "relevant";
       reason = `${reason} Utah City mention is not a lookalike.`;
       events.push({ decision, reason, costMicro: 0, stage });

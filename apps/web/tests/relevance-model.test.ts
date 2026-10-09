@@ -95,6 +95,25 @@ describe("gemini 3.5 flash lite", () => {
     expect(result.reason).not.toMatch(/not a lookalike/);
   });
 
+  it("keeps a relevant Fini post when the transcript garbles the venue", async () => {
+    process.env.GEMINI_API_KEY = "test-key";
+    vi.mocked(generateObject).mockResolvedValue({
+      object: {
+        decision: "relevant",
+        reason: "Reviews Fini Pizza at a location within the Utah City development.",
+      },
+      usage: { inputTokens: 12, outputTokens: 8 },
+    } as never);
+    const result = await classifyRelevance("This place was soooo good!!! @Fini Pizza", {
+      platform: "tiktok",
+      url: "https://www.tiktok.com/@creator/video/7610000000000000001",
+      transcript: "Finny Pizza was so good. Phineas Cafe next door too.",
+    });
+    expect(result.decision).toBe("relevant");
+    expect(result.isRelevant).toBe(true);
+    expect(result.reason).not.toMatch(/neither Utah City nor a known venue/);
+  });
+
   it("rejects a characteristics match that names neither Utah City nor a venue", async () => {
     process.env.GEMINI_API_KEY = "test-key";
     vi.mocked(generateObject).mockResolvedValue({
