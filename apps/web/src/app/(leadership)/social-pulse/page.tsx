@@ -92,7 +92,6 @@ export default function SocialPulsePage() {
   const [data, setData] = useState<SocialPulseMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<string>("7d");
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedNarrativeId, setSelectedNarrativeId] = useState<string | null>(null);
   const [drawerNarrative, setDrawerNarrative] = useState<NarrativeStory | null>(null);
@@ -104,10 +103,15 @@ export default function SocialPulsePage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/api/social-pulse/dashboard");
+      const res = p
+        ? await fetch(`/api/social-pulse/dashboard?period=${encodeURIComponent(p)}`)
+        : await fetch("/api/social-pulse/dashboard");
       if (!res.ok) throw new Error("Failed to load pulse data");
       const json = await res.json();
       const metrics: SocialPulseMetrics = json.metrics || json;
+      if (json.narrative?.summary && !metrics.narrative) {
+        metrics.narrative = json.narrative.summary;
+      }
       setData(metrics);
 
       // Default selected narrative for interactive timeline
@@ -118,18 +122,12 @@ export default function SocialPulsePage() {
       setError(err.message);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
   useEffect(() => {
     fetchData(period);
   }, [period]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchData(period);
-  };
 
   const formatNumber = (num?: number): string => {
     if (!num) return "0";
@@ -150,9 +148,6 @@ export default function SocialPulsePage() {
               <Radio className="w-6 h-6 text-[#20d0c3]" />
               Social Listener
             </h1>
-            <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-[#20d0c3]/10 text-[#20d0c3] border border-[#20d0c3]/20">
-              3-HOUR LIVE SYNC
-            </span>
           </div>
           <p className="text-sm text-slate-400 mt-1">
             Narrative intelligence, public storyline velocity, and verified organic evidence across social communities
@@ -160,11 +155,6 @@ export default function SocialPulsePage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white/[0.04] text-slate-300 border border-white/10">
-            <RefreshCw className="w-3.5 h-3.5 text-[#20d0c3]" />
-            Continuous Cycle: 3 Hours
-          </span>
-
           <div className="flex bg-white/[0.04] border border-white/10 rounded-lg p-1">
             {["24h", "7d", "30d"].map((p) => (
               <button
@@ -180,15 +170,6 @@ export default function SocialPulsePage() {
               </button>
             ))}
           </div>
-
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="p-2 text-slate-400 hover:text-white bg-white/[0.04] border border-white/10 rounded-lg hover:bg-white/[0.08] transition"
-            title="Trigger immediate 3-hour sync cycle"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#20d0c3]" : ""}`} />
-          </button>
         </div>
       </header>
 

@@ -53,6 +53,9 @@ export async function loadConversationDashboard(options?: {
     periodDays: options?.periodDays || 30,
     now,
   });
+  if (narrative?.summary) {
+    metrics.narrative = narrative.summary;
+  }
   return { ...dashboard, claims: narrative.claims, narrative, metrics };
 }
 
