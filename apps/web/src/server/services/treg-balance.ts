@@ -35,17 +35,45 @@ export function parseTregBalanceUsd(body: unknown): number | null {
   return flat;
 }
 
-/** Picks the org id from a `GET /orgs` body. */
+function orgIdOf(org: Record<string, unknown>): string | null {
+  const nested = asRecord(org.org) || asRecord(org.organization) || asRecord(org.team);
+  const raw = org.id ?? org.org_id ?? org.orgId ?? nested?.id ?? nested?.org_id;
+  return raw == null || raw === "" ? null : String(raw);
+}
+
+function orgNames(org: Record<string, unknown>): unknown[] {
+  const nested = asRecord(org.org) || asRecord(org.organization) || asRecord(org.team);
+  return [org.slug, org.name, org.org_slug, org.org_name, nested?.slug, nested?.name];
+}
+
+/** Picks the org id from a `GET /orgs` (or `/auth/me`) body. */
 export function pickTregOrgId(body: unknown, wanted = process.env.TREG_ORG || DEFAULT_TEAM): string | null {
+  const rec = asRecord(body);
   const list = Array.isArray(body)
     ? body
-    : Array.isArray(asRecord(body)?.orgs)
-      ? (asRecord(body)!.orgs as unknown[])
-      : [];
-  const orgs = list.map(asRecord).filter((org): org is Record<string, unknown> => !!org && org.id != null);
-  if (!orgs.length) return null;
-  const match = orgs.find((org) => org.slug === wanted || org.name === wanted || String(org.id) === wanted);
-  return String((match ?? (orgs.length === 1 ? orgs[0] : null))?.id ?? "") || null;
+    : (["orgs", "items", "data", "results", "teams", "organizations", "memberships"]
+        .map((key) => rec?.[key])
+        .find(Array.isArray) as unknown[] | undefined) ?? [];
+  const orgs = list.map(asRecord).filter((org): org is Record<string, unknown> => !!org && orgIdOf(org) != null);
+  if (!orgs.length) {
+    // `/auth/me` style: a single object carrying the active org.
+    const direct = rec ? (rec.org_id ?? rec.active_org_id ?? asRecord(rec.org)?.id ?? asRecord(rec.active_org)?.id) : null;
+    return direct == null || direct === "" ? null : String(direct);
+  }
+  const match = orgs.find((org) => orgNames(org).includes(wanted) || orgIdOf(org) === wanted);
+  const chosen = match ?? (orgs.length === 1 ? orgs[0] : null);
+  return chosen ? orgIdOf(chosen) : null;
+}
+
+/** Shape only (types, key names, counts) for logs. Never values. */
+export function describeShape(body: unknown): string {
+  if (Array.isArray(body)) {
+    const first = asRecord(body[0]);
+    return `array(${body.length})${first ? ` keys=[${Object.keys(first).join(",")}]` : ""}`;
+  }
+  const rec = asRecord(body);
+  if (rec) return `object keys=[${Object.keys(rec).join(",")}]`;
+  return typeof body;
 }
 
 async function getJson(fetchImpl: typeof fetch, path: string, token: string, orgId?: string): Promise<unknown> {
@@ -66,10 +94,19 @@ export async function readTregBalanceUsd(fetchImpl: typeof fetch = fetch): Promi
   try {
     let orgId = process.env.TREG_ORG_ID || cachedOrgId;
     if (!orgId) {
-      orgId = pickTregOrgId(await getJson(fetchImpl, "/orgs", token));
+      const orgsBody = await getJson(fetchImpl, "/orgs", token).catch((error: unknown) => error);
+      orgId = orgsBody instanceof Error ? null : pickTregOrgId(orgsBody);
       if (!orgId) {
-        console.warn("[treg-balance] could not resolve org id from /orgs");
-        return null;
+        const meBody = await getJson(fetchImpl, "/auth/me", token).catch((error: unknown) => error);
+        orgId = meBody instanceof Error ? null : pickTregOrgId(meBody);
+        if (!orgId) {
+          console.warn(
+            `[treg-balance] could not resolve org id; /orgs ${
+              orgsBody instanceof Error ? orgsBody.message : describeShape(orgsBody)
+            }; /auth/me ${meBody instanceof Error ? meBody.message : describeShape(meBody)}`
+          );
+          return null;
+        }
       }
       cachedOrgId = orgId;
     }
