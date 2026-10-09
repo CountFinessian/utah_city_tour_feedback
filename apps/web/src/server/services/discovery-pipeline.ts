@@ -26,6 +26,7 @@ import {
   withCommentSync,
 } from "@/domain/social-listening/comment-sync";
 import { Post, Comment, SearchRun, ActivityState } from "@/domain/social-listening/types";
+import type { TregSearchResultItem } from "@/server/social/providers/types";
 
 const COMMENT_RESYNC_MIN_DELTA = 3;
 const COMMENT_RESYNC_STALE_HOURS = 24;
@@ -88,13 +89,23 @@ export class DiscoveryPipelineService {
     queryId?: string;
     maxQueries?: number;
     cycleBudgetUsd?: number;
+    /** Incremental discovery. Passed through to each platform search. */
+    since?: string;
+    /** Monitor shares one Treg meter. Discovery must not zero it. */
+    resetCost?: boolean;
+    /** Existing post, before this hit overwrites its counts. */
+    onExisting?: (
+      post: Post,
+      item: TregSearchResultItem,
+      previous: { viewCount: number; likeCount: number; commentCount: number; shareCount: number }
+    ) => void;
   }): Promise<{
     runs: SearchRun[];
     newPostsCount: number;
     relevantPostsCount: number;
     costUsd: number;
   }> {
-    tregClient.resetCycleCost();
+    if (options?.resetCost !== false) tregClient.resetCycleCost();
     const budget = options?.cycleBudgetUsd ?? resolveCycleBudgetUsd();
 
     const allQueries = await this.repo.listQueries(true);
@@ -120,7 +131,13 @@ export class DiscoveryPipelineService {
       const strategy = inferDiscoveryStrategy(q.query, q.discoveryStrategy);
 
       try {
-        const rawResults = await tregClient.searchPlatform(q.platform, q.query, 8, strategy);
+        const rawResults = await tregClient.searchPlatform(
+          q.platform,
+          q.query,
+          8,
+          strategy,
+          options?.since ? { since: options.since } : undefined
+        );
         let runNew = 0;
         let runRel = 0;
 
@@ -246,6 +263,13 @@ export class DiscoveryPipelineService {
 
             runNew++;
           } else {
+            const previous = {
+              viewCount: existing.viewCount,
+              likeCount: existing.likeCount,
+              commentCount: existing.commentCount,
+              shareCount: existing.shareCount,
+            };
+            options?.onExisting?.(existing, item, previous);
             const prevViews = existing.viewCount;
             const prevComments = existing.commentCount;
             existing.viewCount = Math.max(existing.viewCount, item.viewCount);

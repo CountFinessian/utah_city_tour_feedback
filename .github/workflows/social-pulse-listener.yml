@@ -3,31 +3,27 @@ name: Social Pulse listener
 # Hobby Vercel only allows one cron/day. This workflow drives listening against production.
 on:
   schedule:
-    # Discovery every 3 hours
-    - cron: "0 */3 * * *"
-    # Comment sync every 6 hours (offset)
-    - cron: "30 */6 * * *"
+    # Continuous monitor every 3 hours, off the hour so it does not pile onto other jobs.
+    - cron: "17 */3 * * *"
   workflow_dispatch:
     inputs:
       mode:
-        description: "discover | comments | full"
+        description: "monitor | discover | comments | full"
         required: false
-        default: "discover"
+        default: "monitor"
 
 jobs:
   run-cycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - name: Choose mode
         id: mode
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "mode=${{ github.event.inputs.mode || 'discover' }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "30 */6 * * *" ]; then
-            echo "mode=comments" >> "$GITHUB_OUTPUT"
+            echo "mode=${{ github.event.inputs.mode || 'monitor' }}" >> "$GITHUB_OUTPUT"
           else
-            echo "mode=discover" >> "$GITHUB_OUTPUT"
+            echo "mode=monitor" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Trigger production listening cycle
@@ -43,12 +39,12 @@ jobs:
               -X POST "$url" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               -H "Content-Type: application/json" \
-              --max-time 60)
+              --max-time 280)
           else
             code=$(curl -sS -L -o /tmp/listener.json -w "%{http_code}" \
               -X POST "$url" \
               -H "Content-Type: application/json" \
-              --max-time 60)
+              --max-time 280)
           fi
           echo "HTTP $code mode=$MODE"
           cat /tmp/listener.json || true

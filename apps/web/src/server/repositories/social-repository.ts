@@ -9,8 +9,20 @@ import {
 } from "@/domain/social-listening/types";
 import type { OfficialAccountRef } from "@/domain/social-listening/relevance";
 
+export interface IgReplyBackfillCursor {
+  donePostIds: string[];
+  postId?: string;
+  commentIndex: number;
+}
+
+export interface SocialListenerCursors {
+  lastMonitorAt?: string;
+  igReplyBackfill?: IgReplyBackfillCursor;
+}
+
 export interface SocialListenerState {
   lastDigestAt?: string;
+  cursors?: SocialListenerCursors;
 }
 
 export interface SocialListeningRepository {
@@ -49,6 +61,8 @@ export interface SocialListeningRepository {
     sentiment?: string;
     topic?: string;
     limit?: number;
+    /** Comments still on an older classifier generation. Dropped rows stay out. */
+    classificationVersionBelow?: number;
   }): Promise<Comment[]>;
   getCommentByCanonicalId(canonicalId: string): Promise<Comment | null>;
   bulkUpsertComments(comments: Comment[]): Promise<Comment[]>;

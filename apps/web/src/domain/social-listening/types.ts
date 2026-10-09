@@ -205,6 +205,8 @@ export interface PostMetricSnapshot {
   likeCount: number;
   commentCount: number;
   shareCount: number;
+  /** Background engagement capture. Dashboards do not read this. */
+  source?: string;
 }
 
 export interface SearchRun {

@@ -190,6 +190,10 @@ export const fileSocialRepository: SocialListeningRepository = {
     if (filter?.topic) {
       res = res.filter((c) => c.topic === filter.topic);
     }
+    if (filter?.classificationVersionBelow != null) {
+      const version = filter.classificationVersionBelow;
+      res = res.filter((c) => !c.dropped && (c.classificationVersion || 0) < version);
+    }
     res.sort((a, b) => b.likeCount - a.likeCount || b.createdAt.localeCompare(a.createdAt));
     if (filter?.limit) {
       res = res.slice(0, filter.limit);
@@ -287,12 +291,22 @@ export const fileSocialRepository: SocialListeningRepository = {
 
   async getListenerState(): Promise<SocialListenerState> {
     const data = await readStorage();
-    return { lastDigestAt: data.listenerState?.lastDigestAt };
+    return {
+      lastDigestAt: data.listenerState?.lastDigestAt,
+      cursors: data.listenerState?.cursors,
+    };
   },
 
   async saveListenerState(state: SocialListenerState): Promise<void> {
     const data = await readStorage();
-    data.listenerState = { ...data.listenerState, ...state };
+    const prev = data.listenerState || {};
+    data.listenerState = {
+      lastDigestAt: state.lastDigestAt ?? prev.lastDigestAt,
+      cursors: {
+        ...(prev.cursors || {}),
+        ...(state.cursors || {}),
+      },
+    };
     await writeStorage(data);
   },
 };

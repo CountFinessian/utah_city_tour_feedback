@@ -475,8 +475,12 @@ async function crawlOnePost(
 
   const rememberParents = (items: TregCommentItem[]) => {
     for (const item of items) {
-      if (!item.commentId || item.parentCommentId || item.replyCount <= 0) continue;
-      noteExpected(item.commentId, item.replyCount);
+      if (!item.commentId || item.parentCommentId) continue;
+      // Instagram listings omit reply counts, so a zero is not evidence of an empty thread.
+      const instagramWithoutCount = post.platform === "instagram" && item.replyCount <= 0;
+      if (item.replyCount <= 0 && !instagramWithoutCount) continue;
+      const expected = instagramWithoutCount ? 0 : item.replyCount;
+      noteExpected(item.commentId, expected);
       const meta = state.replyMeta?.[item.commentId] || {};
       state.replyMeta = {
         ...(state.replyMeta || {}),
@@ -485,7 +489,7 @@ async function crawlOnePost(
           feedbackId: item.feedbackId || meta.feedbackId,
           expansionToken: item.expansionToken || meta.expansionToken,
           replyContinuationToken: item.replyContinuationToken || meta.replyContinuationToken,
-          expected: Math.max(meta.expected || 0, item.replyCount),
+          expected: instagramWithoutCount ? 0 : Math.max(meta.expected || 0, item.replyCount),
         },
       };
       if (state.pendingReplyParents.includes(item.commentId) || exhaustedParents.has(item.commentId)) continue;
