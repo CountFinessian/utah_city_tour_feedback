@@ -26,6 +26,8 @@ jobs:
             echo "mode=monitor" >> "$GITHUB_OUTPUT"
           fi
 
+      # One request. Discovery is capped inside the function (~38% of the window)
+      # and resumes from a cursor, so due checks still run before the deadline.
       - name: Trigger production listening cycle
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}

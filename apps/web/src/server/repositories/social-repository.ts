@@ -1,3 +1,5 @@
+import type { DiscoveryQueryCursor } from "@/domain/social-listening/monitoring";
+import type { OfficialAccountRef } from "@/domain/social-listening/relevance";
 import {
   Post,
   Comment,
@@ -7,7 +9,6 @@ import {
   SearchTermSuggestion,
   SocialPipelineEvent,
 } from "@/domain/social-listening/types";
-import type { OfficialAccountRef } from "@/domain/social-listening/relevance";
 
 export interface IgReplyBackfillCursor {
   donePostIds: string[];
@@ -15,9 +16,13 @@ export interface IgReplyBackfillCursor {
   commentIndex: number;
 }
 
+export type { DiscoveryQueryCursor };
+
 export interface SocialListenerCursors {
   lastMonitorAt?: string;
   igReplyBackfill?: IgReplyBackfillCursor;
+  /** Per-query discovery progress. The next monitor run resumes the unfinished query. */
+  discovery?: DiscoveryQueryCursor[];
 }
 
 export interface SocialListenerState {
