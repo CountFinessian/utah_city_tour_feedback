@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseTregBalanceUsd, pickTregOrgId, readTregBalanceUsd, resetTregOrgCache } from "@/server/services/treg-balance";
+import { describeShape, parseTregBalanceUsd, pickTregOrgId, readTregBalanceUsd, resetTregOrgCache } from "@/server/services/treg-balance";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -29,6 +29,10 @@ describe("treg balance", () => {
     expect(pickTregOrgId([{ id: 9, slug: "solo" }])).toBe("9");
     expect(pickTregOrgId([{ id: 1, slug: "a" }, { id: 2, slug: "b" }])).toBeNull();
     expect(pickTregOrgId([])).toBeNull();
+    expect(pickTregOrgId({ orgs: [{ org_id: 11, name: "utah-city-intelligence" }] })).toBe("11");
+    expect(pickTregOrgId([{ org: { id: 12, slug: "utah-city-intelligence" }, role: "owner" }])).toBe("12");
+    expect(pickTregOrgId({ email: "x", org_id: 13 })).toBe("13");
+    expect(pickTregOrgId({ email: "x", active_org: { id: 14 } })).toBe("14");
   });
 
   it("resolves the org then reads /orgs/{id}/balance", async () => {
@@ -45,6 +49,20 @@ describe("treg balance", () => {
     // cached org id: one call on the second read
     await readTregBalanceUsd(fetchImpl);
     expect(calls.length).toBe(3);
+  });
+
+  it("falls back to /auth/me when /orgs has no usable org", async () => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.endsWith("/orgs")) return json([]);
+      if (u.endsWith("/auth/me")) return json({ email: "x", org_id: 77 });
+      if (u.includes("/orgs/77/balance")) return json({ balance_micro: 2_000_000 });
+      return json({}, 404);
+    }) as unknown as typeof fetch;
+    expect(await readTregBalanceUsd(fetchImpl)).toBe(2);
+    expect(describeShape([{ id: 1, slug: "s" }])).toBe("array(1) keys=[id,slug]");
   });
 
   it("uses TREG_ORG_ID without listing orgs and returns null on HTTP errors", async () => {
