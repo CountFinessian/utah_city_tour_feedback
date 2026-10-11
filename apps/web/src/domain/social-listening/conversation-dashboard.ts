@@ -2,6 +2,7 @@ import { isOfficialStoredComment, isPublicOpinionComment } from "@/domain/social
 import { isOfficialAuthor, postCommentsInDashboard, postShownAsContent, SEEDED_OFFICIAL_ACCOUNTS } from "@/domain/social-listening/relevance";
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type { Comment, Post, Sentiment, Topic } from "@/domain/social-listening/types";
+import { buildIntelligenceNarrative, type IntelligenceNarrativeData } from "@/domain/social-listening/intelligence-narrative";
 
 /** First month of the public conversation. The announcement landed August 29, 2023. */
 export const CONVERSATION_START = "2023-08-01T00:00:00.000Z";
@@ -134,6 +135,7 @@ export interface ConversationDashboard {
   claims: NarrativeClaim[];
   postCount?: number;
   comments?: DashboardCommentRef[];
+  intelligenceNarrative?: IntelligenceNarrativeData;
 }
 
 interface Included {
@@ -504,8 +506,45 @@ export function buildConversationDashboard(input: {
     quotes: transcriptQuotes(input.posts),
     claims,
     postCount: input.posts.filter((p) => postCommentsInDashboard(p)).length,
-    comments: rows.slice(0, 150).map(toRef),
+    comments: interleaveDiverseComments(rows, 150).map(toRef),
+    intelligenceNarrative: buildIntelligenceNarrative({
+      posts: input.posts,
+      comments: input.comments,
+      now,
+    }),
   };
+}
+
+function interleaveDiverseComments(rows: Included[], limit = 150): Included[] {
+  if (rows.length <= 1) return rows;
+  const byPost = new Map<string, Included[]>();
+  for (const r of rows) {
+    const list = byPost.get(r.post.id) || [];
+    list.push(r);
+    byPost.set(r.post.id, list);
+  }
+  for (const list of byPost.values()) {
+    list.sort((a, b) => b.date.getTime() - a.date.getTime());
+  }
+  const postIds = [...byPost.keys()];
+  const result: Included[] = [];
+  let round = 0;
+  let remaining = rows.length;
+  while (result.length < limit && remaining > 0) {
+    let addedInRound = 0;
+    for (const pid of postIds) {
+      const list = byPost.get(pid)!;
+      if (round < list.length) {
+        result.push(list[round]);
+        addedInRound += 1;
+        remaining -= 1;
+        if (result.length >= limit) break;
+      }
+    }
+    if (addedInRound === 0) break;
+    round += 1;
+  }
+  return result;
 }
 
 export function selectDashboardComments(input: {
