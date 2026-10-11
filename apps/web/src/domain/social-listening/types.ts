@@ -198,6 +198,22 @@ export interface Comment {
   dropped?: boolean;
   dropReason?: DropReason | string;
 
+  importanceScore?: number;
+  importanceBand?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  scoreBreakdown?: {
+    relevance: number;
+    actionability: number;
+    specificity: number;
+    urgency: number;
+    novelty: number;
+    corroboration: number;
+    confidence: number;
+  };
+  importanceRationale?: string;
+  actionabilityType?: "POLICY" | "DESIGN" | "COMMUNICATION" | "RETAIL_TENANTING" | "INFRASTRUCTURE" | "MONITOR_ONLY";
+  scoredAt?: string;
+  scoreStatus?: "SCORED" | "UNSCORED" | "FILTERED_NOISE" | string;
+
   rawProviderData?: Record<string, unknown>;
 }
 

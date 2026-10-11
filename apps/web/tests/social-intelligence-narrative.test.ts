@@ -11,6 +11,10 @@ import {
 } from "@/server/services/conversation-dashboard";
 import { memoryNarrativeCache } from "@/server/intelligence/conversation-narrative";
 import type { Comment, Post } from "@/domain/social-listening/types";
+import { evaluateCommentImportance } from "@/domain/social-listening/importance-scoring";
+import { extractCreatorPerspectives } from "@/domain/social-listening/creator-perspectives";
+import { readFileSync } from "fs";
+import path from "path";
 
 const NOW = new Date("2026-10-10T12:00:00.000Z");
 
@@ -433,6 +437,67 @@ describe("Social Listener Intelligence Narrative & Evidence Diversity", () => {
     expect(modelCallCount).toBe(1);
     expect(res2.intelligenceNarrative).toBeDefined();
     expect(res2.intelligenceNarrative!.datasetMetrics.totalEligibleComments).toBe(1);
+  });
+
+  // Test J — Importance scoring rubric
+  it("Test J: Scores comments across 7-dimension rubric and ranks critical civic feedback above noise", () => {
+    const post = makePost("p_rubric", "tiktok");
+    const noiseComment = makeComment("n_emoji", "p_rubric", "😂😂🔥", { likeCount: 500 });
+    const importantComment = makeComment(
+      "c_civic",
+      "p_rubric",
+      "The Utah Lake toxic algae and summer midge bug swarms will destroy outdoor dining patios unless the master plan includes physical insect screening and biological lake remediation.",
+      { likeCount: 3 }
+    );
+
+    const noiseEval = evaluateCommentImportance(noiseComment, post);
+    const civicEval = evaluateCommentImportance(importantComment, post);
+
+    // Noise comment must be in LOW band (<= 44) despite 500 likes
+    expect(noiseEval.importanceBand).toBe("LOW");
+    expect(noiseEval.importanceScore).toBeLessThanOrEqual(44);
+
+    // Critical environmental/civic comment must have high score (>= 70) despite only 3 likes
+    expect(civicEval.importanceScore).toBeGreaterThanOrEqual(70);
+    expect(["HIGH", "CRITICAL"]).toContain(civicEval.importanceBand);
+    expect(civicEval.actionabilityType).toBe("DESIGN");
+    expect(civicEval.scoreBreakdown.relevance).toBeGreaterThanOrEqual(15);
+    expect(civicEval.scoreBreakdown.actionability).toBeGreaterThanOrEqual(10);
+  });
+
+  // Test K — Creator perspectives & external links (no embedded player)
+  it("Test K: Extracts distinct creator perspectives, contrasts against comments, and enforces safe external links without iframe embeds", () => {
+    const post = makePost("p_creator", "tiktok", {
+      authorUsername: "utah_real_estate",
+      caption: "Are you ready for Utah City?? The largest high-rise downtown coming to Vineyard!",
+      transcript: "Here is the master plan for the new 700 acre walkable city center next to FrontRunner train station.",
+      viewCount: 45000,
+      likeCount: 2200,
+    });
+
+    const comments = [
+      makeComment("c_contr1", "p_creator", "Vineyard lake odor and midges smell terrible every summer lol"),
+      makeComment("c_contr2", "p_creator", "Traffic on I-15 is already broken, this will be unlivable"),
+    ];
+
+    const perspectives = extractCreatorPerspectives([post], comments);
+
+    expect(perspectives.length).toBe(1);
+    const p = perspectives[0];
+    expect(p.creatorHandle).toBe("utah_real_estate");
+    expect(p.tone).toBe("ENTHUSIASTIC");
+    expect(p.primaryThesis).toContain("Utah City");
+    expect(p.whyItMattersToLeadership).toMatch(/megaphone|reach/i);
+    expect(p.audienceReactionContrast).toMatch(/skepticism|odor|traffic/i);
+
+    // Verify source code of page.tsx enforces no iframes / embedded miniplayers
+    const pageSrc = readFileSync(path.join(process.cwd(), "src/app/(leadership)/social-pulse/page.tsx"), "utf8");
+    expect(pageSrc).not.toContain("<iframe");
+    expect(pageSrc).not.toContain("getVideoEmbedUrl");
+    expect(pageSrc).not.toContain("video-miniplayer");
+    expect(pageSrc).toContain('target="_blank"');
+    expect(pageSrc).toContain('rel="noopener noreferrer"');
+    expect(pageSrc).toContain("Open original video");
   });
 });
 

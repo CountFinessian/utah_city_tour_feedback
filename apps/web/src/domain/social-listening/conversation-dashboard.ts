@@ -3,6 +3,9 @@ import { isOfficialAuthor, postCommentsInDashboard, postShownAsContent, SEEDED_O
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type { Comment, Post, Sentiment, Topic } from "@/domain/social-listening/types";
 import { buildIntelligenceNarrative, type IntelligenceNarrativeData } from "@/domain/social-listening/intelligence-narrative";
+import { selectPriorityComments, type PriorityCommentItem } from "@/domain/social-listening/priority-comments";
+import { extractCreatorPerspectives, type CreatorPerspective } from "@/domain/social-listening/creator-perspectives";
+import { detectEmergingIssues, type EmergingIssue } from "@/domain/social-listening/emerging-issues";
 
 /** First month of the public conversation. The announcement landed August 29, 2023. */
 export const CONVERSATION_START = "2023-08-01T00:00:00.000Z";
@@ -136,6 +139,10 @@ export interface ConversationDashboard {
   postCount?: number;
   comments?: DashboardCommentRef[];
   intelligenceNarrative?: IntelligenceNarrativeData;
+  priorityComments?: PriorityCommentItem[];
+  creatorPerspectives?: CreatorPerspective[];
+  emergingIssues?: EmergingIssue[];
+  backfillStats?: any;
 }
 
 interface Included {
@@ -512,6 +519,9 @@ export function buildConversationDashboard(input: {
       comments: input.comments,
       now,
     }),
+    priorityComments: selectPriorityComments(input.comments, input.posts),
+    creatorPerspectives: extractCreatorPerspectives(input.posts, input.comments),
+    emergingIssues: detectEmergingIssues(input.comments, input.posts),
   };
 }
 

@@ -178,6 +178,14 @@ async function ensureSocialSchema(): Promise<void> {
       await sql`alter table social_posts add column if not exists harvest_claimed_at timestamptz`;
       await sql`alter table social_posts add column if not exists harvest_claim_owner text`;
 
+      await sql`alter table social_comments add column if not exists importance_score int`;
+      await sql`alter table social_comments add column if not exists importance_band text`;
+      await sql`alter table social_comments add column if not exists score_breakdown jsonb`;
+      await sql`alter table social_comments add column if not exists importance_rationale text`;
+      await sql`alter table social_comments add column if not exists actionability_type text`;
+      await sql`alter table social_comments add column if not exists scored_at timestamptz`;
+      await sql`alter table social_comments add column if not exists score_status text`;
+
       // Seed queries if table empty
       const countRes = await sql`select count(*) as cnt from social_search_queries`;
       if (Number(countRes[0]?.cnt || 0) === 0) {
@@ -514,7 +522,8 @@ export const postgresSocialRepository: SocialListeningRepository = {
             sentiment_reason, sentiment_target, topic, evidence_score, intent, relevance,
             signal_score, classification_version, classified_at, is_leadership_signal,
             reply_count_at_last_check, replies_checked_at, dropped, drop_reason, thread_depth,
-            is_official_author
+            is_official_author, importance_score, importance_band, score_breakdown,
+            importance_rationale, actionability_type, scored_at, score_status
           from social_comments
           where (${filter?.postId || null}::text is null or post_id = ${filter?.postId || null}::text)
             and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
@@ -561,7 +570,8 @@ export const postgresSocialRepository: SocialListeningRepository = {
           sentiment_reason, sentiment_target, topic, evidence_score, raw_provider_data,
           intent, relevance, signal_score, classification_version, classified_at,
           is_leadership_signal, reply_count_at_last_check, replies_checked_at, dropped, drop_reason,
-          thread_depth, is_official_author
+          thread_depth, is_official_author, importance_score, importance_band, score_breakdown,
+          importance_rationale, actionability_type, scored_at, score_status
         ) values (
           ${c.id}, ${c.canonicalId}, ${c.platform}, ${c.platformCommentId}, ${c.postId},
           ${c.parentCommentId || null}, ${c.authorId || null}, ${c.authorUsername},
@@ -573,7 +583,9 @@ export const postgresSocialRepository: SocialListeningRepository = {
           ${c.intent || null}, ${c.commentRelevance || null}, ${c.signalScore ?? null},
           ${c.classificationVersion ?? null}, ${c.classifiedAt || null}, ${c.isLeadershipSignal || false},
           ${c.replyCountAtLastCheck ?? null}, ${c.repliesCheckedAt || null}, ${c.dropped || false},
-          ${c.dropReason || null}, ${c.threadDepth ?? (c.parentCommentId ? 1 : 0)}, ${c.isOfficialAuthor || false}
+          ${c.dropReason || null}, ${c.threadDepth ?? (c.parentCommentId ? 1 : 0)}, ${c.isOfficialAuthor || false},
+          ${c.importanceScore ?? null}, ${c.importanceBand || null}, ${c.scoreBreakdown ? JSON.stringify(c.scoreBreakdown) : null},
+          ${c.importanceRationale || null}, ${c.actionabilityType || null}, ${c.scoredAt || null}, ${c.scoreStatus || null}
         )
         on conflict (canonical_id) do update set
           parent_comment_id = coalesce(social_comments.parent_comment_id, excluded.parent_comment_id),
@@ -597,7 +609,14 @@ export const postgresSocialRepository: SocialListeningRepository = {
           dropped = social_comments.dropped or excluded.dropped,
           drop_reason = coalesce(excluded.drop_reason, social_comments.drop_reason),
           thread_depth = coalesce(excluded.thread_depth, social_comments.thread_depth),
-          is_official_author = social_comments.is_official_author or excluded.is_official_author
+          is_official_author = social_comments.is_official_author or excluded.is_official_author,
+          importance_score = coalesce(excluded.importance_score, social_comments.importance_score),
+          importance_band = coalesce(excluded.importance_band, social_comments.importance_band),
+          score_breakdown = coalesce(excluded.score_breakdown, social_comments.score_breakdown),
+          importance_rationale = coalesce(excluded.importance_rationale, social_comments.importance_rationale),
+          actionability_type = coalesce(excluded.actionability_type, social_comments.actionability_type),
+          scored_at = coalesce(excluded.scored_at, social_comments.scored_at),
+          score_status = coalesce(excluded.score_status, social_comments.score_status)
       `;
     }
     return comments;
@@ -934,6 +953,13 @@ function mapCommentRow(r: any): Comment {
     repliesCheckedAt: r.replies_checked_at ? new Date(r.replies_checked_at).toISOString() : undefined,
     dropped: Boolean(r.dropped),
     dropReason: r.drop_reason || undefined,
+    importanceScore: r.importance_score == null ? undefined : Number(r.importance_score),
+    importanceBand: r.importance_band || undefined,
+    scoreBreakdown: typeof r.score_breakdown === "string" ? JSON.parse(r.score_breakdown) : (r.score_breakdown || undefined),
+    importanceRationale: r.importance_rationale || undefined,
+    actionabilityType: r.actionability_type || undefined,
+    scoredAt: r.scored_at ? new Date(r.scored_at).toISOString() : undefined,
+    scoreStatus: r.score_status || undefined,
     rawProviderData: typeof r.raw_provider_data === "string" ? JSON.parse(r.raw_provider_data) : (r.raw_provider_data || {}),
   };
 }

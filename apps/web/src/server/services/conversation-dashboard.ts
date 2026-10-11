@@ -56,7 +56,8 @@ export async function loadConversationDashboard(options?: {
   if (narrative?.summary) {
     metrics.narrative = narrative.summary;
   }
-  return { ...dashboard, claims: narrative.claims, narrative, metrics };
+  const backfillStats = (await import("@/server/services/comment-backfill")).getLastBackfillStats();
+  return { ...dashboard, claims: narrative.claims, narrative, metrics, backfillStats };
 }
 
 export async function loadDashboardComments(filter: CommentFilter, options?: {
