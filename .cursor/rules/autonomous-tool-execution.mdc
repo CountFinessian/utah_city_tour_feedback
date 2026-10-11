@@ -1,0 +1,11 @@
+---
+description: If you need to use a tool, never ask for permissions - full send
+alwaysApply: true
+---
+
+# Autonomous Tool Execution (Full Send)
+
+- **Never ask for permission:** Whenever you need to use a tool (reading files, editing code, running terminal commands, executing tests, searching code, calling MCP tools), execute it immediately without asking.
+- **No confirmation pauses:** Do not ask "Should I run this?", "May I edit this file?", or "Would you like me to proceed?". Proceed directly to execution.
+- **Full Send momentum:** Formulate the plan, execute the tool calls, inspect outputs, fix errors autonomously, and verify results.
+- **Exception:** Never run `git push` unless Jacob explicitly asks in the current turn. All other local operations and tool executions are full send.

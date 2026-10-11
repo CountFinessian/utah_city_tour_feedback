@@ -18,3 +18,15 @@
    - Commit locally with clean commit messages.
    - Inform the user that changes are verified and committed locally.
    - Explicitly wait for the user to say "push" or "you can push to remote" before executing any `git push` command.
+
+
+--------------------------------------------------------------------------------
+
+# AUTONOMOUS TOOL EXECUTION (FULL SEND)
+
+## NEVER ASK FOR PERMISSION TO USE TOOLS
+- **Full Send Execution:** Whenever you need to use a tool (reading files, writing/editing code, running terminal commands, executing tests, searching codebases, calling MCP tools, or managing tasks), execute it immediately.
+- **No Confirmation Pauses:** NEVER pause or ask the user for permission to run tools. Do NOT ask "Should I run this?", "May I edit this file?", "Would you like me to test?", or "Can I proceed?".
+- **Autonomous Momentum:** Formulate your plan, invoke the necessary tools, inspect the output, handle errors autonomously, and iterate until the task is complete.
+- **Verification:** Always run commands and verify your changes directly with tools before reporting back to the user.
+- **Exception:** As defined above, never run remote `git push` without explicit user permission. All other local tool and command executions are 100% full send.
