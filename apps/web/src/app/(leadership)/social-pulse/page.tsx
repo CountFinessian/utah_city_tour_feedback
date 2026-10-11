@@ -21,6 +21,7 @@ import {
   Star,
   Activity,
   Award,
+  BarChart2,
 } from "lucide-react";
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type {
@@ -30,7 +31,8 @@ import type {
   EvidenceItem,
 } from "@/domain/social-listening/intelligence-narrative";
 import type { PriorityCommentItem } from "@/domain/social-listening/priority-comments";
-import type { CreatorPerspective } from "@/domain/social-listening/creator-perspectives";
+import type { CreatorContentItem } from "@/domain/social-listening/creator-content";
+import type { PublicEngagementData, MonthlyEngagementPoint } from "@/domain/social-listening/engagement-chart";
 import type { EmergingIssue } from "@/domain/social-listening/emerging-issues";
 
 export interface DashboardCommentItem {
@@ -58,7 +60,8 @@ export interface DashboardData {
   };
   comments?: DashboardCommentItem[];
   priorityComments?: PriorityCommentItem[];
-  creatorPerspectives?: CreatorPerspective[];
+  creatorContent?: CreatorContentItem[];
+  publicEngagement?: PublicEngagementData;
   emergingIssues?: EmergingIssue[];
   intelligenceNarrative?: IntelligenceNarrativeData;
   backfillStats?: any;
@@ -68,11 +71,18 @@ export default function SocialPulsePage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"priority" | "themes" | "creators" | "emerging">("priority");
+  const [activeTab, setActiveTab] = useState<"priority" | "creators" | "emerging" | "themes">("priority");
 
   // Priority comments filter states
   const [selectedBand, setSelectedBand] = useState<string>("ALL");
   const [selectedActionType, setSelectedActionType] = useState<string>("ALL");
+
+  // Creator content pagination state (10 items per page)
+  const [creatorPage, setCreatorPage] = useState<number>(1);
+  const CREATORS_PER_PAGE = 10;
+
+  // Engagement chart metric selector state
+  const [engagementMetric, setEngagementMetric] = useState<"posts" | "comments" | "views" | "engagement">("comments");
 
   // Evidence Explorer Modal state
   const [explorerTheme, setExplorerTheme] = useState<IntelligenceTheme | null>(null);
@@ -102,18 +112,27 @@ export default function SocialPulsePage() {
   }, []);
 
   const totalCapturedPosts =
-    data?.postCount || (data?.creatorPerspectives ? data.creatorPerspectives.length : 0);
+    data?.postCount || (data?.creatorContent ? data.creatorContent.length : 0);
   const totalComments = data?.headline?.total || (data?.comments ? data.comments.length : 0);
 
   const priorityComments = data?.priorityComments || [];
-  const creatorPerspectives = data?.creatorPerspectives || [];
+  const creatorContent = data?.creatorContent || [];
   const emergingIssues = data?.emergingIssues || [];
+  const publicEngagement = data?.publicEngagement;
 
+  // Filter priority comments
   const filteredPriorityComments = priorityComments.filter((c) => {
     if (selectedBand !== "ALL" && c.importanceBand !== selectedBand) return false;
     if (selectedActionType !== "ALL" && c.actionabilityType !== selectedActionType) return false;
     return true;
   });
+
+  // Paginate creator content
+  const totalCreatorPages = Math.max(1, Math.ceil(creatorContent.length / CREATORS_PER_PAGE));
+  const paginatedCreators = creatorContent.slice(
+    (creatorPage - 1) * CREATORS_PER_PAGE,
+    creatorPage * CREATORS_PER_PAGE
+  );
 
   return (
     <div className="space-y-10 max-w-7xl mx-auto pb-16">
@@ -127,7 +146,7 @@ export default function SocialPulsePage() {
             </h1>
           </div>
           <p className="text-sm text-slate-400 mt-1">
-            Real-time public commentary intelligence, creator perspectives, and verified social evidence
+            Real-time public commentary intelligence, independent creator perspectives, and verified social evidence
           </p>
         </div>
 
@@ -173,120 +192,11 @@ export default function SocialPulsePage() {
       ) : (
         <>
           {/* ========================================================================= */}
-          {/* 2. REINSTATED INTELLIGENCE NARRATIVE SECTION (PRIMARY AT TOP)             */}
-          {/* ========================================================================= */}
-          {data.intelligenceNarrative && (
-            <section className="space-y-6 bg-gradient-to-b from-white/[0.04] to-white/[0.01] border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-white/10">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-[#20d0c3]/15 border border-[#20d0c3]/30 flex items-center justify-center text-[#20d0c3]">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-white tracking-tight">
-                      INTELLIGENCE NARRATIVE
-                    </h2>
-                    <p className="text-xs text-slate-400">
-                      Grounded synthesis of recurring public themes, independent creator framing, and strategic leadership priorities
-                    </p>
-                  </div>
-                </div>
-
-                {data.intelligenceNarrative.datasetMetrics && (
-                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                    <span className="px-2.5 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300">
-                      <strong>{data.intelligenceNarrative.datasetMetrics.totalEligibleComments}</strong> eligible comments
-                    </span>
-                    <span className="px-2.5 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300">
-                      <strong>{data.intelligenceNarrative.datasetMetrics.distinctSourcePosts}</strong> source video{data.intelligenceNarrative.datasetMetrics.distinctSourcePosts === 1 ? "" : "s"}
-                    </span>
-                    <span className="px-2.5 py-1 rounded-md bg-white/5 border border-white/10 text-slate-300">
-                      <strong>{data.intelligenceNarrative.datasetMetrics.distinctCreators}</strong> creators
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Executive Briefing Cards */}
-              <div className="space-y-4">
-                <div className="p-5 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#20d0c3] flex items-center gap-1.5">
-                      <Radio className="w-3.5 h-3.5" />
-                      Executive Briefing (30–60 Second Read)
-                    </span>
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider">
-                      Grounding: {data.rangeLabel || "All observation windows"}
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-200 leading-relaxed font-normal">
-                    {data.intelligenceNarrative.executiveNarrative.overview}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Column 1: Established Patterns */}
-                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-2.5">
-                    <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4" /> Established Patterns
-                    </span>
-                    <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
-                      {data.intelligenceNarrative.executiveNarrative.establishedPatterns.map((pat, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
-                          <span className="text-[#20d0c3] font-bold">•</span>
-                          <span>{pat}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Column 2: Preliminary Observations */}
-                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-2.5">
-                    <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4" /> Preliminary Observations
-                    </span>
-                    <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
-                      {data.intelligenceNarrative.executiveNarrative.preliminaryObservations.map((obs, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
-                          <span className="text-amber-400 font-bold">•</span>
-                          <span>{obs}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Column 3: Actionable Priorities */}
-                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-2.5">
-                    <span className="text-xs font-bold text-[#20d0c3] flex items-center gap-1.5">
-                      <Compass className="w-4 h-4" /> Actionable Priorities
-                    </span>
-                    <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
-                      {data.intelligenceNarrative.executiveNarrative.actionablePriorities.map((act, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
-                          <span className="text-[#20d0c3] font-bold">•</span>
-                          <span>{act}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-
-                {data.intelligenceNarrative.executiveNarrative.coverageLimitations && (
-                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-center gap-2">
-                    <Info className="w-4 h-4 shrink-0 text-amber-400" />
-                    <span>{data.intelligenceNarrative.executiveNarrative.coverageLimitations}</span>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* ========================================================================= */}
-          {/* 3. FOUR CORE WORKSTATION TABS                                             */}
+          {/* 2. CORE WORKSTATION TABS                                                  */}
           {/* Tab 1: Priority Comments                                                  */}
-          {/* Tab 2: Themes & Narratives                                                */}
-          {/* Tab 3: Creator Perspectives                                               */}
-          {/* Tab 4: Emerging Issues                                                    */}
+          {/* Tab 2: Independent Creator Content                                        */}
+          {/* Tab 3: Emerging Issues                                                    */}
+          {/* Tab 4: Themes & Narratives                                                */}
           {/* ========================================================================= */}
           <div className="space-y-6">
             {/* Tab Navigation Navigation Bar */}
@@ -304,18 +214,6 @@ export default function SocialPulsePage() {
               </button>
 
               <button
-                onClick={() => setActiveTab("themes")}
-                className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
-                  activeTab === "themes"
-                    ? "border-[#20d0c3] text-[#20d0c3] bg-white/[0.04]"
-                    : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-                Themes & Narratives ({data.intelligenceNarrative?.allThemes.length || 0})
-              </button>
-
-              <button
                 onClick={() => setActiveTab("creators")}
                 className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
                   activeTab === "creators"
@@ -324,7 +222,7 @@ export default function SocialPulsePage() {
                 }`}
               >
                 <Users className="w-4 h-4" />
-                Creator Perspectives ({creatorPerspectives.length})
+                Independent Creator Content ({creatorContent.length})
               </button>
 
               <button
@@ -338,9 +236,21 @@ export default function SocialPulsePage() {
                 <Flame className="w-4 h-4 text-amber-400" />
                 Emerging Issues ({emergingIssues.length})
               </button>
+
+              <button
+                onClick={() => setActiveTab("themes")}
+                className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
+                  activeTab === "themes"
+                    ? "border-[#20d0c3] text-[#20d0c3] bg-white/[0.04]"
+                    : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                Themes & Narratives ({data.intelligenceNarrative?.allThemes.length || 0})
+              </button>
             </div>
 
-            {/* TAB 1: PRIORITY COMMENTS */}
+            {/* TAB 1: PRIORITY COMMENTS (SIMPLIFIED & CLEAN) */}
             {activeTab === "priority" && (
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/[0.02] p-4 rounded-xl border border-white/5">
@@ -350,14 +260,14 @@ export default function SocialPulsePage() {
                       PRIORITY COMMENTS — WHAT LEADERSHIP SHOULD KNOW
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Scored 0–100 across 7 strategic dimensions, ranked by leadership importance with source diversity constraints
+                      Evaluated for strategic relevance, actionability, and severity. Ranked with the most important comments first.
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
                     {/* Band Filter */}
                     <div className="flex items-center gap-1.5 text-xs bg-black/40 px-2.5 py-1.5 rounded-lg border border-white/10">
-                      <span className="text-slate-400 font-medium">Band:</span>
+                      <span className="text-slate-400 font-medium">Priority:</span>
                       {["ALL", "CRITICAL", "HIGH", "MEDIUM"].map((band) => (
                         <button
                           key={band}
@@ -375,7 +285,7 @@ export default function SocialPulsePage() {
 
                     {/* Actionability Filter */}
                     <div className="flex items-center gap-1.5 text-xs bg-black/40 px-2.5 py-1.5 rounded-lg border border-white/10">
-                      <span className="text-slate-400 font-medium">Action:</span>
+                      <span className="text-slate-400 font-medium">Topic:</span>
                       {["ALL", "DESIGN", "INFRASTRUCTURE", "POLICY", "RETAIL_TENANTING"].map((act) => (
                         <button
                           key={act}
@@ -400,10 +310,10 @@ export default function SocialPulsePage() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {filteredPriorityComments.map((c) => {
-                      const scoreBadgeBg =
-                        c.importanceScore >= 85
+                      const priorityColor =
+                        c.importanceBand === "CRITICAL"
                           ? "bg-rose-500/20 text-rose-300 border-rose-500/30"
-                          : c.importanceScore >= 70
+                          : c.importanceBand === "HIGH"
                           ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
                           : "bg-[#20d0c3]/20 text-[#20d0c3] border-[#20d0c3]/30";
 
@@ -413,18 +323,17 @@ export default function SocialPulsePage() {
                           className="p-5 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/20 transition space-y-3.5 shadow-lg flex flex-col justify-between"
                         >
                           <div className="space-y-3">
-                            {/* Card Header: Score & Band & Actionability */}
+                            {/* Card Header: Simple Priority Indicator & Topic Label */}
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-2">
-                                <span
-                                  className={`px-2.5 py-1 rounded-lg border font-mono font-black text-sm ${scoreBadgeBg}`}
-                                >
-                                  {c.importanceScore}
+                                <span className={`text-[11px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded border ${priorityColor}`}>
+                                  {c.importanceBand === "CRITICAL"
+                                    ? "Critical Priority"
+                                    : c.importanceBand === "HIGH"
+                                    ? "High Priority"
+                                    : "Medium Priority"}
                                 </span>
                                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10">
-                                  {c.importanceBand}
-                                </span>
-                                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-[#20d0c3]/10 text-[#20d0c3] border border-[#20d0c3]/20">
                                   {c.actionabilityType.replace(/_/g, " ")}
                                 </span>
                               </div>
@@ -434,57 +343,21 @@ export default function SocialPulsePage() {
                               </span>
                             </div>
 
-                            {/* Full Comment Text */}
+                            {/* Complete Comment Text (Prominent Focus) */}
                             <p className="text-sm text-slate-100 font-normal leading-relaxed bg-black/40 p-3.5 rounded-xl border border-white/5">
                               "{stripTranscriptTimestamps(c.text)}"
                             </p>
 
-                            {/* Leadership Rationale */}
-                            <div className="space-y-1">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                                Leadership Rationale
-                              </span>
-                              <p className="text-xs text-slate-300 leading-relaxed">
-                                {c.importanceRationale}
-                              </p>
-                            </div>
-
-                            {/* 7-dimension Rubric Breakdown Tooltip / Micro-bar */}
-                            {c.scoreBreakdown && (
-                              <div className="grid grid-cols-4 sm:grid-cols-7 gap-1 pt-2 border-t border-white/5 text-[9px] text-slate-400 text-center font-mono">
-                                <div className="bg-white/5 p-1 rounded">
-                                  <span className="block text-slate-500">REL</span>
-                                  <span className="font-bold text-white">{c.scoreBreakdown.relevance}/25</span>
-                                </div>
-                                <div className="bg-white/5 p-1 rounded">
-                                  <span className="block text-slate-500">ACT</span>
-                                  <span className="font-bold text-white">{c.scoreBreakdown.actionability}/20</span>
-                                </div>
-                                <div className="bg-white/5 p-1 rounded">
-                                  <span className="block text-slate-500">SPEC</span>
-                                  <span className="font-bold text-white">{c.scoreBreakdown.specificity}/15</span>
-                                </div>
-                                <div className="bg-white/5 p-1 rounded">
-                                  <span className="block text-slate-500">URG</span>
-                                  <span className="font-bold text-white">{c.scoreBreakdown.urgency}/15</span>
-                                </div>
-                                <div className="bg-white/5 p-1 rounded">
-                                  <span className="block text-slate-500">NOV</span>
-                                  <span className="font-bold text-white">{c.scoreBreakdown.novelty}/10</span>
-                                </div>
-                                <div className="bg-white/5 p-1 rounded">
-                                  <span className="block text-slate-500">CORR</span>
-                                  <span className="font-bold text-white">{c.scoreBreakdown.corroboration}/10</span>
-                                </div>
-                                <div className="bg-white/5 p-1 rounded">
-                                  <span className="block text-slate-500">CONF</span>
-                                  <span className="font-bold text-white">{c.scoreBreakdown.confidence}/5</span>
-                                </div>
+                            {/* Associated Video Title */}
+                            {c.postTitle && (
+                              <div className="text-[11px] text-slate-400">
+                                <span className="text-slate-500">Video: </span>
+                                <span className="text-slate-300 italic">{c.postTitle}</span>
                               </div>
                             )}
                           </div>
 
-                          {/* Card Footer: Author & Safe External Link (NO EMBED/IFRAME) */}
+                          {/* Card Footer: Author, Platform & Safe External Link (NO EMBED/IFRAME) */}
                           <div className="flex items-center justify-between text-xs text-slate-400 pt-3 border-t border-white/10">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-slate-200">@{c.authorUsername}</span>
@@ -512,7 +385,247 @@ export default function SocialPulsePage() {
               </div>
             )}
 
-            {/* TAB 2: THEMES & NARRATIVES */}
+            {/* TAB 2: INDEPENDENT CREATOR CONTENT (FOCUSED & LIGHTWEIGHT) */}
+            {activeTab === "creators" && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/[0.02] p-4 rounded-xl border border-white/5">
+                  <div>
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                      <Users className="w-4 h-4 text-[#20d0c3]" />
+                      INDEPENDENT CREATOR CONTENT
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      What independent content creators themselves are saying about Utah City (excludes official marketing posts).
+                    </p>
+                  </div>
+
+                  {totalCreatorPages > 1 && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <button
+                        onClick={() => setCreatorPage((p) => Math.max(1, p - 1))}
+                        disabled={creatorPage === 1}
+                        className="px-2.5 py-1 rounded-lg bg-white/5 disabled:opacity-30 border border-white/10 hover:bg-white/10 text-slate-300"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-slate-400">
+                        Page {creatorPage} of {totalCreatorPages}
+                      </span>
+                      <button
+                        onClick={() => setCreatorPage((p) => Math.min(totalCreatorPages, p + 1))}
+                        disabled={creatorPage === totalCreatorPages}
+                        className="px-2.5 py-1 rounded-lg bg-white/5 disabled:opacity-30 border border-white/10 hover:bg-white/10 text-slate-300"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {paginatedCreators.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 bg-white/[0.02] rounded-xl border border-white/5">
+                    No independent creator posts identified in the dataset.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {paginatedCreators.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-5 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/20 transition space-y-3.5 shadow-lg flex flex-col justify-between"
+                      >
+                        <div className="space-y-3">
+                          {/* Header: Creator & Platform & Date */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white text-sm">
+                                @{item.creatorHandle}
+                              </span>
+                              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10">
+                                {item.platform}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500">
+                              {item.publicationDate ? new Date(item.publicationDate).toLocaleDateString() : ""}
+                            </span>
+                          </div>
+
+                          {/* Content Title / Caption */}
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                              Content
+                            </span>
+                            <p className="text-xs text-slate-200 mt-0.5 leading-relaxed font-medium">
+                              {item.titleOrCaption}
+                            </p>
+                          </div>
+
+                          {/* What the creator says */}
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-[#20d0c3] uppercase tracking-wider block">
+                              What the creator says
+                            </span>
+                            <p className="text-xs text-slate-300 leading-relaxed">
+                              {item.whatCreatorSays}
+                            </p>
+                          </div>
+
+                          {/* Relevant excerpt from transcript / caption */}
+                          {item.relevantExcerpt && (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                <span>Relevant Excerpt</span>
+                                <span className="text-[10px] font-normal text-slate-500">
+                                  {item.hasTranscript ? "from transcript" : "from caption"}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-200 italic leading-relaxed bg-black/40 p-3 rounded-lg border border-white/5">
+                                "{item.relevantExcerpt}"
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Related audience discussion */}
+                          {item.relatedAudienceThemes.length > 0 && (
+                            <div className="space-y-1 pt-1">
+                              <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
+                                Related Audience Discussion
+                              </span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {item.relatedAudienceThemes.map((theme, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="px-2 py-0.5 rounded text-[10px] bg-amber-500/10 border border-amber-500/20 text-amber-300"
+                                  >
+                                    {theme}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Card Footer: Metrics & Safe External Link (NO EMBED/IFRAME) */}
+                        <div className="flex items-center justify-between text-xs text-slate-400 pt-3 border-t border-white/10">
+                          <span>
+                            💬 {item.totalComments} comments
+                          </span>
+                          {item.postUrl && (
+                            <a
+                              href={item.postUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-[#20d0c3] hover:underline inline-flex items-center gap-1 font-semibold"
+                            >
+                              Open original video <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 3: EMERGING ISSUES (ACCURATE PER-EVIDENCE SOURCE LINKS) */}
+            {activeTab === "emerging" && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <Flame className="w-4 h-4 text-amber-400" />
+                    EMERGING ISSUES & EARLY WARNING SIGNALS
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    High-velocity concerns, environmental friction points, and infrastructure questions requiring leadership action.
+                  </p>
+                </div>
+
+                {emergingIssues.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 bg-white/[0.02] rounded-xl border border-white/5">
+                    No high-velocity emerging issues detected in the current window.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {emergingIssues.map((issue) => (
+                      <div
+                        key={issue.id}
+                        className="p-5 rounded-xl bg-amber-500/[0.03] border border-amber-500/20 hover:border-amber-500/30 transition space-y-3.5 shadow-lg flex flex-col justify-between"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              {issue.velocity}
+                            </span>
+                            <span className="text-xs text-slate-400 font-medium">
+                              {issue.recentCommentCount} comments
+                            </span>
+                          </div>
+
+                          <h4 className="text-sm font-bold text-white">
+                            {issue.title}
+                          </h4>
+
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            {issue.description}
+                          </p>
+
+                          {/* Supporting Evidence with Verified Per-Comment Source Links */}
+                          {issue.sampleComments.length > 0 && (
+                            <div className="space-y-2 pt-1 border-t border-white/5">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                Supporting Evidence
+                              </span>
+                              {issue.sampleComments.map((sample, idx) => (
+                                <div key={idx} className="p-2.5 rounded bg-black/40 border border-white/5 space-y-1.5 text-xs">
+                                  <p className="text-slate-200 italic leading-relaxed">
+                                    "{sample.text}"
+                                  </p>
+                                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                                    <span>@{sample.authorUsername} ({sample.platform})</span>
+                                    {sample.postUrl ? (
+                                      <a
+                                        href={sample.postUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[#20d0c3] hover:underline inline-flex items-center gap-1 font-semibold"
+                                      >
+                                        Source <ExternalLink className="w-2.5 h-2.5" />
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Recommended Action */}
+                          <div className="space-y-1 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                            <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
+                              Recommended Action
+                            </span>
+                            <p className="text-xs text-slate-200 leading-relaxed">
+                              {issue.recommendedLeadershipAction}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Card Footer: Distinct Source Platforms and Multi-Source Summary */}
+                        <div className="flex items-center justify-between text-xs text-slate-400 pt-3 border-t border-white/10">
+                          <span>
+                            {issue.distinctPosts === 1
+                              ? "Single source video"
+                              : `${issue.distinctPosts} source videos`}
+                          </span>
+                          <span className="capitalize">{issue.platforms.join(", ")}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 4: THEMES & NARRATIVES */}
             {activeTab === "themes" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -522,7 +635,7 @@ export default function SocialPulsePage() {
                       THEMES & RECURRING NARRATIVES
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Cross-platform clusters synthesized from eligible comments across creators
+                      Cross-platform clusters synthesized from eligible comments across creators.
                     </p>
                   </div>
                 </div>
@@ -586,198 +699,138 @@ export default function SocialPulsePage() {
                 )}
               </div>
             )}
-
-            {/* TAB 3: CREATOR PERSPECTIVES */}
-            {activeTab === "creators" && (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                    <Users className="w-4 h-4 text-[#20d0c3]" />
-                    CREATOR PERSPECTIVES — WHAT INFLUENCERS & MEDIA ARE FRAMING
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Creator theses, video transcripts, audience reaction contrasts, and external sources
-                  </p>
-                </div>
-
-                {creatorPerspectives.length === 0 ? (
-                  <div className="p-12 text-center text-slate-400 bg-white/[0.02] rounded-xl border border-white/5">
-                    No creator perspectives recorded in the current dataset.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {creatorPerspectives.map((c) => (
-                      <div
-                        key={c.postId}
-                        className="p-5 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/20 transition space-y-3.5 shadow-lg flex flex-col justify-between"
-                      >
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-white text-sm">
-                                @{c.creatorHandle}
-                              </span>
-                              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10">
-                                {c.platform}
-                              </span>
-                            </div>
-                            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30">
-                              {c.tone} Tone
-                            </span>
-                          </div>
-
-                          <div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                              Primary Thesis
-                            </span>
-                            <p className="text-xs text-slate-200 mt-1 leading-relaxed">
-                              {c.primaryThesis}
-                            </p>
-                          </div>
-
-                          {/* Key Quote / Transcript Snippet */}
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                              <span>Transcript / Caption Snippet</span>
-                              {c.timestampSnippet && (
-                                <span className="text-[#20d0c3] font-mono">{c.timestampSnippet}</span>
-                              )}
-                            </div>
-                            <p className="text-xs text-slate-200 italic leading-relaxed bg-black/40 p-3 rounded-lg border border-white/5">
-                              "{c.keyQuoteOrTranscriptSnippet}"
-                            </p>
-                          </div>
-
-                          {/* Audience Reaction Contrast */}
-                          <div className="space-y-1 p-3 rounded-lg bg-white/[0.02] border border-white/5">
-                            <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
-                              Audience Reaction Contrast
-                            </span>
-                            <p className="text-xs text-slate-300 leading-relaxed">
-                              {c.audienceReactionContrast}
-                            </p>
-                          </div>
-
-                          {/* Why It Matters */}
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                              Strategic Significance
-                            </span>
-                            <p className="text-xs text-slate-300 leading-relaxed">
-                              {c.whyItMattersToLeadership}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Card Footer: Metrics & Safe External Link (NO EMBED/IFRAME) */}
-                        <div className="flex items-center justify-between text-xs text-slate-400 pt-3 border-t border-white/10">
-                          <span>
-                            💬 {c.totalComments} comments • 🔥 {c.totalEngagement.toLocaleString()} engagement
-                          </span>
-                          {c.postUrl && (
-                            <a
-                              href={c.postUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-[#20d0c3] hover:underline inline-flex items-center gap-1 font-semibold"
-                            >
-                              Open original video <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TAB 4: EMERGING ISSUES */}
-            {activeTab === "emerging" && (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                    <Flame className="w-4 h-4 text-amber-400" />
-                    EMERGING ISSUES & EARLY WARNING SIGNALS
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    High-velocity concerns, environmental friction points, and infrastructure questions requiring leadership action
-                  </p>
-                </div>
-
-                {emergingIssues.length === 0 ? (
-                  <div className="p-12 text-center text-slate-400 bg-white/[0.02] rounded-xl border border-white/5">
-                    No high-velocity emerging issues detected in the current window.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {emergingIssues.map((issue) => (
-                      <div
-                        key={issue.id}
-                        className="p-5 rounded-xl bg-amber-500/[0.03] border border-amber-500/20 hover:border-amber-500/30 transition space-y-3.5 shadow-lg flex flex-col justify-between"
-                      >
-                        <div className="space-y-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              {issue.velocity}
-                            </span>
-                            <span className="text-xs text-slate-400 font-medium">
-                              {issue.recentCommentCount} comments
-                            </span>
-                          </div>
-
-                          <h4 className="text-sm font-bold text-white">
-                            {issue.title}
-                          </h4>
-
-                          <p className="text-xs text-slate-300 leading-relaxed">
-                            {issue.description}
-                          </p>
-
-                          {/* Sample Evidence */}
-                          {issue.sampleComments.length > 0 && (
-                            <div className="space-y-1.5 pt-1">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                                Sample Public Voice
-                              </span>
-                              <p className="text-xs text-slate-200 italic bg-black/40 p-2.5 rounded border border-white/5 leading-relaxed">
-                                "{issue.sampleComments[0].text}"
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Recommended Action */}
-                          <div className="space-y-1 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                            <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
-                              Recommended Action
-                            </span>
-                            <p className="text-xs text-slate-200 leading-relaxed">
-                              {issue.recommendedLeadershipAction}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Card Footer: Safe External Link (NO EMBED/IFRAME) */}
-                        <div className="flex items-center justify-between text-xs text-slate-400 pt-3 border-t border-white/10">
-                          <span>Platforms: {issue.platforms.join(", ")}</span>
-                          {issue.sampleComments[0]?.postUrl && (
-                            <a
-                              href={issue.sampleComments[0].postUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-[#20d0c3] hover:underline inline-flex items-center gap-1 font-semibold"
-                            >
-                              Open original video <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
+
+          {/* ========================================================================= */}
+          {/* 3. PUBLIC ENGAGEMENT OVER TIME (SECTION 8)                                */}
+          {/* ========================================================================= */}
+          {publicEngagement && (
+            <section className="bg-gradient-to-b from-white/[0.03] to-white/[0.01] border border-white/10 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-white/10">
+                <div>
+                  <h2 className="text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <BarChart2 className="w-5 h-5 text-[#20d0c3]" />
+                    PUBLIC ENGAGEMENT OVER TIME
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Monthly public conversation and engagement history starting in January 2023.
+                  </p>
+                </div>
+
+                {/* Metric Selector: Posts, Comments, Views, Engagement */}
+                <div className="flex items-center gap-1.5 bg-black/40 p-1 rounded-xl border border-white/10 text-xs">
+                  <span className="text-slate-500 font-medium px-2">Metric:</span>
+                  <button
+                    onClick={() => setEngagementMetric("comments")}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                      engagementMetric === "comments"
+                        ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Comments ({publicEngagement.totals.comments})
+                  </button>
+                  <button
+                    onClick={() => setEngagementMetric("posts")}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                      engagementMetric === "posts"
+                        ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Posts ({publicEngagement.totals.posts})
+                  </button>
+                  <button
+                    onClick={() => setEngagementMetric("views")}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                      engagementMetric === "views"
+                        ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Views
+                  </button>
+                  <button
+                    onClick={() => setEngagementMetric("engagement")}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                      engagementMetric === "engagement"
+                        ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Engagement
+                  </button>
+                </div>
+              </div>
+
+              {/* Monthly Bar Chart */}
+              {(() => {
+                const values = publicEngagement.months.map((m) => {
+                  if (engagementMetric === "posts") return m.posts;
+                  if (engagementMetric === "comments") return m.comments;
+                  if (engagementMetric === "views") return m.views;
+                  return m.engagement;
+                });
+                const maxVal = Math.max(1, ...values);
+
+                return (
+                  <div className="space-y-4">
+                    {/* Horizontal scrolling bar grid */}
+                    <div className="overflow-x-auto pb-2">
+                      <div className="min-w-[800px] flex items-end gap-2 h-44 pt-6 px-2">
+                        {publicEngagement.months.map((m, idx) => {
+                          const val = values[idx];
+                          const heightPct = val > 0 ? Math.max(8, Math.round((val / maxVal) * 100)) : 0;
+
+                          return (
+                            <div key={m.month} className="flex-1 flex flex-col items-center gap-2 group h-full justify-end">
+                              {/* Hover / static value indicator */}
+                              <span className={`text-[10px] font-mono font-bold transition ${
+                                val > 0 ? "text-[#20d0c3]" : "text-transparent"
+                              }`}>
+                                {val > 0 ? (val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val) : ""}
+                              </span>
+
+                              {/* Bar Pillar */}
+                              <div className="w-full bg-white/5 rounded-t-md h-28 flex items-end overflow-hidden">
+                                {val > 0 ? (
+                                  <div
+                                    style={{ height: `${heightPct}%` }}
+                                    className="w-full bg-gradient-to-t from-[#20d0c3]/50 to-[#20d0c3] rounded-t-md group-hover:brightness-125 transition"
+                                  />
+                                ) : (
+                                  <div className="w-full h-0.5 bg-white/10" />
+                                )}
+                              </div>
+
+                              {/* Month Label */}
+                              <span className="text-[9px] text-slate-500 font-medium block truncate max-w-[36px] text-center">
+                                {m.label}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Historical Coverage Notice & Earliest Reliable Date Indicator */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-3 border-t border-white/5 text-[11px] text-slate-400">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300 font-semibold">
+                          Earliest recorded data: {publicEngagement.earliestReliableDate}
+                        </span>
+                        <span>•</span>
+                        <span>Post counts reflect independent creators only</span>
+                      </div>
+                      <span className="text-slate-500 italic">
+                        {publicEngagement.coverageLimitationNotice}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </section>
+          )}
 
           {/* ========================================================================= */}
           {/* 4. EVIDENCE EXPLORER MODAL                                                */}

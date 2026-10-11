@@ -5,6 +5,8 @@ import type { Comment, Post, Sentiment, Topic } from "@/domain/social-listening/
 import { buildIntelligenceNarrative, type IntelligenceNarrativeData } from "@/domain/social-listening/intelligence-narrative";
 import { selectPriorityComments, type PriorityCommentItem } from "@/domain/social-listening/priority-comments";
 import { extractCreatorPerspectives, type CreatorPerspective } from "@/domain/social-listening/creator-perspectives";
+import { extractIndependentCreatorContent, type CreatorContentItem } from "@/domain/social-listening/creator-content";
+import { buildPublicEngagementData, type PublicEngagementData } from "@/domain/social-listening/engagement-chart";
 import { detectEmergingIssues, type EmergingIssue } from "@/domain/social-listening/emerging-issues";
 
 /** First month of the public conversation. The announcement landed August 29, 2023. */
@@ -141,6 +143,8 @@ export interface ConversationDashboard {
   intelligenceNarrative?: IntelligenceNarrativeData;
   priorityComments?: PriorityCommentItem[];
   creatorPerspectives?: CreatorPerspective[];
+  creatorContent?: CreatorContentItem[];
+  publicEngagement?: PublicEngagementData;
   emergingIssues?: EmergingIssue[];
   backfillStats?: any;
 }
@@ -521,6 +525,8 @@ export function buildConversationDashboard(input: {
     }),
     priorityComments: selectPriorityComments(input.comments, input.posts),
     creatorPerspectives: extractCreatorPerspectives(input.posts, input.comments),
+    creatorContent: extractIndependentCreatorContent(input.posts, input.comments),
+    publicEngagement: buildPublicEngagementData(input.posts, input.comments, now),
     emergingIssues: detectEmergingIssues(input.comments, input.posts),
   };
 }

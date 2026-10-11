@@ -107,7 +107,8 @@ export function selectPriorityComments(
 
   for (const item of evaluated) {
     const currentFromPost = postCounts.get(item.post.id) || 0;
-    if (currentFromPost >= maxPerPost) {
+    // Do not suppress genuinely critical comments (>= 85 score) just to force source diversity
+    if (currentFromPost >= maxPerPost && item.score < 85) {
       continue;
     }
 

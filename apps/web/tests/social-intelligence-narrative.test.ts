@@ -13,6 +13,9 @@ import { memoryNarrativeCache } from "@/server/intelligence/conversation-narrati
 import type { Comment, Post } from "@/domain/social-listening/types";
 import { evaluateCommentImportance } from "@/domain/social-listening/importance-scoring";
 import { extractCreatorPerspectives } from "@/domain/social-listening/creator-perspectives";
+import { extractIndependentCreatorContent } from "@/domain/social-listening/creator-content";
+import { buildPublicEngagementData } from "@/domain/social-listening/engagement-chart";
+import { detectEmergingIssues } from "@/domain/social-listening/emerging-issues";
 import { readFileSync } from "fs";
 import path from "path";
 
@@ -498,6 +501,104 @@ describe("Social Listener Intelligence Narrative & Evidence Diversity", () => {
     expect(pageSrc).toContain('target="_blank"');
     expect(pageSrc).toContain('rel="noopener noreferrer"');
     expect(pageSrc).toContain("Open original video");
+  });
+
+  // Section 11 Test A: Panels Removed
+  it("Section 11 Test A: Confirm Executive Briefing and Preliminary Observations are completely removed", () => {
+    const pageSrc = readFileSync(path.join(process.cwd(), "src/app/(leadership)/social-pulse/page.tsx"), "utf8");
+    expect(pageSrc).not.toContain("Executive Briefing");
+    expect(pageSrc).not.toContain("Preliminary Observations");
+    expect(pageSrc).not.toContain("What Is Being Said Over Time");
+  });
+
+  // Section 11 Test B & G: Independent creator content and official account exclusion
+  it("Section 11 Test B: Independent creator content excludes official accounts and retains public comments on official posts", () => {
+    const officialPost = makePost("official_1", "tiktok", {
+      authorUsername: "utahcityutah",
+      caption: "Official announcement from Utah City team",
+    });
+    const independentPost = makePost("indep_1", "tiktok", {
+      authorUsername: "utah_local_vlogger",
+      caption: "My honest review of Utah City development",
+      transcript: "I walked around the Vineyard FrontRunner station today checking out Utah City.",
+    });
+
+    const comments = [
+      makeComment("c_off", "official_1", "When is the grocery store opening?"),
+      makeComment("c_ind", "indep_1", "The lake smell is awful in summer."),
+    ];
+
+    const creatorCards = extractIndependentCreatorContent([officialPost, independentPost], comments);
+    // Official post is excluded from creator content cards
+    expect(creatorCards.length).toBe(1);
+    expect(creatorCards[0].creatorHandle).toBe("utah_local_vlogger");
+    expect(creatorCards[0].whatCreatorSays).toBeDefined();
+    expect(creatorCards[0].hasTranscript).toBe(true);
+
+    // But public comments on the official post remain eligible in the general corpus
+    expect(comments.find((c) => c.postId === "official_1")).toBeDefined();
+  });
+
+  // Section 11 Test D: Emerging Issues Source URLs
+  it("Section 11 Test D: Verified source post URLs on Emerging Issues cards without hard-coded fallbacks", () => {
+    const post1 = makePost("post_bug", "tiktok", { url: "https://www.tiktok.com/@creator1/video/111" });
+    const post2 = makePost("post_traffic", "instagram", { url: "https://www.instagram.com/reel/222/" });
+
+    const comments = [
+      makeComment("c_bug", "post_bug", "The lake odor and midges smell terrible every summer"),
+      makeComment("c_traf", "post_traffic", "Traffic on I-15 is completely backed up"),
+    ];
+
+    const issues = detectEmergingIssues(comments, [post1, post2]);
+    const bugIssue = issues.find((i) => i.id === "issue-lake-odor-midges");
+    const trafIssue = issues.find((i) => i.id === "issue-traffic-infrastructure");
+
+    expect(bugIssue).toBeDefined();
+    expect(bugIssue!.sampleComments[0].postUrl).toBe("https://www.tiktok.com/@creator1/video/111");
+
+    expect(trafIssue).toBeDefined();
+    expect(trafIssue!.sampleComments[0].postUrl).toBe("https://www.instagram.com/reel/222/");
+
+    // No hardcoded problematic URL
+    const pageSrc = readFileSync(path.join(process.cwd(), "src/app/(leadership)/social-pulse/page.tsx"), "utf8");
+    expect(pageSrc).not.toContain("7694797007344504078");
+  });
+
+  // Section 11 Test E: Simplified Priority Comments
+  it("Section 11 Test E: Simplified priority comments cards without verbose rationales or score breakdowns", () => {
+    const pageSrc = readFileSync(path.join(process.cwd(), "src/app/(leadership)/social-pulse/page.tsx"), "utf8");
+    expect(pageSrc).not.toContain("Leadership Rationale");
+    expect(pageSrc).not.toContain("c.scoreBreakdown");
+    expect(pageSrc).not.toContain("REL");
+    expect(pageSrc).not.toContain("ACT");
+  });
+
+  // Section 11 Test F: Monthly Engagement Chart
+  it("Section 11 Test F: Monthly engagement chart begins at January 2023 with correct fields and coverage notice", () => {
+    const post = makePost("post_eng", "tiktok", {
+      publishedAt: "2024-05-10T12:00:00Z",
+      viewCount: 15000,
+      likeCount: 600,
+      commentCount: 40,
+      shareCount: 10,
+    });
+    const comment = makeComment("c_eng", "post_eng", "Great project", {
+      createdAt: "2024-05-12T12:00:00Z",
+    });
+
+    const engagement = buildPublicEngagementData([post], [comment], new Date("2026-10-10T12:00:00Z"));
+    expect(engagement.rangeStart).toBe("2023-01");
+    expect(engagement.months[0].month).toBe("2023-01");
+    expect(engagement.months[0].posts).toBe(0);
+
+    const may2024 = engagement.months.find((m) => m.month === "2024-05");
+    expect(may2024).toBeDefined();
+    expect(may2024!.posts).toBe(1);
+    expect(may2024!.comments).toBe(1);
+    expect(may2024!.views).toBe(15000);
+    expect(may2024!.engagement).toBe(650);
+
+    expect(engagement.coverageLimitationNotice).toMatch(/Historical data coverage/i);
   });
 });
 
