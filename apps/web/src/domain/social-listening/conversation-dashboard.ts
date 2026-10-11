@@ -132,6 +132,8 @@ export interface ConversationDashboard {
   shifts: ConversationShift[];
   quotes: TranscriptQuote[];
   claims: NarrativeClaim[];
+  postCount?: number;
+  comments?: DashboardCommentRef[];
 }
 
 interface Included {
@@ -501,6 +503,8 @@ export function buildConversationDashboard(input: {
     shifts,
     quotes: transcriptQuotes(input.posts),
     claims,
+    postCount: input.posts.filter((p) => postCommentsInDashboard(p)).length,
+    comments: rows.slice(0, 150).map(toRef),
   };
 }
 
