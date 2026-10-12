@@ -33,7 +33,7 @@ export async function GET() {
         enabledQueries: enabled,
         totalQueries: queries.length,
         lastRunAt,
-        cronSchedule: "every 3 hours (GitHub Actions) + daily Vercel backup",
+        cronSchedule: "once daily (GitHub Actions) + daily Vercel backup",
         cycleBudgetUsd: resolveCycleBudgetUsd(),
         maxQueriesPerCycle: resolveMaxQueriesPerCycle(),
         maxCommentPages: resolveMaxCommentPages(),

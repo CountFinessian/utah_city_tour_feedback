@@ -685,8 +685,7 @@ describe("backfill stays off the listener clock", () => {
     const monitor = readFileSync(path.join(process.cwd(), "src/server/services/monitor-cycle.ts"), "utf8");
     expect(admin).toContain("backfill-discovery");
     expect(admin).not.toContain("schedule:");
-    expect(listener).toContain('cron: "17 */3 * * *"');
-    expect(listener).toContain('cron: "47 1-23/3 * * *"');
+    expect(listener).toContain('cron: "17 4 * * *"');
     expect(listener).toContain("cancel-in-progress: false");
     expect(listener).toContain("now - 7200");
     expect(listener).toContain("mode=monitor");

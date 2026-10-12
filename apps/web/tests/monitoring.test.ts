@@ -740,8 +740,7 @@ describe("scheduler wiring", () => {
     const listener = readFileSync(path.join(process.cwd(), "../../.github/workflows/social-pulse-listener.yml"), "utf8");
     const admin = readFileSync(path.join(process.cwd(), "../../.github/workflows/social-pulse-admin.yml"), "utf8");
     const route = readFileSync(path.join(process.cwd(), "src/app/api/social-pulse/cron/route.ts"), "utf8");
-    expect(listener).toContain('cron: "17 */3 * * *"');
-    expect(listener).toContain('cron: "47 1-23/3 * * *"');
+    expect(listener).toContain('cron: "17 4 * * *"');
     expect(listener).toContain("cancel-in-progress: false");
     expect(listener).toContain("now - 7200");
     expect(listener).toContain("steps.backup.outputs.skip != 'true'");

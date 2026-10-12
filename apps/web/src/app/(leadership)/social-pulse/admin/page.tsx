@@ -181,7 +181,7 @@ export default function SocialPulseAdminPage() {
             Social Pulse Admin
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Background listener runs every 3 hours in production via scheduled job. Manage vocabulary and inspect recent discovery runs.
+            Background listener runs once every day in production via scheduled job. Manage vocabulary and inspect recent discovery runs.
           </p>
         </div>
 
@@ -250,7 +250,7 @@ export default function SocialPulseAdminPage() {
               />
               <StatusCard
                 label="Schedule"
-                value={listener?.cronSchedule || "every 3 hours"}
+                value={listener?.cronSchedule || "once daily"}
                 ok
               />
               <StatusCard

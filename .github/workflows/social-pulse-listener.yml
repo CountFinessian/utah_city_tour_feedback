@@ -14,10 +14,8 @@ name: Social Pulse listener
 # that already ran. It waits out an in-progress :17 run instead of cancelling it.
 on:
   schedule:
-    # Every 3 hours, off the top of the hour. UTC.
-    - cron: "17 */3 * * *"
-    # 90 minutes later (01:47, 04:47, … UTC) if the :17 slot is delayed or dropped.
-    - cron: "47 1-23/3 * * *"
+    # Once every day at 04:17 UTC (9:17 PM Mountain Time)
+    - cron: "17 4 * * *"
   workflow_dispatch:
     inputs:
       mode:
