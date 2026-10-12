@@ -13,7 +13,13 @@ import { memoryNarrativeCache } from "@/server/intelligence/conversation-narrati
 import type { Comment, Post } from "@/domain/social-listening/types";
 import { evaluateCommentImportance } from "@/domain/social-listening/importance-scoring";
 import { extractCreatorPerspectives } from "@/domain/social-listening/creator-perspectives";
-import { extractIndependentCreatorContent } from "@/domain/social-listening/creator-content";
+import {
+  extractIndependentCreatorContent,
+  evaluateCreatorEligibility,
+  parseTimestampToSeconds,
+  buildTimestampedVideoUrl,
+  extractCreatorSpeechExcerpt,
+} from "@/domain/social-listening/creator-content";
 import { buildPublicEngagementData } from "@/domain/social-listening/engagement-chart";
 import { detectEmergingIssues } from "@/domain/social-listening/emerging-issues";
 import { readFileSync } from "fs";
@@ -599,6 +605,145 @@ describe("Social Listener Intelligence Narrative & Evidence Diversity", () => {
     expect(may2024!.engagement).toBe(650);
 
     expect(engagement.coverageLimitationNotice).toMatch(/Historical data coverage/i);
+  });
+
+  // Acceptance Criterion 1: Themes & Narratives is selected automatically when the dashboard opens
+  it("Acceptance Criterion 1: Themes & Narratives is the initial active tab and first button", () => {
+    const pageSrc = readFileSync(path.join(process.cwd(), "src/app/(leadership)/social-pulse/page.tsx"), "utf8");
+    // Verify default state
+    expect(pageSrc).toContain('useState<"themes" | "priority" | "creators" | "emerging">("themes")');
+    // Verify Themes & Narratives button is rendered before Priority Comments in the tab navigation
+    const themesIdx = pageSrc.indexOf('setActiveTab("themes")');
+    const priorityIdx = pageSrc.indexOf('setActiveTab("priority")');
+    expect(themesIdx).toBeLessThan(priorityIdx);
+  });
+
+  // Acceptance Criterion 2: Priority Comments is a fixed curated list without user-facing sorting controls
+  it("Acceptance Criterion 2: Priority Comments appears as curated list without user-facing sorting or filtering dropdowns", () => {
+    const pageSrc = readFileSync(path.join(process.cwd(), "src/app/(leadership)/social-pulse/page.tsx"), "utf8");
+    expect(pageSrc).not.toContain("selectedBand");
+    expect(pageSrc).not.toContain("selectedActionType");
+    expect(pageSrc).not.toContain("setSelectedBand");
+    expect(pageSrc).not.toContain("setSelectedActionType");
+    expect(pageSrc).toContain("curatedPriorityComments");
+  });
+
+  // Acceptance Criterion 3 & 4: Example A - Exclude @utahcityracquetclub and preserve public comments
+  it("Acceptance Criterion 4: Example A - Excludes @utahcityracquetclub as AFFILIATED_BUSINESS_OR_OPERATOR, records evidence, preserves comments", () => {
+    const racquetPost = makePost("post_racquet_1", "instagram", {
+      authorUsername: "utahcityracquetclub",
+      authorDisplayName: "Utah City Racquet Club",
+      url: "https://www.instagram.com/reels/DdFFwJASbgO/",
+      caption:
+        "Inspired by the US Open? FREE 30 minute private tennis lesson available at the Utah City Racquet Club! Simply comment RALLY and we will reach out. We look forward welcoming you to our club at Utah City.",
+    });
+
+    const publicComment = makeComment(
+      "c_racquet_1",
+      "post_racquet_1",
+      "Are paddle courts open to the general public or members only?"
+    );
+
+    const profile = evaluateCreatorEligibility(racquetPost);
+    expect(profile.creatorEligibility).toBe("AFFILIATED_BUSINESS_OR_OPERATOR");
+    expect(profile.affiliationType).toBe("amenity_operator");
+    expect(profile.eligibilityConfidence).toBeGreaterThanOrEqual(0.9);
+    expect(profile.eligibilityReason).toMatch(/amenity|sports|commercial/i);
+    expect(profile.affiliationEvidence).toMatch(/Racquet Club/i);
+
+    // Verify excluded from default independent creator cards
+    const creatorCards = extractIndependentCreatorContent([racquetPost], [publicComment]);
+    expect(creatorCards.length).toBe(0);
+
+    // Verify underlying post and comments remain intact in general listening corpus
+    expect(racquetPost.relevanceStatus).toBe("relevant");
+    expect(publicComment.dropped).toBeFalsy();
+  });
+
+  // Acceptance Criterion 5 & 8: Example B - Include Tammy Goolsby YouTube deep dive with timestamped excerpt and URL
+  it("Acceptance Criterion 5 & 8: Example B - Evaluates YouTube deep dive, includes as INDEPENDENT_COMMENTATOR with timestamp and time-specific URL", () => {
+    const youtubePost = makePost("post_youtube_tg", "youtube", {
+      authorUsername: "Tammy Goolsby",
+      authorDisplayName: "Tammy Goolsby",
+      url: "https://www.youtube.com/watch?v=e0NyKzoVat0",
+      title: "The Massive New Walkable Downtown Coming to Vineyard, UT [00:00]",
+      caption:
+        "What is Utah City? [01:13] In this video, we take a deep dive into the massive 700-acre master-planned community being built on the East Shore of Utah Lake in Vineyard.",
+      description:
+        "What is Utah City? [01:13] In this video, we take a deep dive into the massive 700-acre master-planned community being built on the East Shore of Utah Lake in Vineyard.",
+    });
+
+    const publicComment1 = makeComment("c_yt_1", "post_youtube_tg", "Just what Utah needs, more urban sprawl and traffic.");
+    const publicComment2 = makeComment("c_yt_2", "post_youtube_tg", "Is FrontRunner transit walking distance from the apartments?");
+
+    const profile = evaluateCreatorEligibility(youtubePost);
+    expect(profile.creatorEligibility).toBe("INDEPENDENT_COMMENTATOR");
+    expect(profile.affiliationType).toBe("independent_critic_commentator");
+    expect(profile.eligibilityConfidence).toBeGreaterThanOrEqual(0.9);
+
+    const creatorCards = extractIndependentCreatorContent([youtubePost], [publicComment1, publicComment2]);
+    expect(creatorCards.length).toBe(1);
+    const card = creatorCards[0];
+    expect(card.creatorHandle).toBe("Tammy Goolsby");
+    expect(card.platform).toBe("youtube");
+    expect(card.topicLabel).toBe("Master Plan & Walkability");
+    expect(card.whatCreatorSays).toMatch(/walkability|frontrunner|master plan/i);
+
+    // Timestamp excerpt verification
+    expect(card.timestampLabel).toBe("01:13");
+    expect(card.relevantExcerpt).toMatch(/What is Utah City/i);
+
+    // Time-specific URL verification
+    expect(card.timestampedUrl).toBe("https://www.youtube.com/watch?v=e0NyKzoVat0&t=73s");
+
+    // Separation of creator speech from audience response
+    expect(card.whatCreatorSays).not.toContain("urban sprawl");
+    expect(card.relatedAudienceThemes).toContain("I-15 traffic & infrastructure capacity");
+  });
+
+  // Acceptance Criterion 3: Excludes commercial Realtors and sales stakeholders
+  it("Acceptance Criterion 3: Excludes real estate brokers and presale sales promoters", () => {
+    const realtorPost = makePost("post_realtor_1", "tiktok", {
+      authorUsername: "utahrealestatepaige",
+      caption: "DM me for presales and new home construction tours in Utah City! #realtor #homes",
+    });
+
+    const profile = evaluateCreatorEligibility(realtorPost);
+    expect(profile.creatorEligibility).toBe("PROMOTIONAL_OR_COMMERCIAL_STAKEHOLDER");
+    expect(profile.affiliationType).toBe("realtor_sales");
+
+    const creatorCards = extractIndependentCreatorContent([realtorPost], []);
+    expect(creatorCards.length).toBe(0);
+  });
+
+  // Acceptance Criterion 11: Ineligible or ambiguous accounts are held in review and excluded
+  it("Acceptance Criterion 11: Ambiguous accounts are held in UNCERTAIN_REVIEW_REQUIRED and excluded from default view", () => {
+    const botPost = makePost("post_anon_1", "x", {
+      authorUsername: "x_creator",
+      caption: "Utah City mentioned in local thread",
+    });
+
+    const profile = evaluateCreatorEligibility(botPost);
+    expect(profile.creatorEligibility).toBe("UNCERTAIN_REVIEW_REQUIRED");
+    expect(profile.eligibilityConfidence).toBeLessThan(0.7);
+
+    const creatorCards = extractIndependentCreatorContent([botPost], []);
+    expect(creatorCards.length).toBe(0);
+  });
+
+  // Acceptance Criterion 8: Timestamp parsing and URL generation utility
+  it("Acceptance Criterion 8: Timestamp parsing and URL generation behaves correctly across formats", () => {
+    expect(parseTimestampToSeconds("01:13")).toBe(73);
+    expect(parseTimestampToSeconds("00:08")).toBe(8);
+    expect(parseTimestampToSeconds("[01:24]")).toBe(84);
+    expect(parseTimestampToSeconds("01:02:03")).toBe(3723);
+
+    expect(buildTimestampedVideoUrl("https://www.youtube.com/watch?v=abc", "youtube", 73)).toBe(
+      "https://www.youtube.com/watch?v=abc&t=73s"
+    );
+    expect(buildTimestampedVideoUrl("https://www.tiktok.com/@u/video/123", "tiktok", 8)).toBe(
+      "https://www.tiktok.com/@u/video/123"
+    );
   });
 });
 

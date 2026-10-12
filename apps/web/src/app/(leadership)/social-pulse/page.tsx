@@ -71,11 +71,7 @@ export default function SocialPulsePage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"priority" | "creators" | "emerging" | "themes">("priority");
-
-  // Priority comments filter states
-  const [selectedBand, setSelectedBand] = useState<string>("ALL");
-  const [selectedActionType, setSelectedActionType] = useState<string>("ALL");
+  const [activeTab, setActiveTab] = useState<"themes" | "priority" | "creators" | "emerging">("themes");
 
   // Creator content pagination state (10 items per page)
   const [creatorPage, setCreatorPage] = useState<number>(1);
@@ -120,12 +116,8 @@ export default function SocialPulsePage() {
   const emergingIssues = data?.emergingIssues || [];
   const publicEngagement = data?.publicEngagement;
 
-  // Filter priority comments
-  const filteredPriorityComments = priorityComments.filter((c) => {
-    if (selectedBand !== "ALL" && c.importanceBand !== selectedBand) return false;
-    if (selectedActionType !== "ALL" && c.actionabilityType !== selectedActionType) return false;
-    return true;
-  });
+  // Curated priority comments (fixed list up to 30, ranked in predetermined importance order)
+  const curatedPriorityComments = priorityComments.slice(0, 30);
 
   // Paginate creator content
   const totalCreatorPages = Math.max(1, Math.ceil(creatorContent.length / CREATORS_PER_PAGE));
@@ -202,6 +194,18 @@ export default function SocialPulsePage() {
             {/* Tab Navigation Navigation Bar */}
             <div className="flex border-b border-white/10 gap-2 overflow-x-auto pb-1">
               <button
+                onClick={() => setActiveTab("themes")}
+                className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
+                  activeTab === "themes"
+                    ? "border-[#20d0c3] text-[#20d0c3] bg-white/[0.04]"
+                    : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                Themes & Narratives ({data.intelligenceNarrative?.allThemes.length || 0})
+              </button>
+
+              <button
                 onClick={() => setActiveTab("priority")}
                 className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
                   activeTab === "priority"
@@ -210,7 +214,7 @@ export default function SocialPulsePage() {
                 }`}
               >
                 <Award className="w-4 h-4" />
-                Priority Comments ({priorityComments.length})
+                Priority Comments ({curatedPriorityComments.length})
               </button>
 
               <button
@@ -236,80 +240,28 @@ export default function SocialPulsePage() {
                 <Flame className="w-4 h-4 text-amber-400" />
                 Emerging Issues ({emergingIssues.length})
               </button>
-
-              <button
-                onClick={() => setActiveTab("themes")}
-                className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
-                  activeTab === "themes"
-                    ? "border-[#20d0c3] text-[#20d0c3] bg-white/[0.04]"
-                    : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-                Themes & Narratives ({data.intelligenceNarrative?.allThemes.length || 0})
-              </button>
             </div>
 
-            {/* TAB 1: PRIORITY COMMENTS (SIMPLIFIED & CLEAN) */}
+            {/* TAB: PRIORITY COMMENTS (CURATED RANKED LIST, NO FILTERS/SORTING CONTROLS) */}
             {activeTab === "priority" && (
               <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white/[0.02] p-4 rounded-xl border border-white/5">
-                  <div>
-                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                      <Star className="w-4 h-4 text-[#20d0c3]" />
-                      PRIORITY COMMENTS — WHAT LEADERSHIP SHOULD KNOW
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Evaluated for strategic relevance, actionability, and severity. Ranked with the most important comments first.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* Band Filter */}
-                    <div className="flex items-center gap-1.5 text-xs bg-black/40 px-2.5 py-1.5 rounded-lg border border-white/10">
-                      <span className="text-slate-400 font-medium">Priority:</span>
-                      {["ALL", "CRITICAL", "HIGH", "MEDIUM"].map((band) => (
-                        <button
-                          key={band}
-                          onClick={() => setSelectedBand(band)}
-                          className={`px-2 py-0.5 rounded text-[11px] font-bold transition ${
-                            selectedBand === band
-                              ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
-                              : "text-slate-400 hover:text-slate-200"
-                          }`}
-                        >
-                          {band}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Actionability Filter */}
-                    <div className="flex items-center gap-1.5 text-xs bg-black/40 px-2.5 py-1.5 rounded-lg border border-white/10">
-                      <span className="text-slate-400 font-medium">Topic:</span>
-                      {["ALL", "DESIGN", "INFRASTRUCTURE", "POLICY", "RETAIL_TENANTING"].map((act) => (
-                        <button
-                          key={act}
-                          onClick={() => setSelectedActionType(act)}
-                          className={`px-2 py-0.5 rounded text-[11px] font-bold transition ${
-                            selectedActionType === act
-                              ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
-                              : "text-slate-400 hover:text-slate-200"
-                          }`}
-                        >
-                          {act === "RETAIL_TENANTING" ? "RETAIL" : act}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                <div className="bg-white/[0.02] p-4 rounded-xl border border-white/5">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <Star className="w-4 h-4 text-[#20d0c3]" />
+                    PRIORITY COMMENTS — WHAT LEADERSHIP SHOULD KNOW
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Curated collection of high-value public comments ranked in predetermined importance order.
+                  </p>
                 </div>
 
-                {filteredPriorityComments.length === 0 ? (
+                {curatedPriorityComments.length === 0 ? (
                   <div className="p-12 text-center text-slate-400 bg-white/[0.02] rounded-xl border border-white/5">
-                    No priority comments matched the selected filter criteria.
+                    No priority comments found in the current dataset.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {filteredPriorityComments.map((c) => {
+                    {curatedPriorityComments.map((c) => {
                       const priorityColor =
                         c.importanceBand === "CRITICAL"
                           ? "bg-rose-500/20 text-rose-300 border-rose-500/30"
@@ -434,7 +386,7 @@ export default function SocialPulsePage() {
                         className="p-5 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/20 transition space-y-3.5 shadow-lg flex flex-col justify-between"
                       >
                         <div className="space-y-3">
-                          {/* Header: Creator & Platform & Date */}
+                          {/* Header: Creator & Platform & Topic & Date */}
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-white text-sm">
@@ -443,6 +395,11 @@ export default function SocialPulsePage() {
                               <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10">
                                 {item.platform}
                               </span>
+                              {item.topicLabel && (
+                                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-[#20d0c3]/10 text-[#20d0c3] border border-[#20d0c3]/20">
+                                  {item.topicLabel}
+                                </span>
+                              )}
                             </div>
                             <span className="text-[11px] text-slate-500">
                               {item.publicationDate ? new Date(item.publicationDate).toLocaleDateString() : ""}
@@ -469,14 +426,27 @@ export default function SocialPulsePage() {
                             </p>
                           </div>
 
-                          {/* Relevant excerpt from transcript / caption */}
+                          {/* Creator excerpt with timestamp */}
                           {item.relevantExcerpt && (
                             <div className="space-y-1">
-                              <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                <span>Relevant Excerpt</span>
-                                <span className="text-[10px] font-normal text-slate-500">
-                                  {item.hasTranscript ? "from transcript" : "from caption"}
+                              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider">
+                                <span className="text-[#20d0c3]">
+                                  Creator excerpt {item.timestampLabel ? `— ${item.timestampLabel}` : ""}
                                 </span>
+                                {item.timestampedUrl && item.timestampedUrl !== item.postUrl ? (
+                                  <a
+                                    href={item.timestampedUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[#20d0c3] hover:underline inline-flex items-center gap-1 font-semibold text-[10px] lowercase"
+                                  >
+                                    jump to {item.timestampLabel} <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                ) : (
+                                  <span className="text-[10px] font-normal text-slate-500 lowercase">
+                                    {item.hasTranscript ? "from transcript" : "from caption"}
+                                  </span>
+                                )}
                               </div>
                               <p className="text-xs text-slate-200 italic leading-relaxed bg-black/40 p-3 rounded-lg border border-white/5">
                                 "{item.relevantExcerpt}"
@@ -484,11 +454,11 @@ export default function SocialPulsePage() {
                             </div>
                           )}
 
-                          {/* Related audience discussion */}
+                          {/* Related audience discussion (distinct from creator speech) */}
                           {item.relatedAudienceThemes.length > 0 && (
-                            <div className="space-y-1 pt-1">
+                            <div className="space-y-1 pt-1 border-t border-white/5">
                               <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
-                                Related Audience Discussion
+                                Audience Discussion Themes
                               </span>
                               <div className="flex flex-wrap gap-1.5">
                                 {item.relatedAudienceThemes.map((theme, idx) => (
@@ -509,9 +479,9 @@ export default function SocialPulsePage() {
                           <span>
                             💬 {item.totalComments} comments
                           </span>
-                          {item.postUrl && (
+                          {(item.timestampedUrl || item.postUrl) && (
                             <a
-                              href={item.postUrl}
+                              href={item.timestampedUrl || item.postUrl}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-xs text-[#20d0c3] hover:underline inline-flex items-center gap-1 font-semibold"

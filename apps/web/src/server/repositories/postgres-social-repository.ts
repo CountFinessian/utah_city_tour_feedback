@@ -16,6 +16,7 @@ import { fileSocialRepository } from "./file-social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 import { stage1Statements } from "@/server/db/migrations/stage1";
 import { sanitizeTranscript } from "@/domain/sanitize-text";
+import type { CreatorProfile } from "@/domain/social-listening/creator-content";
 
 function db() {
   const url = getPgUrl();
@@ -185,6 +186,23 @@ async function ensureSocialSchema(): Promise<void> {
       await sql`alter table social_comments add column if not exists actionability_type text`;
       await sql`alter table social_comments add column if not exists scored_at timestamptz`;
       await sql`alter table social_comments add column if not exists score_status text`;
+
+      await sql`
+        create table if not exists creator_profiles (
+          platform text not null,
+          handle text not null,
+          display_name text,
+          creator_eligibility text not null,
+          affiliation_type text not null,
+          affiliation_evidence text,
+          eligibility_confidence double precision not null default 0.8,
+          eligibility_reason text not null,
+          eligibility_checked_at timestamptz not null default now(),
+          eligibility_model_version text not null default 'v1.0',
+          primary key (platform, handle)
+        );
+      `;
+      await sql`create index if not exists idx_creator_profiles_eligibility on creator_profiles(creator_eligibility);`;
 
       // Seed queries if table empty
       const countRes = await sql`select count(*) as cnt from social_search_queries`;
@@ -773,6 +791,90 @@ export const postgresSocialRepository: SocialListeningRepository = {
         last_digest_at = excluded.last_digest_at,
         cursors = excluded.cursors
     `;
+  },
+
+  async getCreatorProfile(platform: string, handle: string): Promise<CreatorProfile | null> {
+    await ensureSocialSchema();
+    const sql = db();
+    const rows = await sql`
+      select platform, handle, display_name, creator_eligibility, affiliation_type,
+             affiliation_evidence, eligibility_confidence, eligibility_reason,
+             eligibility_checked_at, eligibility_model_version
+      from creator_profiles
+      where lower(platform) = ${platform.toLowerCase()} and lower(handle) = ${handle.toLowerCase()}
+    `;
+    if (!rows[0]) return null;
+    const r: any = rows[0];
+    return {
+      platform: r.platform,
+      handle: r.handle,
+      displayName: r.display_name || undefined,
+      creatorEligibility: r.creator_eligibility as any,
+      affiliationType: r.affiliation_type as any,
+      affiliationEvidence: r.affiliation_evidence || "",
+      eligibilityConfidence: Number(r.eligibility_confidence || 0.8),
+      eligibilityReason: r.eligibility_reason,
+      eligibilityCheckedAt: new Date(r.eligibility_checked_at).toISOString(),
+      eligibilityModelVersion: r.eligibility_model_version,
+    };
+  },
+
+  async listCreatorProfiles(): Promise<CreatorProfile[]> {
+    await ensureSocialSchema();
+    const sql = db();
+    const rows = await sql`
+      select platform, handle, display_name, creator_eligibility, affiliation_type,
+             affiliation_evidence, eligibility_confidence, eligibility_reason,
+             eligibility_checked_at, eligibility_model_version
+      from creator_profiles
+    `;
+    return rows.map((r: any) => ({
+      platform: r.platform,
+      handle: r.handle,
+      displayName: r.display_name || undefined,
+      creatorEligibility: r.creator_eligibility as any,
+      affiliationType: r.affiliation_type as any,
+      affiliationEvidence: r.affiliation_evidence || "",
+      eligibilityConfidence: Number(r.eligibility_confidence || 0.8),
+      eligibilityReason: r.eligibility_reason,
+      eligibilityCheckedAt: new Date(r.eligibility_checked_at).toISOString(),
+      eligibilityModelVersion: r.eligibility_model_version,
+    }));
+  },
+
+  async upsertCreatorProfile(profile: CreatorProfile): Promise<CreatorProfile> {
+    await ensureSocialSchema();
+    const sql = db();
+    await sql`
+      insert into creator_profiles (
+        platform, handle, display_name, creator_eligibility, affiliation_type,
+        affiliation_evidence, eligibility_confidence, eligibility_reason,
+        eligibility_checked_at, eligibility_model_version
+      ) values (
+        ${profile.platform.toLowerCase()}, ${profile.handle.toLowerCase()},
+        ${profile.displayName || null}, ${profile.creatorEligibility},
+        ${profile.affiliationType}, ${profile.affiliationEvidence || null},
+        ${profile.eligibilityConfidence}, ${profile.eligibilityReason},
+        ${profile.eligibilityCheckedAt}, ${profile.eligibilityModelVersion}
+      )
+      on conflict (platform, handle) do update set
+        display_name = coalesce(excluded.display_name, creator_profiles.display_name),
+        creator_eligibility = excluded.creator_eligibility,
+        affiliation_type = excluded.affiliation_type,
+        affiliation_evidence = excluded.affiliation_evidence,
+        eligibility_confidence = excluded.eligibility_confidence,
+        eligibility_reason = excluded.eligibility_reason,
+        eligibility_checked_at = excluded.eligibility_checked_at,
+        eligibility_model_version = excluded.eligibility_model_version
+    `;
+    return profile;
+  },
+
+  async bulkUpsertCreatorProfiles(profiles: CreatorProfile[]): Promise<CreatorProfile[]> {
+    for (const p of profiles) {
+      await this.upsertCreatorProfile!(p);
+    }
+    return profiles;
   },
 };
 

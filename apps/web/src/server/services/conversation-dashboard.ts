@@ -13,6 +13,7 @@ const COMMENT_LIMIT = 100000;
 export interface ConversationDashboardResponse extends ConversationDashboard {
   narrative: ConversationNarrative;
   metrics?: SocialPulseMetrics;
+  creatorStats?: any;
 }
 
 async function loadCorpus(overrides?: {
@@ -57,7 +58,8 @@ export async function loadConversationDashboard(options?: {
     metrics.narrative = narrative.summary;
   }
   const backfillStats = (await import("@/server/services/comment-backfill")).getLastBackfillStats();
-  return { ...dashboard, claims: narrative.claims, narrative, metrics, backfillStats };
+  const creatorStats = (await import("@/server/services/creator-backfill")).getLastCreatorBackfillResult();
+  return { ...dashboard, claims: narrative.claims, narrative, metrics, backfillStats, creatorStats };
 }
 
 export async function loadDashboardComments(filter: CommentFilter, options?: {

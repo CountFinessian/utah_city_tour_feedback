@@ -101,5 +101,11 @@ export interface SocialListeningRepository {
 
   getListenerState(): Promise<SocialListenerState>;
   saveListenerState(state: SocialListenerState): Promise<void>;
+
+  // Creator Profiles & Eligibility
+  getCreatorProfile?(platform: string, handle: string): Promise<import("@/domain/social-listening/creator-content").CreatorProfile | null>;
+  listCreatorProfiles?(): Promise<import("@/domain/social-listening/creator-content").CreatorProfile[]>;
+  upsertCreatorProfile?(profile: import("@/domain/social-listening/creator-content").CreatorProfile): Promise<import("@/domain/social-listening/creator-content").CreatorProfile>;
+  bulkUpsertCreatorProfiles?(profiles: import("@/domain/social-listening/creator-content").CreatorProfile[]): Promise<import("@/domain/social-listening/creator-content").CreatorProfile[]>;
 }
 
