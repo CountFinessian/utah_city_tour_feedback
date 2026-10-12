@@ -29,14 +29,11 @@ async function ensureSocialSchema(): Promise<void> {
   if (!schemaReady) {
     const sql = db();
     schemaReady = (async () => {
-      // Fast-path: if creator_profiles already exists, the full schema has already been migrated.
       try {
         const check = await sql`select 1 from information_schema.tables where table_name = 'creator_profiles' limit 1`;
-        if (check.length > 0) {
-          return;
-        }
+        if (check.length > 0) return;
       } catch {
-        // Fall through to full migration if check fails
+        // Fall through
       }
       // 1. Search Queries
       await sql`

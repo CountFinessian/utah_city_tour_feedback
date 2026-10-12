@@ -7,8 +7,8 @@ import { getSocialRepository } from "@/server/repositories/postgres-social-repos
 import { narrativeCacheStore } from "@/server/services/dashboard-narrative-cache";
 import { calculateDeterministicSocialMetrics } from "@/server/analytics/social-metrics";
 
-const POST_LIMIT = 20000;
-const COMMENT_LIMIT = 100000;
+const POST_LIMIT = 5000;
+const COMMENT_LIMIT = 10000;
 
 export interface ConversationDashboardResponse extends ConversationDashboard {
   narrative: ConversationNarrative;
@@ -38,7 +38,7 @@ interface CachedDashboard {
 }
 
 let inMemoryDashboardCache: CachedDashboard | null = null;
-const CACHE_TTL_MS = 60 * 1000; // 60 seconds
+const CACHE_TTL_MS = 300 * 1000; // 5 minutes in-memory cache
 
 export async function loadConversationDashboard(options?: {
   now?: Date;

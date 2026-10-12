@@ -21,7 +21,6 @@ import {
   Star,
   Activity,
   Award,
-  BarChart2,
 } from "lucide-react";
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type {
@@ -32,7 +31,6 @@ import type {
 } from "@/domain/social-listening/intelligence-narrative";
 import type { PriorityCommentItem } from "@/domain/social-listening/priority-comments";
 import type { CreatorContentItem } from "@/domain/social-listening/creator-content";
-import type { PublicEngagementData, MonthlyEngagementPoint } from "@/domain/social-listening/engagement-chart";
 import type { EmergingIssue } from "@/domain/social-listening/emerging-issues";
 
 export interface DashboardCommentItem {
@@ -61,7 +59,6 @@ export interface DashboardData {
   comments?: DashboardCommentItem[];
   priorityComments?: PriorityCommentItem[];
   creatorContent?: CreatorContentItem[];
-  publicEngagement?: PublicEngagementData;
   emergingIssues?: EmergingIssue[];
   intelligenceNarrative?: IntelligenceNarrativeData;
   backfillStats?: any;
@@ -111,7 +108,6 @@ export default function SocialPulsePage() {
   const priorityComments = data?.priorityComments || [];
   const creatorContent = data?.creatorContent || [];
   const emergingIssues = data?.emergingIssues || [];
-  const publicEngagement = data?.publicEngagement;
 
   // Curated priority comments (fixed list up to 30, ranked in predetermined importance order)
   const curatedPriorityComments = priorityComments.slice(0, 30);
@@ -668,109 +664,7 @@ export default function SocialPulsePage() {
             )}
           </div>
 
-          {/* ========================================================================= */}
-          {/* 3. PUBLIC ENGAGEMENT OVER TIME — FIXED TIMELINE INFOGRAPHIC               */}
-          {/* ========================================================================= */}
-          {publicEngagement && (
-            <section className="bg-gradient-to-b from-white/[0.03] to-white/[0.01] border border-white/10 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xl">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-white/10">
-                <div>
-                  <h2 className="text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                    <BarChart2 className="w-5 h-5 text-[#20d0c3]" />
-                    PUBLIC ENGAGEMENT OVER TIME
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Historical monthly public commentary volume starting in January 2023, annotated with dominant narrative topics.
-                  </p>
-                </div>
 
-                {/* Fixed Total Discussion Volume Indicator (No metric buttons) */}
-                <div className="flex items-center gap-2 bg-white/[0.04] px-3.5 py-2 rounded-xl border border-white/10">
-                  <span className="text-xs text-slate-400 font-medium">Total Public Comments:</span>
-                  <span className="text-sm font-extrabold text-[#20d0c3] font-mono">
-                    {publicEngagement.totals.comments.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              {/* Fixed Monthly Timeline Infographic */}
-              {(() => {
-                const commentCounts = publicEngagement.months.map((m) => m.comments);
-                const maxVal = Math.max(1, ...commentCounts);
-
-                return (
-                  <div className="space-y-4">
-                    {/* Horizontal scrolling timeline track */}
-                    <div className="overflow-x-auto pb-3 pt-4">
-                      <div className="min-w-[900px] flex items-end gap-2.5 h-64 px-2">
-                        {publicEngagement.months.map((m) => {
-                          const val = m.comments;
-                          const heightPct = val > 0 ? Math.max(14, Math.round((val / maxVal) * 100)) : 0;
-
-                          return (
-                            <div
-                              key={m.month}
-                              className="flex-1 flex flex-col items-center gap-2 group h-full justify-end relative"
-                              title={`${m.label}: ${val} public comments${m.dominantTheme ? ` • Theme: ${m.dominantTheme}` : ""}`}
-                            >
-                              {/* Stored Narrative Annotation Pill for Active Months */}
-                              {m.dominantTheme && val > 0 && (
-                                <div className="absolute top-0 transform -translate-y-1 z-10 w-28 text-center pointer-events-none transition group-hover:scale-105">
-                                  <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#20d0c3]/15 text-[#20d0c3] border border-[#20d0c3]/30 truncate max-w-full shadow-sm">
-                                    {m.dominantTheme}
-                                  </span>
-                                </div>
-                              )}
-
-                              {/* Hover / Exact Count Indicator */}
-                              <span
-                                className={`text-[10px] font-mono font-bold transition ${
-                                  val > 0 ? "text-slate-300 group-hover:text-[#20d0c3]" : "text-transparent"
-                                }`}
-                              >
-                                {val > 0 ? val : ""}
-                              </span>
-
-                              {/* Bar Pillar */}
-                              <div className="w-full bg-white/5 rounded-t-md h-36 flex items-end overflow-hidden">
-                                {val > 0 ? (
-                                  <div
-                                    style={{ height: `${heightPct}%` }}
-                                    className="w-full bg-gradient-to-t from-[#20d0c3]/40 to-[#20d0c3] rounded-t-md group-hover:brightness-125 transition duration-150 cursor-pointer"
-                                  />
-                                ) : (
-                                  <div className="w-full h-0.5 bg-white/10" />
-                                )}
-                              </div>
-
-                              {/* Month Label */}
-                              <span className="text-[9px] text-slate-500 font-medium block truncate max-w-[36px] text-center">
-                                {m.label}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Historical Coverage Notice & Earliest Reliable Date Indicator */}
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-3 border-t border-white/5 text-[11px] text-slate-400">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300 font-semibold">
-                          Earliest recorded data: {publicEngagement.earliestReliableDate}
-                        </span>
-                        <span>•</span>
-                        <span>Timeline fixed from January 2023 to present</span>
-                      </div>
-                      <span className="text-slate-500 italic">
-                        {publicEngagement.coverageLimitationNotice}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
-            </section>
-          )}
 
           {/* ========================================================================= */}
           {/* 4. EVIDENCE EXPLORER MODAL                                                */}
