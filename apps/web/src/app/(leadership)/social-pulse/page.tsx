@@ -77,9 +77,6 @@ export default function SocialPulsePage() {
   const [creatorPage, setCreatorPage] = useState<number>(1);
   const CREATORS_PER_PAGE = 10;
 
-  // Engagement chart metric selector state
-  const [engagementMetric, setEngagementMetric] = useState<"posts" | "comments" | "views" | "engagement">("comments");
-
   // Evidence Explorer Modal state
   const [explorerTheme, setExplorerTheme] = useState<IntelligenceTheme | null>(null);
 
@@ -672,7 +669,7 @@ export default function SocialPulsePage() {
           </div>
 
           {/* ========================================================================= */}
-          {/* 3. PUBLIC ENGAGEMENT OVER TIME (SECTION 8)                                */}
+          {/* 3. PUBLIC ENGAGEMENT OVER TIME — FIXED TIMELINE INFOGRAPHIC               */}
           {/* ========================================================================= */}
           {publicEngagement && (
             <section className="bg-gradient-to-b from-white/[0.03] to-white/[0.01] border border-white/10 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xl">
@@ -683,90 +680,63 @@ export default function SocialPulsePage() {
                     PUBLIC ENGAGEMENT OVER TIME
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Monthly public conversation and engagement history starting in January 2023.
+                    Historical monthly public commentary volume starting in January 2023, annotated with dominant narrative topics.
                   </p>
                 </div>
 
-                {/* Metric Selector: Posts, Comments, Views, Engagement */}
-                <div className="flex items-center gap-1.5 bg-black/40 p-1 rounded-xl border border-white/10 text-xs">
-                  <span className="text-slate-500 font-medium px-2">Metric:</span>
-                  <button
-                    onClick={() => setEngagementMetric("comments")}
-                    className={`px-3 py-1.5 rounded-lg font-bold transition ${
-                      engagementMetric === "comments"
-                        ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    Comments ({publicEngagement.totals.comments})
-                  </button>
-                  <button
-                    onClick={() => setEngagementMetric("posts")}
-                    className={`px-3 py-1.5 rounded-lg font-bold transition ${
-                      engagementMetric === "posts"
-                        ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    Posts ({publicEngagement.totals.posts})
-                  </button>
-                  <button
-                    onClick={() => setEngagementMetric("views")}
-                    className={`px-3 py-1.5 rounded-lg font-bold transition ${
-                      engagementMetric === "views"
-                        ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    Views
-                  </button>
-                  <button
-                    onClick={() => setEngagementMetric("engagement")}
-                    className={`px-3 py-1.5 rounded-lg font-bold transition ${
-                      engagementMetric === "engagement"
-                        ? "bg-[#20d0c3]/20 text-[#20d0c3] border border-[#20d0c3]/30"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    Engagement
-                  </button>
+                {/* Fixed Total Discussion Volume Indicator (No metric buttons) */}
+                <div className="flex items-center gap-2 bg-white/[0.04] px-3.5 py-2 rounded-xl border border-white/10">
+                  <span className="text-xs text-slate-400 font-medium">Total Public Comments:</span>
+                  <span className="text-sm font-extrabold text-[#20d0c3] font-mono">
+                    {publicEngagement.totals.comments.toLocaleString()}
+                  </span>
                 </div>
               </div>
 
-              {/* Monthly Bar Chart */}
+              {/* Fixed Monthly Timeline Infographic */}
               {(() => {
-                const values = publicEngagement.months.map((m) => {
-                  if (engagementMetric === "posts") return m.posts;
-                  if (engagementMetric === "comments") return m.comments;
-                  if (engagementMetric === "views") return m.views;
-                  return m.engagement;
-                });
-                const maxVal = Math.max(1, ...values);
+                const commentCounts = publicEngagement.months.map((m) => m.comments);
+                const maxVal = Math.max(1, ...commentCounts);
 
                 return (
                   <div className="space-y-4">
-                    {/* Horizontal scrolling bar grid */}
-                    <div className="overflow-x-auto pb-2">
-                      <div className="min-w-[800px] flex items-end gap-2 h-44 pt-6 px-2">
-                        {publicEngagement.months.map((m, idx) => {
-                          const val = values[idx];
-                          const heightPct = val > 0 ? Math.max(8, Math.round((val / maxVal) * 100)) : 0;
+                    {/* Horizontal scrolling timeline track */}
+                    <div className="overflow-x-auto pb-3 pt-4">
+                      <div className="min-w-[900px] flex items-end gap-2.5 h-64 px-2">
+                        {publicEngagement.months.map((m) => {
+                          const val = m.comments;
+                          const heightPct = val > 0 ? Math.max(14, Math.round((val / maxVal) * 100)) : 0;
 
                           return (
-                            <div key={m.month} className="flex-1 flex flex-col items-center gap-2 group h-full justify-end">
-                              {/* Hover / static value indicator */}
-                              <span className={`text-[10px] font-mono font-bold transition ${
-                                val > 0 ? "text-[#20d0c3]" : "text-transparent"
-                              }`}>
-                                {val > 0 ? (val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val) : ""}
+                            <div
+                              key={m.month}
+                              className="flex-1 flex flex-col items-center gap-2 group h-full justify-end relative"
+                              title={`${m.label}: ${val} public comments${m.dominantTheme ? ` • Theme: ${m.dominantTheme}` : ""}`}
+                            >
+                              {/* Stored Narrative Annotation Pill for Active Months */}
+                              {m.dominantTheme && val > 0 && (
+                                <div className="absolute top-0 transform -translate-y-1 z-10 w-28 text-center pointer-events-none transition group-hover:scale-105">
+                                  <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#20d0c3]/15 text-[#20d0c3] border border-[#20d0c3]/30 truncate max-w-full shadow-sm">
+                                    {m.dominantTheme}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Hover / Exact Count Indicator */}
+                              <span
+                                className={`text-[10px] font-mono font-bold transition ${
+                                  val > 0 ? "text-slate-300 group-hover:text-[#20d0c3]" : "text-transparent"
+                                }`}
+                              >
+                                {val > 0 ? val : ""}
                               </span>
 
                               {/* Bar Pillar */}
-                              <div className="w-full bg-white/5 rounded-t-md h-28 flex items-end overflow-hidden">
+                              <div className="w-full bg-white/5 rounded-t-md h-36 flex items-end overflow-hidden">
                                 {val > 0 ? (
                                   <div
                                     style={{ height: `${heightPct}%` }}
-                                    className="w-full bg-gradient-to-t from-[#20d0c3]/50 to-[#20d0c3] rounded-t-md group-hover:brightness-125 transition"
+                                    className="w-full bg-gradient-to-t from-[#20d0c3]/40 to-[#20d0c3] rounded-t-md group-hover:brightness-125 transition duration-150 cursor-pointer"
                                   />
                                 ) : (
                                   <div className="w-full h-0.5 bg-white/10" />
@@ -790,7 +760,7 @@ export default function SocialPulsePage() {
                           Earliest recorded data: {publicEngagement.earliestReliableDate}
                         </span>
                         <span>•</span>
-                        <span>Post counts reflect independent creators only</span>
+                        <span>Timeline fixed from January 2023 to present</span>
                       </div>
                       <span className="text-slate-500 italic">
                         {publicEngagement.coverageLimitationNotice}

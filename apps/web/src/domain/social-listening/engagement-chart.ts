@@ -9,6 +9,7 @@ export interface MonthlyEngagementPoint {
   views: number;
   engagement: number; // likes + comments + shares
   hasData: boolean;
+  dominantTheme?: string;
 }
 
 export interface PublicEngagementData {
@@ -26,6 +27,39 @@ export interface PublicEngagementData {
 }
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Derives a concise stored narrative theme for active months based on comment keywords
+function detectMonthTheme(comments: Comment[]): string | undefined {
+  if (!comments.length) return undefined;
+  let namingCount = 0;
+  let trafficCount = 0;
+  let walkabilityCount = 0;
+  let lakeCount = 0;
+  let housingCount = 0;
+
+  for (const c of comments) {
+    const text = (c.text || "").toLowerCase();
+    if (/\b(?:name|naming|vineyard|called|calling|derf|city|complex)\b/i.test(text)) namingCount++;
+    if (/\b(?:traffic|road|connector|freeway|frontrunner|train|commute)\b/i.test(text)) trafficCount++;
+    if (/\b(?:walkable|walkability|amenities|retail|shopping|dining|restaurant|downtown)\b/i.test(text)) walkabilityCount++;
+    if (/\b(?:lake|water|bugs|flies|midges|smell|algae|shoreline)\b/i.test(text)) lakeCount++;
+    if (/\b(?:housing|apartment|condo|density|rent|afford|expensive)\b/i.test(text)) housingCount++;
+  }
+
+  const scores = [
+    { name: "Naming & Municipal Identity", count: namingCount },
+    { name: "Traffic & Road Infrastructure", count: trafficCount },
+    { name: "Walkability & Downtown Amenities", count: walkabilityCount },
+    { name: "Utah Lake Proximity & Ecology", count: lakeCount },
+    { name: "Housing Density & Scale", count: housingCount },
+  ];
+
+  scores.sort((a, b) => b.count - a.count);
+  if (scores[0].count > 0) {
+    return scores[0].name;
+  }
+  return "General Public Discussion";
+}
 
 export function buildPublicEngagementData(
   posts: Post[],
@@ -111,6 +145,7 @@ export function buildPublicEngagementData(
     totalEngagement += postEngagement;
 
     const hasData = postCount > 0 || commentCount > 0;
+    const dominantTheme = hasData ? detectMonthTheme(monthComments) : undefined;
 
     return {
       month: key,
@@ -120,6 +155,7 @@ export function buildPublicEngagementData(
       views: postViews,
       engagement: postEngagement,
       hasData,
+      dominantTheme,
     };
   });
 

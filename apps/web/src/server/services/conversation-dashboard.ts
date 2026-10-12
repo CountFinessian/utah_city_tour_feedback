@@ -32,6 +32,14 @@ async function loadCorpus(overrides?: {
   return { posts, comments };
 }
 
+interface CachedDashboard {
+  data: ConversationDashboardResponse;
+  expiresAt: number;
+}
+
+let inMemoryDashboardCache: CachedDashboard | null = null;
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
 export async function loadConversationDashboard(options?: {
   now?: Date;
   listPosts?: () => Promise<Post[]>;
@@ -39,7 +47,21 @@ export async function loadConversationDashboard(options?: {
   cache?: NarrativeCacheStore;
   generate?: NarrativeWriter | null;
   periodDays?: number;
+  skipCache?: boolean;
 }): Promise<ConversationDashboardResponse> {
+  // If standard options and cache is valid, return cached dashboard immediately (<1ms)
+  const isStandardCall =
+    !options?.listPosts &&
+    !options?.listComments &&
+    !options?.generate &&
+    !options?.skipCache &&
+    (!options?.periodDays || options.periodDays === 30);
+
+  const nowMs = Date.now();
+  if (isStandardCall && inMemoryDashboardCache && inMemoryDashboardCache.expiresAt > nowMs) {
+    return inMemoryDashboardCache.data;
+  }
+
   const now = options?.now || new Date();
   const { posts, comments } = await loadCorpus(options);
   const dashboard = buildConversationDashboard({ posts, comments, now });
@@ -59,7 +81,16 @@ export async function loadConversationDashboard(options?: {
   }
   const backfillStats = (await import("@/server/services/comment-backfill")).getLastBackfillStats();
   const creatorStats = (await import("@/server/services/creator-backfill")).getLastCreatorBackfillResult();
-  return { ...dashboard, claims: narrative.claims, narrative, metrics, backfillStats, creatorStats };
+  const result: ConversationDashboardResponse = { ...dashboard, claims: narrative.claims, narrative, metrics, backfillStats, creatorStats };
+
+  if (isStandardCall) {
+    inMemoryDashboardCache = {
+      data: result,
+      expiresAt: nowMs + CACHE_TTL_MS,
+    };
+  }
+
+  return result;
 }
 
 export async function loadDashboardComments(filter: CommentFilter, options?: {
