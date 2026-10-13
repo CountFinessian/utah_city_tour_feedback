@@ -47,6 +47,8 @@ export interface SocialListeningRepository {
     contentOnly?: boolean;
     /** Comment harvest: relevant posts and official comment sources. */
     commentHarvest?: boolean;
+    /** Leadership dashboard: relevant posts, plus official comment sources that have at least one kept (non-dropped) comment. */
+    dashboardImportant?: boolean;
     platform?: string;
     startDate?: string;
     endDate?: string;
@@ -58,6 +60,8 @@ export interface SocialListeningRepository {
     /** If true, fetch raw_provider_data JSONB. Defaults to false to minimize network transfer. */
     includeRaw?: boolean;
   }): Promise<Post[]>;
+  /** Count of posts matching the comment-harvest filter, without loading rows. */
+  countPosts(filter?: { commentHarvest?: boolean }): Promise<number>;
   listOfficialAccounts(): Promise<OfficialAccountRef[]>;
   recordPipelineEvent(event: SocialPipelineEvent): Promise<void>;
   getPost(id: string): Promise<Post | null>;
@@ -79,6 +83,8 @@ export interface SocialListeningRepository {
     limit?: number;
     /** Comments still on an older classifier generation. Dropped rows stay out. */
     classificationVersionBelow?: number;
+    /** Leadership dashboard: kept (non-dropped) comments on relevant or official-comment-source posts. */
+    dashboardOnly?: boolean;
     /** If true, fetch raw_provider_data JSONB. Defaults to false to minimize network transfer. */
     includeRaw?: boolean;
   }): Promise<Comment[]>;

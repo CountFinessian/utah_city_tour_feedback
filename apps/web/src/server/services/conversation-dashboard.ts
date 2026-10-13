@@ -7,29 +7,31 @@ import { getSocialRepository } from "@/server/repositories/postgres-social-repos
 import { narrativeCacheStore } from "@/server/services/dashboard-narrative-cache";
 import { calculateDeterministicSocialMetrics } from "@/server/analytics/social-metrics";
 
-const POST_LIMIT = 5000;
-const COMMENT_LIMIT = 10000;
+// Generous ceilings. Current volume is about 455 posts and 5400 comments.
+const POST_LIMIT = 2000;
+const COMMENT_LIMIT = 8000;
 
 export interface ConversationDashboardResponse extends ConversationDashboard {
   narrative: ConversationNarrative;
   metrics?: SocialPulseMetrics;
-  creatorStats?: any;
+  creatorStats?: ReturnType<typeof import("@/server/services/creator-backfill").getLastCreatorBackfillResult>;
 }
 
 async function loadCorpus(overrides?: {
   listPosts?: () => Promise<Post[]>;
   listComments?: () => Promise<Comment[]>;
-}): Promise<{ posts: Post[]; comments: Comment[] }> {
+}): Promise<{ posts: Post[]; comments: Comment[]; trackedPostCount?: number }> {
   if (overrides?.listPosts && overrides.listComments) {
     const [posts, comments] = await Promise.all([overrides.listPosts(), overrides.listComments()]);
     return { posts, comments };
   }
   const repo = getSocialRepository();
-  const [posts, comments] = await Promise.all([
-    repo.listPosts({ commentHarvest: true, limit: POST_LIMIT }),
-    repo.listComments({ limit: COMMENT_LIMIT }),
+  const [posts, comments, trackedPostCount] = await Promise.all([
+    repo.listPosts({ dashboardImportant: true, limit: POST_LIMIT }),
+    repo.listComments({ dashboardOnly: true, limit: COMMENT_LIMIT }),
+    repo.countPosts({ commentHarvest: true }),
   ]);
-  return { posts, comments };
+  return { posts, comments, trackedPostCount };
 }
 
 interface CachedDashboard {
@@ -63,8 +65,8 @@ export async function loadConversationDashboard(options?: {
   }
 
   const now = options?.now || new Date();
-  const { posts, comments } = await loadCorpus(options);
-  const dashboard = buildConversationDashboard({ posts, comments, now });
+  const { posts, comments, trackedPostCount } = await loadCorpus(options);
+  const dashboard = buildConversationDashboard({ posts, comments, now, trackedPostCount });
   const narrative = await resolveConversationNarrative(dashboard, {
     now,
     cache: options?.cache || narrativeCacheStore(),

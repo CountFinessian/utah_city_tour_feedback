@@ -127,6 +127,14 @@ export const fileSocialRepository: SocialListeningRepository = {
     if (filter?.commentHarvest) {
       res = res.filter((p) => postCommentsInDashboard(p));
     }
+    if (filter?.dashboardImportant) {
+      const postIdsWithKeptComments = new Set(data.comments.filter((c) => !c.dropped).map((c) => c.postId));
+      res = res.filter(
+        (p) =>
+          p.relevanceStatus === "relevant" ||
+          (p.relevanceStatus === "official_comment_source" && postIdsWithKeptComments.has(p.id))
+      );
+    }
     if (filter?.platform) {
       res = res.filter((p) => p.platform === filter.platform);
     }
@@ -217,6 +225,10 @@ export const fileSocialRepository: SocialListeningRepository = {
     }
     if (filter?.topic) {
       res = res.filter((c) => c.topic === filter.topic);
+    }
+    if (filter?.dashboardOnly) {
+      const importantPostIds = new Set(data.posts.filter((p) => postCommentsInDashboard(p)).map((p) => p.id));
+      res = res.filter((c) => !c.dropped && importantPostIds.has(c.postId));
     }
     if (filter?.classificationVersionBelow != null) {
       const version = filter.classificationVersionBelow;
@@ -309,6 +321,12 @@ export const fileSocialRepository: SocialListeningRepository = {
       term.reviewedAt = new Date().toISOString();
       await writeStorage(data);
     }
+  },
+
+  async countPosts(filter?: { commentHarvest?: boolean }): Promise<number> {
+    const data = await readStorage();
+    if (!filter?.commentHarvest) return data.posts.length;
+    return data.posts.filter((p) => postCommentsInDashboard(p)).length;
   },
 
   async listOfficialAccounts() {

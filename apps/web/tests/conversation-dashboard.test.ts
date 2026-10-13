@@ -10,6 +10,7 @@ import {
   resolveConversationNarrative,
 } from "@/server/intelligence/conversation-narrative";
 import type { Comment, Post } from "@/domain/social-listening/types";
+import { fileSocialRepository } from "@/server/repositories/file-social-repository";
 
 const NOW = new Date("2026-10-09T15:00:00.000Z");
 
@@ -198,5 +199,88 @@ describe("conversation dashboard", () => {
     expect(third.source).toBe("model");
     expect(second.summary).toMatch(/housing/);
     expect(second.claims[0]?.links.length).toBeGreaterThan(0);
+  });
+});
+
+describe("conversation dashboard post count", () => {
+  it("uses trackedPostCount when given, so a narrowed post list keeps the full captured count", () => {
+    const relevant = post({ id: "count-relevant" });
+    const dashboard = buildConversationDashboard({
+      posts: [relevant],
+      comments: [],
+      now: NOW,
+      trackedPostCount: 7,
+    });
+    expect(dashboard.postCount).toBe(7);
+  });
+
+  it("falls back to counting relevant and official posts in the input when trackedPostCount is absent", () => {
+    const relevant = post({ id: "fallback-relevant" });
+    const official = post({ id: "fallback-official", relevanceStatus: "official_comment_source", isOfficialSource: true });
+    const rejected = post({ id: "fallback-rejected", relevanceStatus: "rejected_offtopic", isRelevant: false });
+    const dashboard = buildConversationDashboard({
+      posts: [relevant, official, rejected],
+      comments: [],
+      now: NOW,
+    });
+    expect(dashboard.postCount).toBe(2);
+  });
+});
+
+describe("social dashboard corpus filters (file repository)", () => {
+  const keptOnRelevant = comment({ id: "corpus-c-kept-relevant", postId: "corpus-relevant", createdAt: "2026-09-01T00:00:00.000Z" });
+  const droppedOnRelevant = comment({
+    id: "corpus-c-dropped-relevant",
+    postId: "corpus-relevant",
+    createdAt: "2026-09-01T00:00:00.000Z",
+    dropped: true,
+    dropReason: "emoji_only",
+  });
+  const keptOnOfficial = comment({ id: "corpus-c-kept-official", postId: "corpus-official-kept", createdAt: "2026-09-01T00:00:00.000Z" });
+  const droppedOnOfficial = comment({
+    id: "corpus-c-dropped-official",
+    postId: "corpus-official-dropped",
+    createdAt: "2026-09-01T00:00:00.000Z",
+    dropped: true,
+    dropReason: "emoji_only",
+  });
+  const keptOnRejected = comment({ id: "corpus-c-kept-rejected", postId: "corpus-rejected", createdAt: "2026-09-01T00:00:00.000Z" });
+
+  it("dashboardImportant keeps relevant and kept-comment official posts, and excludes the rest", async () => {
+    await fileSocialRepository.bulkUpsertPosts([
+      post({ id: "corpus-relevant", canonicalId: "corpus-relevant" }),
+      post({
+        id: "corpus-official-kept",
+        canonicalId: "corpus-official-kept",
+        relevanceStatus: "official_comment_source",
+        isOfficialSource: true,
+      }),
+      post({
+        id: "corpus-official-empty",
+        canonicalId: "corpus-official-empty",
+        relevanceStatus: "official_comment_source",
+        isOfficialSource: true,
+      }),
+      post({
+        id: "corpus-official-dropped",
+        canonicalId: "corpus-official-dropped",
+        relevanceStatus: "official_comment_source",
+        isOfficialSource: true,
+      }),
+      post({ id: "corpus-rejected", canonicalId: "corpus-rejected", relevanceStatus: "rejected_offtopic", isRelevant: false }),
+    ]);
+    await fileSocialRepository.bulkUpsertComments([keptOnRelevant, droppedOnRelevant, keptOnOfficial, droppedOnOfficial, keptOnRejected]);
+
+    const rows = await fileSocialRepository.listPosts({ dashboardImportant: true });
+    const ids = rows.map((row) => row.id).sort();
+    expect(ids).toEqual(["corpus-official-kept", "corpus-relevant"]);
+
+    expect(await fileSocialRepository.countPosts({ commentHarvest: true })).toBe(4);
+  });
+
+  it("dashboardOnly excludes dropped comments and comments on rejected posts", async () => {
+    const rows = await fileSocialRepository.listComments({ dashboardOnly: true });
+    const ids = rows.map((row) => row.id).sort();
+    expect(ids).toEqual(["corpus-c-kept-official", "corpus-c-kept-relevant"]);
   });
 });

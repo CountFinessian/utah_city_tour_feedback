@@ -295,6 +295,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
           where (${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean is null or is_relevant = ${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean)
             and (${contentOnly}::boolean = false or relevance_status = 'relevant')
             and (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
+            and (${filter?.dashboardImportant === true}::boolean = false or relevance_status = 'relevant' or (relevance_status = 'official_comment_source' and exists (select 1 from social_comments c where c.post_id = social_posts.id and c.dropped = false)))
             and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
             and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
             and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
@@ -331,6 +332,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
           where (${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean is null or is_relevant = ${filter?.isRelevant !== undefined ? filter.isRelevant : null}::boolean)
             and (${contentOnly}::boolean = false or relevance_status = 'relevant')
             and (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
+            and (${filter?.dashboardImportant === true}::boolean = false or relevance_status = 'relevant' or (relevance_status = 'official_comment_source' and exists (select 1 from social_comments c where c.post_id = social_posts.id and c.dropped = false)))
             and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
             and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
             and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
@@ -349,6 +351,17 @@ export const postgresSocialRepository: SocialListeningRepository = {
           limit ${filter?.limit || 2000}
         `;
     return rows.map(mapPostRow);
+  },
+
+  async countPosts(filter?: { commentHarvest?: boolean }): Promise<number> {
+    await ensureSocialSchema();
+    const sql = db();
+    const commentHarvest = filter?.commentHarvest === true;
+    const rows = await sql`
+      select count(*)::int as n from social_posts
+      where (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
+    `;
+    return Number(rows[0]?.n ?? 0);
   },
 
   async listOfficialAccounts() {
@@ -528,6 +541,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
           where (${filter?.postId || null}::text is null or post_id = ${filter?.postId || null}::text)
             and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
             and (${filter?.topic || null}::text is null or topic = ${filter?.topic || null}::text)
+            and (${filter?.dashboardOnly === true}::boolean = false or (dropped = false and post_id in (select id from social_posts where relevance_status in ('relevant', 'official_comment_source'))))
             and (
               ${filter?.classificationVersionBelow ?? null}::int is null
               or (
@@ -552,6 +566,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
           where (${filter?.postId || null}::text is null or post_id = ${filter?.postId || null}::text)
             and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
             and (${filter?.topic || null}::text is null or topic = ${filter?.topic || null}::text)
+            and (${filter?.dashboardOnly === true}::boolean = false or (dropped = false and post_id in (select id from social_posts where relevance_status in ('relevant', 'official_comment_source'))))
             and (
               ${filter?.classificationVersionBelow ?? null}::int is null
               or (

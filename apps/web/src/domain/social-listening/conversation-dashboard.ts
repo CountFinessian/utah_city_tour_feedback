@@ -4,9 +4,7 @@ import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type { Comment, Post, Sentiment, Topic } from "@/domain/social-listening/types";
 import { buildIntelligenceNarrative, type IntelligenceNarrativeData } from "@/domain/social-listening/intelligence-narrative";
 import { selectPriorityComments, type PriorityCommentItem } from "@/domain/social-listening/priority-comments";
-import { extractCreatorPerspectives, type CreatorPerspective } from "@/domain/social-listening/creator-perspectives";
 import { extractIndependentCreatorContent, type CreatorContentItem } from "@/domain/social-listening/creator-content";
-import { buildPublicEngagementData, type PublicEngagementData } from "@/domain/social-listening/engagement-chart";
 import { detectEmergingIssues, type EmergingIssue } from "@/domain/social-listening/emerging-issues";
 
 /** First month of the public conversation. The announcement landed August 29, 2023. */
@@ -142,9 +140,7 @@ export interface ConversationDashboard {
   comments?: DashboardCommentRef[];
   intelligenceNarrative?: IntelligenceNarrativeData;
   priorityComments?: PriorityCommentItem[];
-  creatorPerspectives?: CreatorPerspective[];
   creatorContent?: CreatorContentItem[];
-  publicEngagement?: PublicEngagementData;
   emergingIssues?: EmergingIssue[];
   backfillStats?: any;
 }
@@ -341,6 +337,8 @@ export function buildConversationDashboard(input: {
   posts: Post[];
   comments: Comment[];
   now?: Date;
+  /** Count of all relevant + official posts. Pass when `posts` is a narrowed subset. */
+  trackedPostCount?: number;
 }): ConversationDashboard {
   const now = input.now || new Date();
   const rows = includedComments(input.posts, input.comments, now);
@@ -516,7 +514,7 @@ export function buildConversationDashboard(input: {
     shifts,
     quotes: transcriptQuotes(input.posts),
     claims,
-    postCount: input.posts.filter((p) => postCommentsInDashboard(p)).length,
+    postCount: input.trackedPostCount ?? input.posts.filter((p) => postCommentsInDashboard(p)).length,
     comments: interleaveDiverseComments(rows, 150).map(toRef),
     intelligenceNarrative: buildIntelligenceNarrative({
       posts: input.posts,
@@ -524,9 +522,7 @@ export function buildConversationDashboard(input: {
       now,
     }),
     priorityComments: selectPriorityComments(input.comments, input.posts),
-    creatorPerspectives: extractCreatorPerspectives(input.posts, input.comments),
     creatorContent: extractIndependentCreatorContent(input.posts, input.comments),
-    publicEngagement: buildPublicEngagementData(input.posts, input.comments, now),
     emergingIssues: detectEmergingIssues(input.comments, input.posts),
   };
 }
