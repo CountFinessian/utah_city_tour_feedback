@@ -1,6 +1,7 @@
 import { DigestActions } from "@/components/DigestActions";
 import { InviteManager } from "@/components/InviteManager";
 import { CorpusEvidenceManager } from "@/components/CorpusEvidenceManager";
+import { OwnedSocialConnections } from "@/components/OwnedSocialConnections";
 import { listObservations } from "@/server/repositories/observations";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,16 @@ export default async function SettingsPage() {
           Generate secure setup links to email or message to team members on their phones or laptops.
         </p>
         <InviteManager />
+      </section>
+
+      <section className="command-panel">
+        <p className="command-label">Social accounts</p>
+        <h2 className="mt-1 text-lg font-semibold text-command-ink">Official account connections</h2>
+        <p className="text-xs text-command-muted mt-1 mb-4">
+          Read-only access to the official Utah City accounts. Save the keys the marketing team sends, then create a one-time connect link for the account owner to approve.
+          Connections renew automatically.
+        </p>
+        <OwnedSocialConnections />
       </section>
 
       <section className="command-panel">

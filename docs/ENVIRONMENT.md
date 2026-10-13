@@ -103,3 +103,16 @@ The listener schedule lives in `.github/workflows/social-pulse-listener.yml`: `1
 | `NEXT_PUBLIC_APP_URL` | No | Auto-detected from host header | Canonical origin URL used for invitation setup links and redirects. |
 | `WEEKLY_TOUR_TARGET_PER_HOST` | No | `12` | Weekly debrief target per host. Used for coverage calculations in the Operations dashboard. |
 
+
+---
+
+## Official account connections (read-only)
+
+Leaders manage these on **Settings → Official account connections**. Keys the marketing team sends are pasted there and stored **encrypted** in Postgres (table `owned_social_connections`); the leader then creates a single-use connect link for each account owner. A daily GitHub Actions job (`.github/workflows/owned-social-refresh.yml`, uses the existing `CRON_SECRET`) renews TikTok, YouTube and LinkedIn connections so nobody has to re-approve them. Only read-only scopes are ever requested.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `OWNED_SOCIAL_SECRET` | Yes, to store keys | falls back to `AUTH_SECRET` | Secret used to encrypt stored credentials and sign connect links. There is deliberately no built-in default: without a secret the feature refuses to store anything. Changing it invalidates stored keys (they must be re-entered and accounts re-connected). |
+| `OWNED_SOCIAL_BASE_URL` | No | `https://www.utahcity.app` | Public base URL. Must match the return links registered with each platform exactly (`<base>/api/owned-social/callback/<platform>`). Set to `http://localhost:3000` for local testing. |
+| `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`, `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET`, `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` | No | — | Optional fallback for app credentials. Keys saved on the Settings page take priority. |
+| `LINKEDIN_SCOPES` | No | `r_organization_social rw_organization_admin` | Override if LinkedIn renames its page-analytics scopes. |

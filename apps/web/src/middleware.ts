@@ -26,6 +26,7 @@ const LEADERSHIP_APIS = [
   "/api/social-pulse/refresh",
   "/api/social-pulse/dashboard",
   "/api/social-pulse/comments",
+  "/api/owned-social/admin",
 ];
 
 /** Only real static asset requests (never API routes) skip authentication. */
@@ -75,6 +76,11 @@ export async function middleware(req: NextRequest) {
     pathname === "/api/status" ||
     // Background Social Pulse listener (auth handled inside the route via CRON_SECRET)
     pathname === "/api/social-pulse/cron" ||
+    // Official-account connections. The marketing team is not logged in: connect/callback are guarded by
+    // single-use signed links + a state cookie, and the refresh cron by CRON_SECRET (all checked inside the routes).
+    pathname.startsWith("/api/owned-social/connect/") ||
+    pathname.startsWith("/api/owned-social/callback/") ||
+    pathname === "/api/owned-social/cron" ||
     pathname.startsWith("/_next") ||
     (!pathname.startsWith("/api/") && STATIC_ASSET_PATTERN.test(pathname)) // static files: favicon.ico, images, etc.
   ) {
