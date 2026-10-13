@@ -492,14 +492,23 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
             {/* Legal Links (opens in external browser per Apple guidelines) */}
             <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 flex items-center justify-between text-xs">
               <span className="text-slate-300 font-medium">Policies & Help</span>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => openExternalUrl("/privacy")}
                   className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer font-bold"
                 >
-                  <span>Privacy Policy</span>
-                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Privacy</span>
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+                <span className="text-slate-600">·</span>
+                <button
+                  type="button"
+                  onClick={() => openExternalUrl("/terms")}
+                  className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer font-bold"
+                >
+                  <span>Terms</span>
+                  <ExternalLink className="h-3 w-3" />
                 </button>
                 <span className="text-slate-600">·</span>
                 <button
@@ -508,7 +517,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
                   className="text-[#43d9c7] hover:underline inline-flex items-center gap-1 cursor-pointer font-bold"
                 >
                   <span>Support</span>
-                  <ExternalLink className="h-3.5 w-3.5" />
+                  <ExternalLink className="h-3 w-3" />
                 </button>
               </div>
             </div>
@@ -1021,6 +1030,14 @@ function AiConsentScreen({
               className="w-full flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-sm font-bold text-[#43d9c7] hover:bg-white/[0.06] transition-colors cursor-pointer"
             >
               <span>Privacy Policy</span>
+              <ExternalLink className="h-4 w-4 shrink-0" />
+            </button>
+            <button
+              type="button"
+              onClick={() => openExternalUrl("/terms")}
+              className="w-full flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-sm font-bold text-[#43d9c7] hover:bg-white/[0.06] transition-colors cursor-pointer"
+            >
+              <span>Terms of Service</span>
               <ExternalLink className="h-4 w-4 shrink-0" />
             </button>
             <button

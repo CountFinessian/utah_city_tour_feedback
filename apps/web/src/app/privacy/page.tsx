@@ -114,11 +114,19 @@ export default function PrivacyPolicyPage() {
           </div>
         </section>
 
-        <div className="pt-6 border-t border-white/10 flex items-center justify-between text-xs text-slate-500">
+        <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <p>&copy; {new Date().getFullYear()} Utah City. All rights reserved.</p>
-          <Link href="/support" className="text-slate-400 hover:text-white transition-colors">
-            Support Center &rarr;
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/terms" className="text-slate-400 hover:text-white transition-colors">
+              Terms of Service
+            </Link>
+            <Link href="/support" className="text-slate-400 hover:text-white transition-colors">
+              Support Center
+            </Link>
+            <Link href="/login" className="text-slate-400 hover:text-white transition-colors">
+              Sign In
+            </Link>
+          </div>
         </div>
       </main>
     </div>

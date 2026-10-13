@@ -311,6 +311,10 @@ describe("Social Pulse leadership API middleware", () => {
     expect(res.headers.get("x-middleware-request-x-user-role")).toBeNull();
     expect(res.headers.get("x-middleware-request-x-user-email")).toBeNull();
     expect(res.headers.get("x-middleware-override-headers") ?? "").not.toContain("x-user-role");
+
+    const termsRes = await middleware(new NextRequest(new URL("/terms", "https://utahcity.app"), { headers }));
+    expect(termsRes.headers.get("x-middleware-next")).toBe("1");
+    expect(termsRes.headers.get("x-middleware-request-x-user-role")).toBeNull();
   });
 
   it("lets a leader through to admin and posts", async () => {

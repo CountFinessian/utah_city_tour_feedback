@@ -123,6 +123,9 @@ export default function SupportPage() {
             <Link href="/privacy" className="text-slate-400 hover:text-white transition-colors">
               Privacy Policy
             </Link>
+            <Link href="/terms" className="text-slate-400 hover:text-white transition-colors">
+              Terms of Service
+            </Link>
             <Link href="/login" className="text-slate-400 hover:text-white transition-colors">
               Sign In
             </Link>

@@ -228,6 +228,14 @@ function LoginForm() {
             <span aria-hidden>·</span>
             <button
               type="button"
+              onClick={() => openExternalUrl("/terms")}
+              className="hover:text-[#b8c5d6]"
+            >
+              Terms
+            </button>
+            <span aria-hidden>·</span>
+            <button
+              type="button"
               onClick={() => openExternalUrl("/support")}
               className="hover:text-[#b8c5d6]"
             >
