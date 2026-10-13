@@ -1,7 +1,6 @@
 import {
   findUserByEmail as dbFindUser,
   type UserRole,
-  type StoredUser,
 } from "@/server/repositories/user-repository";
 import { verifyPassword } from "./crypto";
 

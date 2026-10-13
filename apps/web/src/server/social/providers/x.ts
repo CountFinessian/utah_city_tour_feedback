@@ -1,4 +1,4 @@
-import type { CommentQuery, ProviderQuery, SearchPage, SocialProvider, TregCommentItem, TregSearchResultItem } from "./types";
+import type { SearchPage, SocialProvider, TregCommentItem, TregSearchResultItem } from "./types";
 import { tregHttp } from "./http";
 import { commentItem, commentPage, countOf, publishedFrom, searchItem, searchPage } from "./map";
 import { asRecord, payloadOf, recordsOf, str } from "./util";

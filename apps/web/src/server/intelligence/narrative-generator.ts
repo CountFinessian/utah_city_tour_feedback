@@ -6,7 +6,7 @@ export async function generateNarrativeSummary(
   metrics: SocialPulseMetrics,
   options?: { useLlm?: boolean }
 ): Promise<string> {
-  const { attention, sentiment, topics, narratives, representativeComments, narrativeConfidence, periodDays } = metrics;
+  const { attention, sentiment, narratives, representativeComments, narrativeConfidence, periodDays } = metrics;
 
   // If no posts or tiny sample, return honest grounded sentence
   if (attention.relevantPosts === 0 && (!narratives || narratives.length === 0)) {
@@ -73,7 +73,7 @@ RULES FOR EXECUTIVE OUTPUT:
 
     const text = res.text.trim();
     return text || fallbackNarrative();
-  } catch (err: any) {
+  } catch {
     return fallbackNarrative();
   }
 }

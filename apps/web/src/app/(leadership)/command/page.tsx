@@ -140,7 +140,7 @@ export default async function CommandPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="command-label">Amenity Reactions</p>
-              <h2 className="mt-1 text-lg font-semibold text-command-ink">What prospects liked vs. didn't</h2>
+              <h2 className="mt-1 text-lg font-semibold text-command-ink">What prospects liked vs. didn&apos;t</h2>
             </div>
             <span className="confidence-badge confidence-low">n={view.observations.length}</span>
           </div>

@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
 
 export function authorizeCron(request: Request): boolean {
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return true;
+  // Fail closed in production: a missing CRON_SECRET must never open paid discovery runs.
+  if (!cronSecret) return process.env.NODE_ENV !== "production";
   const { searchParams } = new URL(request.url);
   if (searchParams.get("key") === cronSecret) return true;
   const authHeader = request.headers.get("authorization");

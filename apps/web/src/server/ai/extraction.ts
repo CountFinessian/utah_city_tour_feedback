@@ -6,7 +6,6 @@ import {
   OBJECTION_KEYWORDS,
   OBJECTION_TYPES,
   type Extraction,
-  type ObjectionType,
   type ObservationEngine,
 } from "@/domain/observation";
 import { hasLLM, llmModel } from "./model-config";

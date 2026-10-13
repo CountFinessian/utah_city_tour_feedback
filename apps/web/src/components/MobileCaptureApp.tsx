@@ -660,7 +660,6 @@ function CaptureScreen({
   canSubmit,
   serverAsr,
   notice,
-  onNoticeClear,
   error,
   onErrorClear,
   onText,

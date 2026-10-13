@@ -248,7 +248,7 @@ export class DiscoveryPipelineService {
               lastActivityAt: item.publishedAt,
               now: Date.parse(now),
             });
-            let newPost: Post = {
+            const newPost: Post = {
               id: `post_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
               canonicalId: parsed.canonicalId,
               platform: parsed.platform,

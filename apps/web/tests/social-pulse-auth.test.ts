@@ -3,7 +3,12 @@ import { readFileSync } from "fs";
 import path from "path";
 import { NextRequest } from "next/server";
 import { middleware } from "@/middleware";
-import { GET as cronGET, POST as cronPOST, HEAD as cronHEAD } from "@/app/api/social-pulse/cron/route";
+import {
+  GET as cronGET,
+  POST as cronPOST,
+  HEAD as cronHEAD,
+  authorizeCron,
+} from "@/app/api/social-pulse/cron/route";
 import { POST as refreshPOST } from "@/app/api/social-pulse/refresh/route";
 import { SESSION_COOKIE_NAME, signSessionToken } from "@/server/auth/session";
 
@@ -236,6 +241,19 @@ describe("Social Pulse cron and leadership refresh", () => {
     expect(runCycle).not.toHaveBeenCalled();
   });
 
+  it("fails closed in production when CRON_SECRET is unset, and open only outside production", () => {
+    try {
+      setEnv("CRON_SECRET", undefined);
+      vi.stubEnv("NODE_ENV", "production");
+      expect(authorizeCron(new Request("https://utahcity.app/api/social-pulse/cron"))).toBe(false);
+
+      vi.stubEnv("NODE_ENV", "development");
+      expect(authorizeCron(new Request("https://utahcity.app/api/social-pulse/cron"))).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("does not put a listening job or popularity metrics on the dashboard", () => {
     const source = readFileSync(
       path.join(process.cwd(), "src/app/(leadership)/social-pulse/page.tsx"),
@@ -273,6 +291,26 @@ describe("Social Pulse leadership API middleware", () => {
       const forbidden = await call(path, host);
       expect(forbidden.status, path).toBe(403);
     }
+  });
+
+  it("does not let a dotted API path skip authentication", async () => {
+    const res = await call("/api/social-pulse/posts/abc.123");
+    expect(res.status).toBe(401);
+    expect(res.headers.get("x-middleware-next")).toBeNull();
+  });
+
+  it("still serves real static assets without a session", async () => {
+    const res = await call("/favicon.ico");
+    expect(res.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("does not forward a client-spoofed x-user-role header on a public route", async () => {
+    const headers = new Headers({ "x-user-role": "leader", "x-user-email": "spoof@utahcity.app" });
+    const res = await middleware(new NextRequest(new URL("/privacy", "https://utahcity.app"), { headers }));
+    expect(res.headers.get("x-middleware-next")).toBe("1");
+    expect(res.headers.get("x-middleware-request-x-user-role")).toBeNull();
+    expect(res.headers.get("x-middleware-request-x-user-email")).toBeNull();
+    expect(res.headers.get("x-middleware-override-headers") ?? "").not.toContain("x-user-role");
   });
 
   it("lets a leader through to admin and posts", async () => {

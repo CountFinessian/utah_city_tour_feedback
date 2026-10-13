@@ -49,7 +49,7 @@ function accountHandle(query: string): string {
   return trimmed.split(/[/?#]/)[0];
 }
 
-function useFixtures(): boolean {
+function shouldUseFixtures(): boolean {
   if (process.env.SOCIAL_LISTENING_USE_FIXTURES === "true") return true;
   if (process.env.SOCIAL_LISTENING_USE_FIXTURES === "false") return false;
   return process.env.NODE_ENV === "test";
@@ -141,7 +141,7 @@ export class TregClient {
 
   async getCommentPage(query: CommentPageQuery): Promise<CommentPageResult> {
     const phase = query.phase ?? "comments";
-    if (useFixtures()) {
+    if (shouldUseFixtures()) {
       if (query.cursor || phase === "replies") return { comments: [], done: true, phase };
       const fixtureComments = await this.loadFixtureComments(query.contentId, query.url);
       if (fixtureComments && fixtureComments.length > 0) {

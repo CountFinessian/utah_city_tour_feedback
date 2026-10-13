@@ -28,6 +28,20 @@ const LEADERSHIP_APIS = [
   "/api/social-pulse/comments",
 ];
 
+/** Only real static asset requests (never API routes) skip authentication. */
+const STATIC_ASSET_PATTERN =
+  /\.(?:ico|png|jpe?g|gif|svg|webp|avif|txt|xml|webmanifest|js|css|map|woff2?|ttf|otf)$/i;
+
+/** Identity headers that only this middleware may set. */
+const USER_IDENTITY_HEADERS = ["x-user-id", "x-user-email", "x-user-name", "x-user-role"] as const;
+
+/** Copy of the incoming headers with any client-supplied identity headers removed. */
+function sanitizedRequestHeaders(req: NextRequest): Headers {
+  const headers = new Headers(req.headers);
+  for (const name of USER_IDENTITY_HEADERS) headers.delete(name);
+  return headers;
+}
+
 function clearSessionAndRedirectToLogin(req: NextRequest, reason?: string) {
   const loginUrl = new URL("/login", req.url);
   if (reason) loginUrl.searchParams.set(reason, "true");
@@ -61,7 +75,7 @@ export async function middleware(req: NextRequest) {
     // Background Social Pulse listener (auth handled inside the route via CRON_SECRET)
     pathname === "/api/social-pulse/cron" ||
     pathname.startsWith("/_next") ||
-    pathname.includes(".") // static files: favicon.ico, images, etc.
+    (!pathname.startsWith("/api/") && STATIC_ASSET_PATTERN.test(pathname)) // static files: favicon.ico, images, etc.
   ) {
     // If visiting /login while already authenticated, redirect to role home (or / if mobile)
     if (pathname === "/login") {
@@ -76,7 +90,7 @@ export async function middleware(req: NextRequest) {
         return NextResponse.redirect(new URL(dest, req.url));
       }
     }
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: sanitizedRequestHeaders(req) } });
   }
 
   // 2. Check session token
@@ -144,7 +158,7 @@ export async function middleware(req: NextRequest) {
   }
 
   // 4. Inject authenticated user headers
-  const requestHeaders = new Headers(req.headers);
+  const requestHeaders = sanitizedRequestHeaders(req);
   requestHeaders.set("x-user-id", session.id);
   requestHeaders.set("x-user-email", session.email);
   requestHeaders.set("x-user-name", session.name);

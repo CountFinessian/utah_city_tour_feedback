@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, CheckCircle2, CircleAlert, Clock3, Dot, ShieldCheck } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, CircleAlert, Clock3, Dot, ShieldCheck } from "lucide-react";
 import { EvidencePopover, type EvidenceItem } from "./EvidencePopover";
 
 export type ConfidenceLevel = "low" | "medium" | "high";
@@ -204,7 +204,6 @@ export function RecommendationCard({
   rationale,
   status,
   confidence,
-  evidenceCount,
   evidence,
 }: {
   title: string;

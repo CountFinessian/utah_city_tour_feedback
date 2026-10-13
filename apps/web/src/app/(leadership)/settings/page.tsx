@@ -8,8 +8,6 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const observations = await listObservations();
   const hasData = observations.length > 0;
-  const demoCount = observations.filter((observation) => observation.source === "demo").length;
-  const liveCount = observations.length - demoCount;
 
   return (
     <div className="command-page space-y-5">

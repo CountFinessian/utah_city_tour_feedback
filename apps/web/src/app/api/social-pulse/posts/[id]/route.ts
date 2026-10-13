@@ -15,12 +15,15 @@ export async function GET(
       return NextResponse.json({ error: "Post not found" }, { status: 404 });
     }
 
-    const comments = await repo.listComments({ postId: id });
-    const snapshots = await repo.listSnapshots(id);
+    const [comments, snapshots] = await Promise.all([
+      repo.listComments({ postId: id }),
+      repo.listSnapshots(id),
+    ]);
 
     return NextResponse.json({ post, comments, snapshots });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to load post";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

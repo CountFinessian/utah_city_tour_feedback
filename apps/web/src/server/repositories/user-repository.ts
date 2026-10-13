@@ -1,6 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { generateSecureToken } from "@/server/auth/crypto";
-import { verifyInvitationToken, type InvitationTokenPayload } from "@/server/auth/session";
+import { verifyInvitationToken } from "@/server/auth/session";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
@@ -56,8 +55,6 @@ const INVITES_FILE = path.join(DATA_DIR, "invitations.json");
 // In-memory stores
 const memoryUsers = new Map<string, StoredUser>();
 const memoryInvitations = new Map<string, StoredInvitation>();
-
-let filesLoaded = false;
 
 async function ensureDataDir(): Promise<void> {
   try {

@@ -37,8 +37,8 @@ export async function seedFixturePostsAndComments(): Promise<{ postsLoaded: numb
     const parsed = parseAndNormalizePostIdentifier(`https://www.tiktok.com/@itsyaboievan11/video/${videoId}`, "tiktok")!;
 
     const caption = "Utah City Vineyard petition video thread and downtown discussion";
-    const rel = await classifyRelevance(caption, { discoveryQuery: "Utah City", platform: "tiktok" });
-    const sent = await analyzeSentimentAndTopic(caption);
+    await classifyRelevance(caption, { discoveryQuery: "Utah City", platform: "tiktok" });
+    await analyzeSentimentAndTopic(caption);
 
     const postComments: any[] = ttData.comments || [];
     const postReplies: any[] = ttData.replies || [];

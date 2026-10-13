@@ -35,7 +35,7 @@ export type ActionAuditEntry = {
   createdAt: string;
 };
 
-function usePg(): boolean {
+function shouldUsePg(): boolean {
   return Boolean(getPgUrl());
 }
 
@@ -177,7 +177,7 @@ export function ontologyToCommandAction(a: OntologyAction): CommandCenterAction 
 }
 
 export async function listOntologyActions(): Promise<OntologyAction[]> {
-  if (!usePg()) {
+  if (!shouldUsePg()) {
     const rows = await readJsonFile<OntologyAction[]>(ACTIONS_FILE, []);
     return rows
       .filter((a) => a.status !== "dismissed")
@@ -196,7 +196,7 @@ export async function listOntologyActions(): Promise<OntologyAction[]> {
 
 export async function getOntologyAction(themeId: string): Promise<OntologyAction | null> {
   const id = normalizeThemeId(themeId);
-  if (!usePg()) {
+  if (!shouldUsePg()) {
     const rows = await readJsonFile<OntologyAction[]>(ACTIONS_FILE, []);
     return rows.find((r) => r.themeId === id) ?? null;
   }
@@ -212,7 +212,7 @@ export async function upsertOntologyAction(action: OntologyAction): Promise<void
   const themeId = normalizeThemeId(action.themeId);
   const next = { ...action, themeId };
 
-  if (!usePg()) {
+  if (!shouldUsePg()) {
     const rows = await readJsonFile<OntologyAction[]>(ACTIONS_FILE, []);
     const idx = rows.findIndex((r) => r.themeId === themeId);
     if (idx >= 0) rows[idx] = next;
@@ -258,7 +258,7 @@ export async function appendActionAudit(entry: Omit<ActionAuditEntry, "id" | "cr
     createdAt: new Date().toISOString(),
   };
 
-  if (!usePg()) {
+  if (!shouldUsePg()) {
     const rows = await readJsonFile<ActionAuditEntry[]>(AUDIT_FILE, []);
     rows.unshift(full);
     await writeJsonFile(AUDIT_FILE, rows.slice(0, 500));

@@ -1,9 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Lock, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, KeyRound } from "lucide-react";
+import { Lock, AlertCircle, CheckCircle2, ArrowRight, KeyRound } from "lucide-react";
 
 type UserDetails = {
   email: string;
@@ -12,7 +12,6 @@ type UserDetails = {
 };
 
 function ResetPasswordForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
 

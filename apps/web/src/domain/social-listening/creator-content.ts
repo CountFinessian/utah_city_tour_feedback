@@ -111,7 +111,7 @@ export function extractCreatorSpeechExcerpt(post: Post): {
     const lineStart = Math.max(0, textCorpus.lastIndexOf("\n", idx) + 1);
     const nextNewline = textCorpus.indexOf("\n", idx + bracketMatch[0].length);
     const lineEnd = nextNewline !== -1 ? nextNewline : textCorpus.length;
-    let fullLine = textCorpus.slice(lineStart, lineEnd).trim();
+    const fullLine = textCorpus.slice(lineStart, lineEnd).trim();
     // Remove the bracket timestamp notation itself
     let snippet = fullLine.replace(/(?:\[|\()\d{1,2}:\d{2}(?::\d{2})?(?:\]|\))/g, "").replace(/\s+/g, " ").trim();
     if (snippet.length > 160) {

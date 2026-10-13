@@ -7,7 +7,7 @@ import {
   CommentWithContext,
   Sentiment,
 } from "@/domain/social-listening/types";
-import { postCommentsInDashboard, postShownAsContent } from "@/domain/social-listening/relevance";
+import { postCommentsInDashboard } from "@/domain/social-listening/relevance";
 import { buildNarrativeIntelligence } from "../intelligence/narrative-engine";
 import { stripTranscriptTimestamps, sanitizeTranscript } from "@/domain/sanitize-text";
 

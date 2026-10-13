@@ -5,29 +5,19 @@ import {
   MessageSquare,
   ExternalLink,
   ChevronRight,
-  TrendingUp,
-  TrendingDown,
-  Minus,
   Radio,
-  Sparkles,
-  CheckCircle2,
   AlertTriangle,
-  Compass,
   Layers,
   X,
-  Info,
   Users,
   Flame,
   Star,
-  Activity,
   Award,
 } from "lucide-react";
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type {
   IntelligenceNarrativeData,
   IntelligenceTheme,
-  IsolatedSignal,
-  EvidenceItem,
 } from "@/domain/social-listening/intelligence-narrative";
 import type { PriorityCommentItem } from "@/domain/social-listening/priority-comments";
 import type { CreatorContentItem } from "@/domain/social-listening/creator-content";
@@ -290,7 +280,7 @@ export default function SocialPulsePage() {
 
                             {/* Complete Comment Text (Prominent Focus) */}
                             <p className="text-sm text-slate-100 font-normal leading-relaxed bg-black/40 p-3.5 rounded-xl border border-white/5">
-                              "{stripTranscriptTimestamps(c.text)}"
+                              &quot;{stripTranscriptTimestamps(c.text)}&quot;
                             </p>
 
                             {/* Associated Video Title */}
@@ -442,7 +432,7 @@ export default function SocialPulsePage() {
                                 )}
                               </div>
                               <p className="text-xs text-slate-200 italic leading-relaxed bg-black/40 p-3 rounded-lg border border-white/5">
-                                "{item.relevantExcerpt}"
+                                &quot;{item.relevantExcerpt}&quot;
                               </p>
                             </div>
                           )}
@@ -541,7 +531,7 @@ export default function SocialPulsePage() {
                               {issue.sampleComments.map((sample, idx) => (
                                 <div key={idx} className="p-2.5 rounded bg-black/40 border border-white/5 space-y-1.5 text-xs">
                                   <p className="text-slate-200 italic leading-relaxed">
-                                    "{sample.text}"
+                                    &quot;{sample.text}&quot;
                                   </p>
                                   <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
                                     <span>@{sample.authorUsername} ({sample.platform})</span>
@@ -728,7 +718,7 @@ export default function SocialPulsePage() {
                       </div>
 
                       <p className="text-xs text-slate-200 leading-relaxed font-normal bg-black/40 p-3 rounded-lg border border-white/5">
-                        "{stripTranscriptTimestamps(ev.text)}"
+                        &quot;{stripTranscriptTimestamps(ev.text)}&quot;
                       </p>
 
                       <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">

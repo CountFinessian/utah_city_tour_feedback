@@ -92,12 +92,10 @@ export async function POST(req: NextRequest) {
       }
 
       // Fetch the reply body text using Resend Receiving API
-      let replyHtml = "";
       let replyText = "";
       try {
         const emailDetails = await resend.emails.receiving.get(emailId);
         if (emailDetails.data) {
-          replyHtml = emailDetails.data.html || "";
           replyText = emailDetails.data.text || "";
         }
       } catch (e: any) {

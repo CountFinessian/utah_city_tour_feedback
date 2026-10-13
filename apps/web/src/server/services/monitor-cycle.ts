@@ -27,7 +27,7 @@ import {
   type StatCounts,
 } from "@/domain/social-listening/monitoring";
 import { isOfficialAuthor, type OfficialAccountRef } from "@/domain/social-listening/relevance";
-import type { Comment, MonitoringState, Platform, Post } from "@/domain/social-listening/types";
+import type { Comment, MonitoringState, Post } from "@/domain/social-listening/types";
 import { geminiFlashLiteCostMicro, hasLLM } from "@/server/ai/model-config";
 import { classifyComments } from "@/server/intelligence/sentiment-classifier";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
