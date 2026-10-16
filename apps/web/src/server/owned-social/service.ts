@@ -2,8 +2,10 @@ import { decryptJson, encryptJson, ownedSocialSecretAvailable, randomNonce, sign
 import {
   APP_FIELD_LABELS,
   OAUTH_PLATFORMS,
+  OFFICIAL_ACCOUNTS,
   PLATFORM_LABELS,
   STATIC_FIELDS,
+  STATIC_PLATFORMS,
   isOAuthPlatform,
   oauthConfig,
   ownedSocialBaseUrl,
@@ -445,11 +447,39 @@ export type PlatformSummary = {
   redirectUri?: string;
   credentialsSaved: boolean;
   appFieldLabels?: { clientId: string; clientSecret: string };
-  fields?: Array<{ key: string; label: string; secret: boolean; set: boolean }>;
+  fields?: Array<{ key: string; label: string; secret: boolean; set: boolean; optional?: boolean; help?: string }>;
+  /** Facebook Page ID found automatically (Meta only). Not secret. */
+  detectedPageId?: string;
   linkExpiresAt?: string;
+  lastVerifiedAt?: string;
+  lastVerifyOk?: boolean;
+  lastVerifySummary?: string;
+  officialAccounts: Array<{ network: string; handle: string; url: string }>;
 };
 
-export async function getAdminSummary(): Promise<{ secretConfigured: boolean; baseUrl: string; platforms: PlatformSummary[] }> {
+/**
+ * How many of the five official accounts have a working connection, for the non-admin view.
+ * Reads the connection store only: no secrets are decrypted and the admin summary is not built.
+ */
+export async function countConnectedAccounts(): Promise<{ connected: number; total: number }> {
+  const store = getConnectionStore();
+  let connected = 0;
+  for (const platform of OAUTH_PLATFORMS) {
+    const record = await store.get(platform);
+    if (record?.tokensEnc && !record.needsReauth) connected += 1;
+  }
+  for (const platform of STATIC_PLATFORMS) {
+    const record = await store.get(platform);
+    if (record?.staticEnc && record.lastVerifyOk === true) connected += 1;
+  }
+  return { connected, total: OAUTH_PLATFORMS.length + STATIC_PLATFORMS.length };
+}
+
+export async function getAdminSummary(): Promise<{
+  secretConfigured: boolean;
+  baseUrl: string;
+  platforms: PlatformSummary[];
+}> {
   const secretConfigured = ownedSocialSecretAvailable();
   const platforms: PlatformSummary[] = [];
   const store = getConnectionStore();
@@ -477,6 +507,10 @@ export async function getAdminSummary(): Promise<{ secretConfigured: boolean; ba
         record?.pendingLinkExp && record.pendingLinkExp > Date.now() / 1000
           ? new Date(record.pendingLinkExp * 1000).toISOString()
           : undefined,
+      lastVerifiedAt: record?.lastVerifiedAt,
+      lastVerifyOk: record?.lastVerifyOk,
+      lastVerifySummary: record?.lastVerifySummary,
+      officialAccounts: OFFICIAL_ACCOUNTS[platform],
     });
   }
 
@@ -488,14 +522,24 @@ export async function getAdminSummary(): Promise<{ secretConfigured: boolean; ba
     }
     const fields = STATIC_FIELDS[platform].map((f) => ({ ...f, set: Boolean(saved[f.key]) }));
     const setCount = fields.filter((f) => f.set).length;
+    const requiredFields = fields.filter((f) => !f.optional);
+    const requiredSet = requiredFields.filter((f) => f.set).length;
+    // "saved" needs every required field; optional fields never block it.
+    const status: PlatformSummary["status"] =
+      requiredSet === requiredFields.length ? "saved" : setCount > 0 ? "incomplete" : "not_configured";
     platforms.push({
       platform,
       label: PLATFORM_LABELS[platform],
       kind: "static",
-      status: setCount === 0 ? "not_configured" : setCount === fields.length ? "saved" : "incomplete",
+      status,
       connectedAt: record?.connectedAt,
       credentialsSaved: setCount > 0,
       fields,
+      detectedPageId: platform === "meta" ? record?.detectedPageId : undefined,
+      lastVerifiedAt: record?.lastVerifiedAt,
+      lastVerifyOk: record?.lastVerifyOk,
+      lastVerifySummary: record?.lastVerifySummary,
+      officialAccounts: OFFICIAL_ACCOUNTS[platform],
     });
   }
 

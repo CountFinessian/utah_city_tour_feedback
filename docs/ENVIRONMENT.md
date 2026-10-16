@@ -108,11 +108,21 @@ The listener schedule lives in `.github/workflows/social-pulse-listener.yml`: `1
 
 ## Official account connections (read-only)
 
-Leaders manage these on **Settings → Official account connections**. Keys the marketing team sends are pasted there and stored **encrypted** in Postgres (table `owned_social_connections`); the leader then creates a single-use connect link for each account owner. A daily GitHub Actions job (`.github/workflows/owned-social-refresh.yml`, uses the existing `CRON_SECRET`) renews TikTok, YouTube and LinkedIn connections so nobody has to re-approve them. Only read-only scopes are ever requested.
+Leaders manage these on **Settings → Official account connections**. Keys the marketing team sends are pasted there and stored **encrypted** in Postgres (table `owned_social_connections`); the leader then creates a single-use connect link for each account owner. A daily GitHub Actions job (`.github/workflows/owned-social-refresh.yml`, uses the existing `CRON_SECRET`) renews TikTok, YouTube and LinkedIn connections so nobody has to re-approve them, then backfills the post history and metrics for TikTok, YouTube, LinkedIn, Facebook, Instagram and X. X is read with the official account's own keys (OAuth 1.0a user context, never the bearer token) and is capped per run by `X_MAX_POSTS_PER_RUN`, because X bills per post read. Only read-only scopes are ever requested.
+
+**Expiry emails.** When a connection needs re-approval soon, has lapsed, or failed to renew in the daily run, the addresses in `OWNED_SOCIAL_ALERT_EMAILS` get an email (at most one per platform every 3 days). If that variable is unset or blank, the email goes to `support@utahcity.app`. Emails contain no tokens.
+
+**Meta.** Only the System-user token is required. The Facebook Page ID is detected automatically when left blank (the Page whose username is `utahcityutah`, or the only Page) and cached on the connection record as `detectedPageId`. When the App Secret is saved, every Graph API call adds `appsecret_proof`.
+
+Each platform card on the Settings page has a **Test keys** button. It makes a read-only call to the platform and confirms the keys belong to the official Utah City accounts, so a leader can prove the connection works during a meeting.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `OWNED_SOCIAL_SECRET` | Yes, to store keys | falls back to `AUTH_SECRET` | Secret used to encrypt stored credentials and sign connect links. There is deliberately no built-in default: without a secret the feature refuses to store anything. Changing it invalidates stored keys (they must be re-entered and accounts re-connected). |
-| `OWNED_SOCIAL_BASE_URL` | No | `https://www.utahcity.app` | Public base URL. Must match the return links registered with each platform exactly (`<base>/api/owned-social/callback/<platform>`). Set to `http://localhost:3000` for local testing. |
+| `OWNED_SOCIAL_BASE_URL` | No | `https://www.utahcity.app` | Public base URL. Must match the return links registered with each platform exactly (`<base>/api/owned-social/callback/<platform>`), and Set to `http://localhost:3000` for local testing. |
+| `X_MAX_POSTS_PER_RUN` | No | `300` | Most X posts read in one backfill run (cron or admin), across the whole run. Reaching it stops paging cleanly and records a note; the next run resumes from the saved cursor. This is the cost guard for X's per-post billing. |
+| `OWNED_SOCIAL_ALERT_EMAILS` | No | `support@utahcity.app` | Comma-separated addresses that get "connection needs attention" emails from the daily renewal run. Unset or blank uses the default. Sent through the same Resend setup as the ops alerts. |
 | `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`, `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET`, `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` | No | — | Optional fallback for app credentials. Keys saved on the Settings page take priority. |
 | `LINKEDIN_SCOPES` | No | `r_organization_social rw_organization_admin` | Override if LinkedIn renames its page-analytics scopes. |
+| `LINKEDIN_API_VERSION` | No | `202608` | LinkedIn's monthly REST API version, sent with every LinkedIn call. Bump it if LinkedIn retires this version. |
+| `META_GRAPH_VERSION` | No | `v23.0` | Facebook Graph API version used by the Meta checks. |

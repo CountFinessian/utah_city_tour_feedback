@@ -11,6 +11,7 @@ const nav = [
   { href: "/analyst", label: "AI Analyst", shortLabel: "Analyst", mark: "A", helper: "Ask the corpus" },
   { href: "/journey", label: "Journey", shortLabel: "Journey", mark: "J", helper: "Lifecycle spine" },
   { href: "/social-pulse", label: "Social Pulse", shortLabel: "Social", mark: "SP", helper: "Comment sentiment" },
+  { href: "/social-accounts", label: "Social Accounts", shortLabel: "Accounts", mark: "SA", helper: "Owned channels" },
   { href: "/evidence", label: "Evidence", shortLabel: "Evidence", mark: "E", helper: "Source corpus" },
   { href: "/operations", label: "Operations", shortLabel: "Ops", mark: "O", helper: "Adoption quality" },
   { href: "/settings", label: "Settings", shortLabel: "Settings", mark: "⚙", helper: "Team & Admin" },

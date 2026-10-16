@@ -21,7 +21,16 @@ src/
 The Next.js App Router is divided into two primary route groups for role separation:
 
 - **`(capture)`**: Serves the root `/` path. Contains the mobile capture interface used by **Tour Hosts**. It is lightweight and focuses on transcription and observation capture.
-- **`(leadership)`**: Wraps all leadership routes (`/command`, `/analyst`, `/evidence`, `/journey`, `/operations`, `/settings`, `/signals`) within the global `AppShell`. Access to these routes is strictly restricted to users with the **leader** role.
+- **`(leadership)`**: Wraps all leadership routes (`/command`, `/analyst`, `/evidence`, `/journey`, `/operations`, `/settings`, `/signals`) within the global `AppShell`. Access to these routes is restricted to users with the **leader** or **admin** role (admin is a superset of leader).
+- Owned-account analytics and connection setup for the official social accounts live at `/social-accounts`.
+
+### Roles and social key access
+
+- Roles: `host` (capture only), `leader` (leadership), `admin` (leadership plus admin-only powers). The type lives in `src/server/auth/roles.ts`, which is edge-safe so middleware can import it. Use `isLeadershipRole` for leadership gates and `isAdminRole` for admin-only checks. Do not compare role strings directly.
+- Admin-only: managing social API keys (`/api/owned-social/admin`, every method), removing people (`DELETE /api/auth/invite`), and assigning or changing the admin role (invite and role update).
+- Role freshness: `src/server/auth/session-alive.ts` (`lookupUserAccount`) reads the account's current role with the existence check (same 60-second cache). Middleware uses that role for the gates and for the `x-user-role` header. If the database cannot answer, the cookie role is used. Cookie routes use `liveSessionRole` (`src/server/auth/live-role.ts`).
+- Social Accounts page (`/social-accounts`): the server reads `x-user-role`. Non-admin leaders get the dashboard and a connected count only. The server does not load the admin summary, the setup guide, or key status for them. Admins also get the API keys tab and the setup guide.
+- Social accounts mode (`social_accounts_mode` in `app_settings`): `setup` (default) opens admins on API keys and shows the setup banner to leaders. `live` opens everyone on the dashboard. See `DATA-MODEL.md` for the SQL that changes the mode.
 
 ## 3. Data Flow
 
@@ -68,7 +77,7 @@ The platform utilizes a secure, custom authentication strategy:
 - **Session Tokens**: Uses HMAC-SHA256 to sign stateless session tokens stored in the `uc_session` cookie (`src/server/auth/session.ts`).
 - **Password Hashing**: Implements PBKDF2 with 100,000 iterations for secure credential storage (`src/server/auth/crypto.ts`).
 - **Invitations**: Generates cryptographically signed invitation tokens to authorize account creation.
-- **Middleware**: `src/middleware.ts` enforces Role-Based Access Control (RBAC). It isolates public routes, redirects unauthorized hosts away from leadership views, and injects session data (`x-user-id`, `x-user-role`, `x-user-name`, `x-user-email`) securely into request headers.
+- **Middleware**: `src/middleware.ts` enforces Role-Based Access Control (RBAC). It isolates public routes, redirects unauthorized hosts away from leadership views, and injects session data (`x-user-id`, `x-user-role`, `x-user-name`, `x-user-email`) securely into request headers. The role comes from the database when it can be read (see Roles and social key access below).
 
 ## 7. Email Relay
 

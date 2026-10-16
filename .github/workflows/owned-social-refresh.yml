@@ -1,8 +1,9 @@
 name: Official account connection refresh
 
-# Renews the read-only connections to the official TikTok / YouTube / LinkedIn accounts once a day
-# so nobody has to re-approve them. TikTok and YouTube refresh keys roll forward on every run.
-# Needs the same CRON_SECRET repository secret the Social Pulse listener uses.
+# Once a day: renews the read-only connections to the official TikTok / YouTube / LinkedIn / Meta accounts
+# so nobody has to re-approve them (TikTok and YouTube refresh keys roll forward on every run), then
+# backfills post history and metrics for TikTok, YouTube, LinkedIn, Facebook, Instagram and X.
+# X reads are capped per run by X_MAX_POSTS_PER_RUN (a server environment setting). Needs the same CRON_SECRET repository secret the Social Pulse listener uses.
 on:
   schedule:
     # Every day at 11:07 UTC
@@ -19,7 +20,7 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - name: Refresh connections in production
         env:
@@ -30,7 +31,7 @@ jobs:
           code=$(curl -sS -L -o /tmp/refresh.json -w "%{http_code}" \
             -X POST "https://www.utahcity.app/api/owned-social/cron" \
             -H "Authorization: Bearer ${CRON_SECRET}" \
-            --max-time 90)
+            --max-time 120)
           echo "HTTP $code"
           cat /tmp/refresh.json || true
           test "$code" = "200"

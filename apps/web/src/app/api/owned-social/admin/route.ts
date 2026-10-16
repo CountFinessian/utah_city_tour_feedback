@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { isAdminRole } from "@/server/auth/roles";
 import { isOAuthPlatform, isOwnedPlatform, type OwnedPlatform } from "@/server/owned-social/platforms";
 import { SecretNotConfiguredError } from "@/server/owned-social/crypto";
+import { getBackfillSummary, networksForPlatform, runBackfill } from "@/server/owned-social/backfill";
+import { verifyConnection } from "@/server/owned-social/verify";
 import {
   createConnectLink,
   disconnectPlatform,
@@ -11,11 +14,16 @@ import {
 } from "@/server/owned-social/service";
 
 export const dynamic = "force-dynamic";
+// A backfill can run for most of a minute (see runBackfill's time budget).
+export const maxDuration = 60;
 
-/** The middleware already restricts this path to leaders; this is a second, independent check. */
-function leaderOnly(request: Request): NextResponse | null {
-  if (request.headers.get("x-user-role") !== "leader") {
-    return NextResponse.json({ error: "Forbidden: Leadership access required" }, { status: 403 });
+/**
+ * Social key management is admin-only. The middleware only lets leadership reach this path,
+ * so this in-route check is what keeps leaders out. It applies to every method exported below.
+ */
+function adminOnly(request: Request): NextResponse | null {
+  if (!isAdminRole(request.headers.get("x-user-role"))) {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
   return null;
 }
@@ -29,10 +37,13 @@ function fail(err: unknown, fallback: string): NextResponse {
 }
 
 export async function GET(request: Request) {
-  const denied = leaderOnly(request);
+  const denied = adminOnly(request);
   if (denied) return denied;
   try {
-    return NextResponse.json(await getAdminSummary(), { headers: { "Cache-Control": "no-store" } });
+    const summary = await getAdminSummary();
+    // A failed backfill summary should not hide the connection status, so it degrades to an empty list.
+    const backfill = await getBackfillSummary().catch(() => []);
+    return NextResponse.json({ ...summary, backfill }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return fail(err, "Failed to load connections");
   }
@@ -47,7 +58,7 @@ type Body = {
 };
 
 export async function POST(request: Request) {
-  const denied = leaderOnly(request);
+  const denied = adminOnly(request);
   if (denied) return denied;
 
   let body: Body;
@@ -84,6 +95,14 @@ export async function POST(request: Request) {
       case "disconnect": {
         await disconnectPlatform(p);
         return NextResponse.json({ ok: true });
+      }
+      case "verify": {
+        const result = await verifyConnection(p);
+        return NextResponse.json({ ok: result.ok, result });
+      }
+      case "backfill": {
+        const outcomes = await runBackfill({ networks: networksForPlatform(p) });
+        return NextResponse.json({ ok: outcomes.every((o) => o.result !== "error"), outcomes });
       }
       default:
         return NextResponse.json({ error: "Unknown action" }, { status: 400 });

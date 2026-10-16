@@ -9,6 +9,8 @@ import {
 } from "@/server/services/observation-service";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/server/auth/session";
+import { isLeadershipRole } from "@/server/auth/roles";
+import { liveSessionRole } from "@/server/auth/live-role";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,7 +73,7 @@ export async function DELETE(req: NextRequest) {
 
     if (sessionToken) {
       const session = await verifySessionToken(sessionToken);
-      if (session && session.role !== "leader") {
+      if (session && !isLeadershipRole(await liveSessionRole(session))) {
         return NextResponse.json(
           { error: "Forbidden: Only members of Leadership can delete evidence." },
           { status: 403 },

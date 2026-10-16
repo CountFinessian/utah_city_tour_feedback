@@ -5,10 +5,13 @@ import { POST as seedPOST, DELETE as seedDELETE } from "@/app/api/seed/route";
 import { POST as transcribePOST } from "@/app/api/transcribe/route";
 import type { NextRequest } from "next/server";
 
+/** Session cookie for the leader account created in beforeAll (invite routes check the caller). */
+let leaderCookie = "";
+
 function jsonReq(url: string, body: unknown): NextRequest {
   return new Request(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(leaderCookie ? { cookie: leaderCookie } : {}) },
     body: JSON.stringify(body),
   }) as unknown as NextRequest;
 }
@@ -16,6 +19,12 @@ function jsonReq(url: string, body: unknown): NextRequest {
 describe("API routes", () => {
   beforeAll(async () => {
     await seedDELETE();
+    const { createUser } = await import("@/server/repositories/user-repository");
+    const { signSessionToken, SESSION_COOKIE_NAME } = await import("@/server/auth/session");
+    const leader = { id: "usr_api_leader", email: "api.leader@utahcity.com", name: "API Leader", role: "leader" as const };
+    await createUser({ ...leader, passwordHash: "x", passwordSalt: "y" });
+    await createUser({ id: "usr_leader_nate", email: "nate@utahcity.com", name: "Nate", role: "admin", passwordHash: "x", passwordSalt: "y" });
+    leaderCookie = `${SESSION_COOKIE_NAME}=${await signSessionToken(leader)}`;
   });
 
   it("POST /api/seed loads the 10-row demo set", async () => {
@@ -90,7 +99,7 @@ describe("API routes", () => {
         role: "leader",
       })
     );
-    const req = new Request("https://demo.utahcity.com/api/auth/invite");
+    const req = new Request("https://demo.utahcity.com/api/auth/invite", { headers: { cookie: leaderCookie } });
     const res = await inviteGET(req);
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -119,7 +128,7 @@ describe("API routes", () => {
     expect(json.setupUrl).toContain("/setup-account?token=");
 
     // Verify it appears in GET invitations immediately
-    const listRes = await inviteGET(new Request("https://demo.utahcity.com/api/auth/invite"));
+    const listRes = await inviteGET(new Request("https://demo.utahcity.com/api/auth/invite", { headers: { cookie: leaderCookie } }));
     const listJson = await listRes.json();
     expect(listJson.invitations.some((i: any) => i.email === "newmember@utahcity.com")).toBe(true);
   });
@@ -163,14 +172,14 @@ describe("API routes", () => {
     expect(listAfter.observations.some((o: any) => o.id === target.id)).toBe(false);
   });
 
-  it("DELETE /api/auth/invite removes a user account and invitation when called by leader", async () => {
+  it("DELETE /api/auth/invite removes a user account and invitation when called by an admin", async () => {
     const { DELETE: inviteDELETE, GET: inviteGET } = await import("@/app/api/auth/invite/route");
     const { signSessionToken, SESSION_COOKIE_NAME } = await import("@/server/auth/session");
 
     const leaderToken = await signSessionToken({
       id: "usr_leader_nate",
       email: "nate@utahcity.com",
-      role: "leader",
+      role: "admin",
       name: "Nate",
     });
 
@@ -186,7 +195,7 @@ describe("API routes", () => {
     const json = await res.json();
     expect(json.success).toBe(true);
 
-    const listRes = await inviteGET(new Request("https://demo.utahcity.com/api/auth/invite"));
+    const listRes = await inviteGET(new Request("https://demo.utahcity.com/api/auth/invite", { headers: { cookie: leaderCookie } }));
     const listJson = await listRes.json();
     expect(listJson.invitations.some((i: any) => i.email === "newmember@utahcity.com")).toBe(false);
   });

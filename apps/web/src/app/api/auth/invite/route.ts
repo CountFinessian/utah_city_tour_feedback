@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import {
   createOrUpdateInvitation,
   listAllInvitationsWithStatus,
@@ -6,13 +7,15 @@ import {
   findInvitationByEmail,
   updateUserRole,
   deleteUserAndInvitation,
-  type UserRole,
 } from "@/server/repositories/user-repository";
 import { sendInvitationEmail } from "@/server/email/mailer";
-import { cookies } from "next/headers";
-import { SESSION_COOKIE_NAME, verifySessionToken, signInvitationToken } from "@/server/auth/session";
+import { SESSION_COOKIE_NAME, verifySessionToken, signInvitationToken, type SessionPayload } from "@/server/auth/session";
+import { isAdminRole, isLeadershipRole, normalizeRole, type UserRole } from "@/server/auth/roles";
+import { liveSessionRole } from "@/server/auth/live-role";
 
 export const dynamic = "force-dynamic";
+
+const ASSIGNABLE_ROLES: readonly UserRole[] = ["host", "leader", "admin"];
 
 function getAppOrigin(req: Request): string {
   if (process.env.NEXT_PUBLIC_APP_URL) {
@@ -28,6 +31,14 @@ function getAppOrigin(req: Request): string {
 
 export async function GET(req: Request) {
   try {
+    // /api/auth is public in middleware, and this list carries live setup links, so it must check the caller itself.
+    const caller = await callerFrom(req);
+    if (!caller) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!isLeadershipRole(caller.role)) {
+      return NextResponse.json({ error: "Forbidden: Leadership access required" }, { status: 403 });
+    }
     const origin = getAppOrigin(req);
     const invitations = await listAllInvitationsWithStatus();
 
@@ -49,8 +60,41 @@ export async function GET(req: Request) {
   }
 }
 
+async function getSessionToken(req: Request): Promise<string | undefined> {
+  try {
+    const cookieStore = await cookies();
+    const val = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    if (val) return val;
+  } catch {
+    // fall back to headers
+  }
+  const cookieHeader = req.headers.get("cookie") || "";
+  const match = cookieHeader.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
+  return match ? match[1] : undefined;
+}
+
+/** The signed-in caller with their current role. Null when there is no valid session or the account is gone. */
+type Caller = { session: SessionPayload; role: UserRole };
+
+async function callerFrom(req: Request): Promise<Caller | null> {
+  const session = await verifySessionToken(await getSessionToken(req));
+  if (!session) return null;
+  const role = await liveSessionRole(session);
+  if (!role) return null;
+  return { session, role };
+}
+
 export async function POST(req: Request) {
   try {
+    // Inviting is a leadership action. This route previously had no authorization check at all.
+    const caller = await callerFrom(req);
+    if (!caller) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!isLeadershipRole(caller.role)) {
+      return NextResponse.json({ error: "Forbidden: Only members of Leadership can invite people." }, { status: 403 });
+    }
+
     const body = await req.json();
     const { email, role, name, title } = body;
 
@@ -58,8 +102,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
     }
 
-    if (!role || (role !== "host" && role !== "leader")) {
-      return NextResponse.json({ error: "Role must be 'host' or 'leader'." }, { status: 400 });
+    const assignedRole = normalizeRole(role);
+    if (!assignedRole || !ASSIGNABLE_ROLES.includes(assignedRole)) {
+      return NextResponse.json({ error: "Role must be 'host', 'leader', or 'admin'." }, { status: 400 });
+    }
+    if (assignedRole === "admin" && !isAdminRole(caller.role)) {
+      return NextResponse.json({ error: "Only admins can assign the admin role." }, { status: 403 });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -83,29 +131,19 @@ export async function POST(req: Request) {
     }
 
     // 3. Prevent the current authenticated leader from inviting their own active email
-    let invitedByName = "Utah City Leadership";
-    try {
-      const cookieStore = await cookies();
-      const tokenCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-      const currentUser = await verifySessionToken(tokenCookie);
-      if (currentUser?.email && currentUser.email.toLowerCase() === normalizedEmail) {
-        return NextResponse.json(
-          { error: `You are currently signed into this account (${normalizedEmail}). You cannot send an onboarding invitation to yourself.` },
-          { status: 400 }
-        );
-      }
-      if (currentUser?.name) {
-        invitedByName = currentUser.name;
-      }
-    } catch {
-      // ignore
+    if (caller.session.email && caller.session.email.toLowerCase() === normalizedEmail) {
+      return NextResponse.json(
+        { error: `You are currently signed into this account (${normalizedEmail}). You cannot send an onboarding invitation to yourself.` },
+        { status: 400 }
+      );
     }
+    const invitedByName = caller.session.name || "Utah City Leadership";
 
     const origin = getAppOrigin(req);
     // Generate cryptographically signed capability token (self-verifying across serverless instances)
     const token = await signInvitationToken({
       email: normalizedEmail,
-      role: role as UserRole,
+      role: assignedRole,
       name: (name as string | undefined)?.trim() || "",
       title,
     });
@@ -114,7 +152,7 @@ export async function POST(req: Request) {
     const invite = await createOrUpdateInvitation({
       email: normalizedEmail,
       name: (name as string | undefined)?.trim() || "",
-      role: role as UserRole,
+      role: assignedRole,
       title,
       token,
       expiresAt,
@@ -143,26 +181,12 @@ export async function POST(req: Request) {
   }
 }
 
-async function getSessionToken(req: Request): Promise<string | undefined> {
-  try {
-    const cookieStore = await cookies();
-    const val = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-    if (val) return val;
-  } catch {
-    // fall back to headers
-  }
-  const cookieHeader = req.headers.get("cookie") || "";
-  const match = cookieHeader.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
-  return match ? match[1] : undefined;
-}
-
 export async function PATCH(req: Request) {
   try {
-    const sessionToken = await getSessionToken(req);
-    const session = await verifySessionToken(sessionToken);
+    const caller = await callerFrom(req);
 
-    // Leadership authorization check
-    if (!session || session.role !== "leader") {
+    // Leadership authorization check (current role from the database)
+    if (!caller || !isLeadershipRole(caller.role)) {
       return NextResponse.json(
         { error: "Forbidden: Only members of Leadership can upgrade user roles." },
         { status: 403 }
@@ -176,18 +200,28 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
     }
 
-    if (role !== "host" && role !== "leader") {
-      return NextResponse.json({ error: "Role must be 'host' or 'leader'." }, { status: 400 });
+    const assignedRole = normalizeRole(role);
+    if (!assignedRole || !ASSIGNABLE_ROLES.includes(assignedRole)) {
+      return NextResponse.json({ error: "Role must be 'host', 'leader', or 'admin'." }, { status: 400 });
     }
 
-    const result = await updateUserRole(email, role);
+    // Only admins can make someone an admin, or change an existing admin's role.
+    if (!isAdminRole(caller.role)) {
+      const target = await findUserByEmail(email);
+      if (assignedRole === "admin" || (target && normalizeRole(target.role) === "admin")) {
+        return NextResponse.json({ error: "Only admins can assign or change the admin role." }, { status: 403 });
+      }
+    }
 
+    const result = await updateUserRole(email, assignedRole);
+
+    const label = assignedRole === "admin" ? "Admin" : assignedRole === "leader" ? "Leadership" : "Tour Host";
     return NextResponse.json({
       success: true,
       email,
-      role,
+      role: assignedRole,
       ...result,
-      message: `User role has been updated to ${role === "leader" ? "Leadership" : "Tour Host"}.`,
+      message: `User role has been updated to ${label}.`,
     });
   } catch (err: any) {
     console.error("[invite PATCH error]", err);
@@ -200,15 +234,18 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const sessionToken = await getSessionToken(req);
-    const session = await verifySessionToken(sessionToken);
+    const caller = await callerFrom(req);
 
-    // Leadership authorization check
-    if (!session || session.role !== "leader") {
+    if (!caller || !isLeadershipRole(caller.role)) {
       return NextResponse.json(
         { error: "Forbidden: Only members of Leadership can remove accounts." },
         { status: 403 }
       );
+    }
+
+    // Removing people from the app is admin-only.
+    if (!isAdminRole(caller.role)) {
+      return NextResponse.json({ error: "Only admins can remove people from the app" }, { status: 403 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -222,10 +259,10 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
     }
 
-    // Safety: Prevent leader from accidentally deleting their own active session
-    if (session.email && session.email.toLowerCase() === targetEmail.toLowerCase()) {
+    // Safety: an admin cannot remove their own account through this route
+    if (caller.session.email && caller.session.email.toLowerCase() === targetEmail.toLowerCase()) {
       return NextResponse.json(
-        { error: "Action blocked: You cannot delete your own active leadership account." },
+        { error: "Action blocked: You cannot delete your own active account." },
         { status: 400 }
       );
     }
@@ -246,4 +283,3 @@ export async function DELETE(req: Request) {
     );
   }
 }
-

@@ -38,7 +38,7 @@ function parseSeedUsers(): SeedUser[] {
         typeof (u as SeedUser).email === "string" &&
         typeof (u as SeedUser).password === "string" &&
         typeof (u as SeedUser).name === "string" &&
-        ((u as SeedUser).role === "host" || (u as SeedUser).role === "leader")
+        ((u as SeedUser).role === "host" || (u as SeedUser).role === "leader" || (u as SeedUser).role === "admin")
       );
     });
   } catch (err) {

@@ -93,6 +93,40 @@ This document provides a comprehensive reference for all 14 React components in 
 - **API Calls:** `POST /api/analyst`
 - **Child Components:** `ConfidenceBadge`, `EvidencePopover`
 
+## Social Accounts
+
+Page at `/social-accounts` (`src/app/(leadership)/social-accounts/page.tsx`, server component). It loads the admin summary, backfill summary, the dashboard and the setup guide markdown, then renders `SocialAccountsHub`.
+
+### `SocialAccountsHub`
+- **Path:** `src/components/SocialAccountsHub.tsx`
+- **Type:** Client Component
+- **Props:** `{ platforms, initialDashboard, dashboardFailed, backfill, guideMarkdown }`
+- **Purpose:** Header, a five-platform status strip (Verified / Connected / Needs attention / Not set up), and the tabs Dashboard, Connections and Setup guide. The tab lives in `?tab=`. It defaults to Dashboard once all five platforms are verified, otherwise Connections.
+- **Key State:** `platforms` (status, refreshed on tab change and window focus)
+- **API Calls:** `GET /api/owned-social/admin`
+- **Child Components:** `SocialAccountsDashboard`, `OwnedSocialConnections` (unchanged), `SocialGuideMarkdown`
+
+### `SocialAccountsDashboard`
+- **Path:** `src/components/SocialAccountsDashboard.tsx`
+- **Type:** Client Component
+- **Props:** `{ initial, loadFailed, verifiedCount, totalPlatforms, refreshTargets, backfill, onGoToConnections }`
+- **Purpose:** 30-day KPI row, per-network cards, the 13-week views chart, the filterable recent-posts table with performance pills, top posts per network, and the footer with **Refresh data now**. Refresh runs the admin `backfill` action per connected platform in turn, then reloads. Data also reloads on window focus.
+- **Key State:** `data`, `filter` (network chip), `progress`, `notice`, `busy`
+- **API Calls:** `GET /api/owned-social/dashboard`, `POST /api/owned-social/admin` (`action: "backfill"`)
+- **Child Components:** `WeeklyViewsChart` (lazy-loaded)
+
+### `SocialAccountsCharts` / `SocialAccountsChartsLazy`
+- **Path:** `src/components/domain/SocialAccountsCharts.tsx`, `src/components/domain/SocialAccountsChartsLazy.tsx`
+- **Type:** Client Components (`next/dynamic`, `ssr: false`)
+- **Props:** `WeeklyViewsChart({ weekly, networks })`: stacked weekly views, one color per network
+- **Purpose:** Recharts bar chart for the weekly series. Lazy-loaded the same way as `CommandChartsLazy`.
+
+### `SocialGuideMarkdown`
+- **Path:** `src/components/SocialGuideMarkdown.tsx`
+- **Type:** Client Component
+- **Props:** `{ markdown: string }`
+- **Purpose:** Renders `src/content/social-accounts-guide.md` with `react-markdown` and `remark-gfm`, styled for the dark theme. Fenced code blocks have a Copy button. Raw HTML is not rendered.
+
 ## Evidence & Admin
 
 ### `KnowledgeExplorer`

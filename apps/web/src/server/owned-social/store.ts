@@ -5,6 +5,19 @@ import { neon } from "@neondatabase/serverless";
 import { getPgUrl } from "@/server/repositories/postgres-observation-repository";
 import type { OwnedPlatform } from "./platforms";
 
+/** Progress of the historical post backfill for one network. Plain values only, never a secret. */
+export type NetworkBackfillState = {
+  /** Where the next history page starts. Undefined once history is complete. */
+  historyCursor?: string;
+  historyComplete?: boolean;
+  lastRunAt?: string;
+  lastError?: string;
+  lastNewPosts?: number;
+  lastUpdatedPosts?: number;
+  /** Set when the run stopped at its X read cap (X_MAX_POSTS_PER_RUN). Not an error. */
+  lastCapReachedAt?: string;
+};
+
 /**
  * One row per platform. Every secret (app credentials, tokens, static keys) lives inside an
  * encrypted blob; the plain fields here are safe to show leaders (status, expiry, label).
@@ -27,6 +40,16 @@ export type ConnectionRecord = {
   lastError?: string;
   /** Set only when the platform definitively rejected the refresh key (not for network blips). */
   needsReauth?: boolean;
+  /** Result of the last "Test keys" run. Plain summary only, never a secret. */
+  lastVerifiedAt?: string;
+  lastVerifyOk?: boolean;
+  lastVerifySummary?: string;
+  /** Backfill progress, keyed by network (facebook and instagram both live on the "meta" record). */
+  backfill?: Partial<Record<string, NetworkBackfillState>>;
+  /** Facebook Page ID found automatically when the leader left the field blank. Not secret. */
+  detectedPageId?: string;
+  /** When the last "connection needs attention" email went out (throttled to one per platform per few days). */
+  lastAlertAt?: string;
   updatedAt: string;
 };
 
@@ -36,7 +59,7 @@ export interface ConnectionStore {
   list(): Promise<ConnectionRecord[]>;
 }
 
-function dataDir(): string {
+export function dataDir(): string {
   return process.env.DATA_DIR
     ? process.env.DATA_DIR
     : process.env.VERCEL
@@ -121,7 +144,7 @@ export function getConnectionStore(): ConnectionStore {
   return getPgUrl() ? postgresStore : fileStore;
 }
 
-/** Test helper: wipes the local file store. */
+/** Test helper: wipes the local connection file store. */
 export async function resetFileStoreForTests(): Promise<void> {
   await fs.rm(filePath(), { force: true });
 }

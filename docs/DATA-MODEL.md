@@ -98,7 +98,9 @@ The AI-extracted structured data, defined by `ExtractionSchema`.
 Found primarily in [`src/server/repositories/user-repository.ts`](file:///c:/Users/PC_User/jacob/bedrockDemo/utah_city_tour_feedback_2wktrial/src/server/repositories/user-repository.ts) and [`src/server/auth/session.ts`](file:///c:/Users/PC_User/jacob/bedrockDemo/utah_city_tour_feedback_2wktrial/src/server/auth/session.ts).
 
 ### `UserRole`
-`"host" | "leader"`
+`"host" | "leader" | "admin"` (defined in `src/server/auth/roles.ts`; re-exported by `user-repository.ts`)
+
+admin is a superset of leader. `users.role` and `invitations.role` are plain `TEXT`, so no migration is needed for new values. An unrecognized stored role is treated as `host`.
 
 ### `StoredUser`
 | Field | Type |
@@ -179,6 +181,32 @@ Current production tables.
 
 Accounts are created via invite claim or optional `SEED_USERS_JSON` (env). Password hash + salt are generated at runtime and never committed.
 
+**`users.role` values:** `host`, `leader`, `admin`.
+
+**Promote to admin (do NOT run until this code is deployed):** older code treats `admin` as a non-leader, so run this only after the deploy that includes the admin role:
+
+```sql
+update users set role = 'admin', updated_at = now() where lower(email) in ('jawoba004@gmail.com','adam.rencher12@gmail.com','jacklyn@utahcity.com');
+```
+
+### `app_settings`
+
+A small key-value table. It is created lazily by `src/server/settings/app-settings.ts` (`create table if not exists`). Without a database, values live in `app-settings.json` in the data directory.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `key` | `TEXT PRIMARY KEY` | |
+| `value` | `JSONB NOT NULL` | |
+| `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | |
+
+**`social_accounts_mode`** controls the Social Accounts page. Values are `"setup"` (default when the row is missing) or `"live"`. There is no UI to change it. Flip it in the database:
+
+```sql
+insert into app_settings (key, value) values ('social_accounts_mode', '"live"'::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now();
+```
+
+To return to setup mode, use the same statement with `'"setup"'::jsonb`.
+
 ### `invitations`
 | Column | Type | Index |
 | --- | --- | --- |
@@ -191,6 +219,16 @@ Accounts are created via invite claim or optional `SEED_USERS_JSON` (env). Passw
 | `expires_at` | `TIMESTAMPTZ NOT NULL` | |
 | `claimed_at` | `TIMESTAMPTZ` | |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | |
+
+### Official account posts (`owned_social_posts`, `owned_social_metric_snapshots`)
+
+Filled by the historical backfill (`apps/web/src/server/owned-social/backfill.ts`) for the official TikTok, YouTube, LinkedIn, Facebook, Instagram and X accounts. Source: `apps/web/src/server/owned-social/posts-store.ts`. In development without Postgres these live in `owned-social-posts.json` in the same data directory as `owned-social.json`.
+
+**`owned_social_posts`**: one row per post, primary key `(network, post_id)`. `network` is `tiktok`, `youtube`, `linkedin`, `facebook`, `instagram` or `x` (X posts: `platform` is `x`, `url` is `https://x.com/<username>/status/<id>`, `media_type` is `post`, shares = retweets + quote posts, saves = bookmarks); `platform` is the credential set (`meta` for Facebook and Instagram). `metrics` is JSONB holding only the values we have (views, likes, comments, shares, saves, reach, impressions, clicks, watch minutes, average view seconds, engagement); a later run merges new keys into it and never erases known ones. Index: `owned_social_posts_published_idx` on `(network, published_at desc)`.
+
+**`owned_social_metric_snapshots`**: one row per post per backfill run, primary key `(network, post_id, captured_at)`, with `age_hours` (hours from publish to capture) and the metrics seen that run. This is the history behind any "growth over time" view.
+
+**Backfill state** is stored on the connection record in `owned_social_connections` (`ConnectionRecord.backfill`, keyed by network): `historyCursor` (where the next history page starts), `historyComplete`, `lastRunAt`, `lastError` (message only, scrubbed of any secret), `lastNewPosts`, `lastUpdatedPosts` and `lastCapReachedAt` (set when X's per-run read cap stopped the run; a note, not an error). The record also holds `detectedPageId` (the Facebook Page found automatically, not secret), `lastAlertAt` (renewal-email throttle) and the plain `lastVerify*` fields. Each run first sweeps the newest pages (last 60 days, up to 10 pages), then continues the older history from the saved cursor (up to 20 pages per run), saving the cursor after every page. Metric fields that need extra calls (Instagram insights, LinkedIn share statistics, YouTube analytics) are best effort.
 
 ## 5. Platform Schema (Future)
 

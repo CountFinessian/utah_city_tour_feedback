@@ -3,12 +3,13 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import type { UserRole } from "@/server/auth/roles";
 import { AlertCircle, ArrowRight, ShieldCheck } from "lucide-react";
 
 type InviteDetails = {
   email: string;
   name: string;
-  role: "host" | "leader";
+  role: UserRole;
   title?: string;
 };
 
@@ -171,7 +172,7 @@ function SetupAccountForm() {
               <p className="text-sm font-bold text-[#f0f6ff] truncate">{invite.email}</p>
             </div>
             <span className="px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-[#43d9c7]/10 border border-[#43d9c7]/20 text-[#43d9c7]">
-              {invite.role === "host" ? "Tour Host" : "Leadership"}
+              {invite.role === "host" ? "Tour Host" : invite.role === "admin" ? "Admin" : "Leadership"}
             </span>
           </div>
         )}

@@ -1,3 +1,5 @@
+import { isLeadershipRole, type UserRole } from "@/server/auth/roles";
+
 /**
  * Resend Email Service for Utah City Platform
  */
@@ -10,7 +12,7 @@ export function getResendApiKey(): string | null {
 
 export type SendInvitationParams = {
   to: string;
-  role: "host" | "leader";
+  role: UserRole;
   setupUrl: string;
   invitedByName?: string;
 };
@@ -27,7 +29,12 @@ export async function sendInvitationEmail({
     return { success: false, error: "RESEND_API_KEY is not configured in environment variables." };
   }
 
-  const roleLabel = role === "leader" ? "Leadership (Command & Analyst)" : "Tour Host (Mobile Capture)";
+  const roleLabel =
+    role === "admin"
+      ? "Admin (Leadership, plus social key management)"
+      : isLeadershipRole(role)
+        ? "Leadership (Command & Analyst)"
+        : "Tour Host (Mobile Capture)";
 
   const html = `
 <!DOCTYPE html>

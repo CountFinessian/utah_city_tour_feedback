@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { MobileCaptureApp } from "@/components/MobileCaptureApp";
 import { hasASR } from "@/server/ai/env-flags";
+import { isLeadershipRole } from "@/server/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export default async function Home(props: {
     searchParams.capture === "1" ||
     searchParams.mode === "capture";
 
-  if (!isMobile && role === "leader" && !isExplicitCapture) {
+  if (!isMobile && isLeadershipRole(role) && !isExplicitCapture) {
     redirect("/command");
   }
 

@@ -1,10 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/server/auth/session";
-import { userAccountExists } from "@/server/auth/session-alive";
+import { lookupUserAccount } from "@/server/auth/session-alive";
+import { isLeadershipRole, normalizeRole, type UserRole } from "@/server/auth/roles";
 
 const LEADERSHIP_ROUTES = [
   "/command",
   "/social-pulse",
+  "/social-accounts",
   "/analyst",
   "/journey",
   "/signals",
@@ -27,7 +29,12 @@ const LEADERSHIP_APIS = [
   "/api/social-pulse/dashboard",
   "/api/social-pulse/comments",
   "/api/owned-social/admin",
+  "/api/owned-social/posts",
+  "/api/owned-social/dashboard",
 ];
+
+// Leadership APIs are open to leader and admin. Admin-only methods are enforced inside
+// /api/owned-social/admin (the middleware cannot tell methods apart for admin-only rules).
 
 /** Only real static asset requests (never API routes) skip authentication. */
 const STATIC_ASSET_PATTERN =
@@ -89,8 +96,8 @@ export async function middleware(req: NextRequest) {
       const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
       const session = await verifySessionToken(token);
       if (session) {
-        const stillExists = await userAccountExists(session.email);
-        if (stillExists === false) {
+        const account = await lookupUserAccount(session.email);
+        if (account && !account.exists) {
           return clearSessionAndRedirectToLogin(req, "deleted");
         }
         const dest = (session.role === "host" || isMobile) ? "/" : "/command";
@@ -116,8 +123,8 @@ export async function middleware(req: NextRequest) {
   }
 
   // 2b. Revoke sessions for deleted accounts (JWT alone is not enough)
-  const stillExists = await userAccountExists(session.email);
-  if (stillExists === false) {
+  const account = await lookupUserAccount(session.email);
+  if (account && !account.exists) {
     if (pathname.startsWith("/api/")) {
       const res = NextResponse.json({ error: "Account revoked" }, { status: 401 });
       res.cookies.set({
@@ -132,6 +139,10 @@ export async function middleware(req: NextRequest) {
     return clearSessionAndRedirectToLogin(req, "deleted");
   }
 
+  // 2c. Role freshness: when the database answered, its current role wins over the role in the cookie.
+  // An unrecognized stored role gets the least-privileged role. Without a database answer, the token role is used.
+  const role: UserRole = account ? (normalizeRole(account.role) ?? "host") : session.role;
+
   // 3. Enforce Role-Based Access Control and Mobile Surface Constraints
   const isLeadershipRoute = LEADERSHIP_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));
   const isLeadershipApi = LEADERSHIP_APIS.some((route) => pathname === route || pathname.startsWith(`${route}/`));
@@ -145,7 +156,7 @@ export async function middleware(req: NextRequest) {
   if (
     pathname === "/" &&
     !isMobile &&
-    session.role === "leader" &&
+    isLeadershipRole(role) &&
     !req.nextUrl.searchParams.has("surface") &&
     !req.nextUrl.searchParams.has("capture") &&
     !req.nextUrl.searchParams.has("mode")
@@ -153,7 +164,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/command", req.url));
   }
 
-  if (session.role !== "leader") {
+  if (!isLeadershipRole(role)) {
     if (isLeadershipRoute) {
       const captureUrl = new URL("/", req.url);
       captureUrl.searchParams.set("unauthorized", "leadership");
@@ -169,7 +180,7 @@ export async function middleware(req: NextRequest) {
   requestHeaders.set("x-user-id", session.id);
   requestHeaders.set("x-user-email", session.email);
   requestHeaders.set("x-user-name", session.name);
-  requestHeaders.set("x-user-role", session.role);
+  requestHeaders.set("x-user-role", role);
 
   return NextResponse.next({
     request: {

@@ -13,6 +13,8 @@ import {
   signPasswordResetToken,
 } from "@/server/auth/session";
 import { sendInvitationEmail, sendPasswordResetEmail } from "@/server/email/mailer";
+import { isLeadershipRole } from "@/server/auth/roles";
+import { liveSessionRole } from "@/server/auth/live-role";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +49,8 @@ export async function POST(req: Request) {
     const session = await verifySessionToken(sessionToken);
 
     // Only Leadership can resend setup links or trigger password resets from admin panel
-    if (!session || session.role !== "leader") {
+    const liveRole = session ? await liveSessionRole(session) : null;
+    if (!session || !isLeadershipRole(liveRole)) {
       return NextResponse.json(
         { error: "Forbidden: Only Leadership accounts can trigger invites or password resets." },
         { status: 403 }

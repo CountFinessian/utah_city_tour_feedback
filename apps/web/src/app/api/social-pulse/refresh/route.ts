@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/server/auth/session";
+import { isLeadershipRole } from "@/server/auth/roles";
+import { liveSessionRole } from "@/server/auth/live-role";
 import { acceptSocialListeningCycle } from "@/server/services/social-cycle";
 
 export const maxDuration = 300;
@@ -26,7 +28,7 @@ export async function POST(request: Request) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.role !== "leader") {
+    if (!isLeadershipRole(await liveSessionRole(session))) {
       return NextResponse.json({ error: "Forbidden: Leadership access required" }, { status: 403 });
     }
 

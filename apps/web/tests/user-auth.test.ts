@@ -152,9 +152,13 @@ describe("Real Database & Invitation Authentication", () => {
     expect(reuseJson.error).toContain("already been used");
 
     // 4. Attempting to send another invitation to this active member returns 400
+    const { signSessionToken, SESSION_COOKIE_NAME } = await import("../src/server/auth/session");
+    const { createUser: createInviterForTest } = await import("../src/server/repositories/user-repository");
+    await createInviterForTest({ id: "usr_reinvite_leader", email: "reinvite.leader@utahcity.com", name: "Reinvite Leader", role: "leader", passwordHash: "x", passwordSalt: "y" });
+    const inviterCookie = `${SESSION_COOKIE_NAME}=${await signSessionToken({ id: "usr_reinvite_leader", email: "reinvite.leader@utahcity.com", name: "Reinvite Leader", role: "leader" })}`;
     const reInviteReq = new Request("https://demo.utahcity.com/api/auth/invite", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", cookie: inviterCookie },
       body: JSON.stringify({
         email: "newrecruit@utahcity.com",
         role: "host",

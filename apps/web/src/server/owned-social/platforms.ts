@@ -20,6 +20,25 @@ export const PLATFORM_LABELS: Record<OwnedPlatform, string> = {
   x: "X",
 };
 
+/** The official Utah City accounts. Verification warns when keys belong to a different account. */
+export const OFFICIAL_ACCOUNTS: Record<OwnedPlatform, Array<{ network: string; handle: string; url: string }>> = {
+  tiktok: [{ network: "TikTok", handle: "utahcityutah", url: "https://www.tiktok.com/@utahcityutah" }],
+  youtube: [{ network: "YouTube", handle: "UtahCity", url: "https://www.youtube.com/@UtahCity" }],
+  linkedin: [{ network: "LinkedIn", handle: "utah-city", url: "https://www.linkedin.com/company/utah-city/" }],
+  meta: [
+    { network: "Facebook", handle: "utahcityutah", url: "https://www.facebook.com/utahcityutah/" },
+    { network: "Instagram", handle: "utahcityutah", url: "https://www.instagram.com/utahcityutah/" },
+  ],
+  x: [{ network: "X", handle: "utahcityutah", url: "https://x.com/utahcityutah" }],
+};
+
+/** Case-insensitive handle comparison that ignores a leading "@" and surrounding whitespace. */
+export function handlesMatch(a: string | undefined, b: string): boolean {
+  if (!a) return false;
+  const normalize = (value: string) => value.trim().replace(/^@+/, "").toLowerCase();
+  return normalize(a) === normalize(b);
+}
+
 export function isOAuthPlatform(value: string): value is OAuthPlatform {
   return (OAUTH_PLATFORMS as readonly string[]).includes(value);
 }
@@ -28,24 +47,40 @@ export function isOwnedPlatform(value: string): value is OwnedPlatform {
   return isOAuthPlatform(value) || (STATIC_PLATFORMS as readonly string[]).includes(value);
 }
 
-export type CredentialField = { key: string; label: string; secret: boolean };
+export type CredentialField = {
+  key: string;
+  label: string;
+  secret: boolean;
+  /** Optional fields may stay blank; only required fields decide whether a platform counts as "saved". */
+  optional?: boolean;
+  help?: string;
+};
 
 /** What the marketing team sends back for each static (non-OAuth) platform. */
 export const STATIC_FIELDS: Record<StaticPlatform, CredentialField[]> = {
   meta: [
-    { key: "appId", label: "App ID", secret: false },
-    { key: "appSecret", label: "App Secret", secret: true },
+    { key: "appId", label: "App ID", secret: false, optional: true },
+    {
+      key: "appSecret",
+      label: "App Secret",
+      secret: true,
+      optional: true,
+      help: "Only needed if the app has 'Require App Secret' turned on",
+    },
     { key: "systemToken", label: "System-user token", secret: true },
-    { key: "pageId", label: "Facebook Page ID", secret: false },
+    { key: "pageId", label: "Facebook Page ID", secret: false, optional: true, help: "Leave blank to detect automatically" },
   ],
   x: [
     { key: "apiKey", label: "API Key", secret: false },
     { key: "apiSecret", label: "API Secret", secret: true },
-    { key: "bearerToken", label: "Bearer Token", secret: true },
     { key: "accessToken", label: "Access Token", secret: true },
     { key: "accessTokenSecret", label: "Access Token Secret", secret: true },
+    { key: "bearerToken", label: "Bearer Token", secret: true, optional: true, help: "Not used for reading posts; optional" },
   ],
 };
+
+/** The official Facebook Page handle, used to pick the right Page when several are linked. */
+export const META_PAGE_HANDLE = "utahcityutah";
 
 /** What the team sends back for each OAuth platform (the app's own credentials). */
 export const APP_FIELD_LABELS: Record<OAuthPlatform, { clientId: string; clientSecret: string }> = {

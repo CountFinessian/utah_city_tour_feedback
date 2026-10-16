@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
-import { BarChart3, Bot, GitBranch, ListChecks, Map, Search, Settings, Smartphone } from "lucide-react";
+import { BarChart3, Bot, GitBranch, ListChecks, Map, Search, Settings, Share2, Smartphone } from "lucide-react";
 
 const items = [
   { href: "/command", label: "Open Command", helper: "Executive operating console", icon: BarChart3 },
   { href: "/analyst", label: "Ask AI Analyst", helper: "Interrogate the corpus", icon: Bot },
   { href: "/journey", label: "Open Journey", helper: "Resident lifecycle spine", icon: GitBranch },
   { href: "/social-pulse", label: "Open Social Pulse", helper: "Comment sentiment", icon: Map },
+  { href: "/social-accounts", label: "Open Social Accounts", helper: "Owned channels and analytics", icon: Share2 },
   { href: "/evidence", label: "Search Evidence", helper: "Transcript-grounded corpus", icon: Search },
   { href: "/operations", label: "Open Operations", helper: "Capture quality and adoption", icon: ListChecks },
   { href: "/settings", label: "Open Settings", helper: "Admin and demo controls", icon: Settings },

@@ -141,6 +141,11 @@ describe("Social Pulse cron and leadership refresh", () => {
   });
 
   it("lets a logged-in leader start a cycle without sending CRON_SECRET", async () => {
+    // The refresh route re-reads the role from the users table, so the leader account must exist.
+    const { createUser, findUserByEmail } = await import("@/server/repositories/user-repository");
+    if (!(await findUserByEmail("leader@utahcity.app"))) {
+      await createUser({ id: "usr_leader", email: "leader@utahcity.app", name: "Leader", role: "leader", passwordHash: "x", passwordSalt: "y" });
+    }
     const res = await refreshPOST(
       new Request("https://utahcity.app/api/social-pulse/refresh", {
         method: "POST",

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { UserPlus, Check, AlertCircle, Trash2, X, Copy } from "lucide-react";
+import { isAdminRole, normalizeRole, type UserRole } from "@/server/auth/roles";
 
 type InviteItem = {
   email: string;
   name: string;
-  role: "host" | "leader";
+  role: UserRole;
   claimed: boolean;
   setupUrl: string;
 };
@@ -15,7 +16,9 @@ export function InviteManager() {
   const [invites, setInvites] = useState<InviteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"host" | "leader">("host");
+  const [role, setRole] = useState<UserRole>("host");
+  const [callerRole, setCallerRole] = useState<UserRole | null>(null);
+  const isAdmin = isAdminRole(callerRole);
   const [submitting, setSubmitting] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +45,11 @@ export function InviteManager() {
 
   useEffect(() => {
     loadInvites();
+    // Role decides which controls appear: only admins can remove people or assign admin.
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setCallerRole(normalizeRole(data?.user?.role)))
+      .catch(() => setCallerRole(null));
   }, []);
 
   function copyToClipboard(url: string) {
@@ -208,11 +216,12 @@ export function InviteManager() {
             <label className="text-xs font-medium text-command-soft block mb-1">Authority Level</label>
             <select
               value={role}
-              onChange={(e) => setRole(e.target.value as "host" | "leader")}
+              onChange={(e) => setRole(e.target.value as UserRole)}
               className="w-full px-3 py-2 rounded-lg bg-[#101827] border border-command-border text-xs text-command-ink focus:outline-none focus:border-command-accent"
             >
               <option value="host">Tour Host (Capture Only)</option>
               <option value="leader">Leadership (Command & Analyst)</option>
+              {isAdmin && <option value="admin">Admin (Leadership, plus social key management)</option>}
             </select>
           </div>
         </div>
@@ -254,10 +263,12 @@ export function InviteManager() {
                       className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                         inv.role === "host"
                           ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                          : "bg-sky-500/10 text-sky-400 border border-sky-500/20"
+                          : inv.role === "admin"
+                            ? "bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                            : "bg-sky-500/10 text-sky-400 border border-sky-500/20"
                       }`}
                     >
-                      {inv.role === "host" ? "Host" : "Leadership"}
+                      {inv.role === "host" ? "Host" : inv.role === "admin" ? "Admin" : "Leadership"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-[11px]">
@@ -305,15 +316,17 @@ export function InviteManager() {
                     </button>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => setConfirmRemoveUser(inv)}
-                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:border-red-500/40 transition-colors shrink-0 cursor-pointer"
-                    title={`Remove ${inv.name || inv.email}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span>Remove</span>
-                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmRemoveUser(inv)}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:border-red-500/40 transition-colors shrink-0 cursor-pointer"
+                      title={`Remove ${inv.name || inv.email}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Remove</span>
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

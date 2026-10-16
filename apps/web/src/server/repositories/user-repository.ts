@@ -1,10 +1,11 @@
 import { neon } from "@neondatabase/serverless";
 import { verifyInvitationToken } from "@/server/auth/session";
+import { isLeadershipRole, type UserRole } from "@/server/auth/roles";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 
-export type UserRole = "host" | "leader";
+export type { UserRole };
 
 export type StoredUser = {
   id: string;
@@ -126,7 +127,7 @@ export function isDbConfigured(): boolean {
   return Boolean(getDbUrl());
 }
 
-function getDb() {
+export function getDb() {
   if (!isDbConfigured()) return null;
   const url = getDbUrl();
   if (!url) return null;
@@ -431,7 +432,7 @@ export async function updateUserRole(
   newRole: UserRole
 ): Promise<{ userUpdated: boolean; inviteUpdated: boolean }> {
   const normalizedEmail = email.trim().toLowerCase();
-  const defaultTitle = newRole === "leader" ? "Utah City Leadership" : "Tour Host";
+  const defaultTitle = isLeadershipRole(newRole) ? "Utah City Leadership" : "Tour Host";
 
   if (isDbConfigured()) {
     await ensureUserSchema();

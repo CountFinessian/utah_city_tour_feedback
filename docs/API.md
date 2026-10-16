@@ -2,6 +2,22 @@
 
 All API routes are under `/api/`. Authentication is enforced by middleware (`src/middleware.ts`) unless noted as Public.
 
+## Roles and access
+
+Roles are `host`, `leader`, and `admin`. **Admin is a superset of leader**: everything a leader can do, an admin can do.
+
+- **Host**: tour capture only.
+- **Leader** ("Leadership"): command, analyst, evidence, settings, the social dashboard, and inviting hosts and leaders.
+- **Admin**: everything a leader can do, plus the admin-only powers below.
+
+Admin-only:
+- Managing social API keys: every method of `/api/owned-social/admin` (save, authorize, disconnect, refresh, test, backfill, status). Non-admins get `403 "Admin access required"`.
+- Removing people from the app: `DELETE /api/auth/invite`.
+- Assigning the admin role: inviting someone as `admin`, or changing anyone's role to `admin`, or changing an existing admin's role (`PATCH /api/auth/invite`).
+
+Role freshness: middleware looks up the user's current role in the database (60-second cache) on every request and uses it for the route gates and the `x-user-role` header. A role change applies without re-login. The role in the session cookie is used only when the database cannot be reached. Routes that read the session cookie directly (`/api/auth/*`, `/api/observations` DELETE, `/api/social-pulse/refresh`) also check the current role in the database. A user who no longer exists is refused. An unrecognized stored role is treated as `host`.
+
+
 ## 1. Authentication
 
 ### `POST /api/auth/login`
@@ -69,21 +85,21 @@ Manages user invitations.
 - **`GET`** (Public)
   - **Service:** `listAllInvitationsWithStatus`
   - **Response `200 OK`**: `{ "invitations": [ { "email": "...", "name": "...", "role": "...", "claimed": false, "setupUrl": "..." } ] }`
-- **`POST`** (Public)
+- **`POST`** (Leadership role required: leader or admin)
   - **Service:** `createOrUpdateInvitation`, `sendInvitationEmail`
-  - **Request Body**: `{ "email": "...", "role": "host|leader", "name": "...", "title": "..." }`
+  - **Request Body**: `{ "email": "...", "role": "host|leader|admin", "name": "...", "title": "..." }`
   - **Response `200 OK`**: `{ "success": true, "setupUrl": "...", "emailSent": true, "invite": { ... } }`
-  - **Errors**: `400 Bad Request` if email exists or invalid.
-- **`PATCH`** (Leader role required)
+  - **Errors**: `401 Unauthorized` without a session. `403 Forbidden` for non-leadership, or for a leader inviting `admin` (`"Only admins can assign the admin role."`). `400 Bad Request` if email exists, invalid, or the role is unknown.
+- **`PATCH`** (Leadership role required; admin role required to assign or change admin)
   - **Service:** `updateUserRole`
-  - **Request Body**: `{ "email": "...", "role": "host|leader" }`
+  - **Request Body**: `{ "email": "...", "role": "host|leader|admin" }`
   - **Response `200 OK`**: `{ "success": true, "email": "...", "role": "...", "message": "..." }`
-  - **Errors**: `403 Forbidden` if not a leader.
-- **`DELETE`** (Leader role required)
+  - **Errors**: `403 Forbidden` if not leadership, or if a non-admin assigns `admin` or changes an existing admin.
+- **`DELETE`** (Admin only)
   - **Service:** `deleteUserAndInvitation`
   - **Request Query Params / Body**: `?email=...` or `{ "email": "..." }`
   - **Response `200 OK`**: `{ "success": true, "email": "...", "message": "..." }`
-  - **Errors**: `403 Forbidden` if not a leader, `400 Bad Request` if deleting own account.
+  - **Errors**: `403 Forbidden` with `"Only admins can remove people from the app"` for leaders and hosts. `400 Bad Request` if the admin targets their own account.
 
 ---
 
@@ -99,7 +115,7 @@ Manages observation/evidence records.
   - **Request Body**: `CreateObservationInput` schema (JSON)
   - **Response `200 OK`**: `{ "observation": { ... } }`
   - **Errors**: Returns appropriate HTTP status on validation errors.
-- **`DELETE`** (Leader role required)
+- **`DELETE`** (Leadership role required: leader or admin)
   - **Service:** `deleteObservation`
   - **Request Query Params / Body**: `?id=...` or `{ "id": "..." }`
   - **Response `200 OK`**: `{ "success": true, "message": "..." }`
@@ -173,6 +189,46 @@ Returns the platform status (lightweight health check).
 - **Response `200 OK`**: JSON status object.
 
 ---
+
+## 6b. Official Account Connections (admin only for keys; leadership for analytics; cron separate)
+
+### `GET /api/owned-social/admin`
+
+**Admin only.** Any other caller gets `403 {"error": "Admin access required"}`. Applies to every method on this route.
+
+Connection status per platform plus `backfill`: per network `{ network, label, postCount, historyComplete, lastRunAt?, lastError?, lastNewPosts?, lastUpdatedPosts? }`. Never returns a secret.
+
+### `POST /api/owned-social/admin`
+
+Body `{ action, platform, ... }` where `action` is `save-credentials`, `create-link`, `refresh`, `disconnect`, `verify`, or `backfill`.
+
+- `backfill` runs the historical backfill now for the platform's networks (`meta` = Facebook and Instagram, `x` = X). Returns `{ ok, outcomes }` where each outcome is `{ network, result: "ok" | "skipped" | "error", newPosts, updatedPosts, historyComplete, detail? }`. X is read with OAuth 1.0a user context and stops at `X_MAX_POSTS_PER_RUN`; hitting the cap is an `ok` outcome whose `detail` says so.
+
+### `GET /api/owned-social/posts`
+
+Leadership (leader or admin) export of backfilled posts, newest first. Query: `network` (`tiktok`, `youtube`, `linkedin`, `facebook`, `instagram`, `x`), `since` (date or ISO 8601), `format` (`json`, default, or `csv`). JSON returns `{ count, posts }`. CSV (up to 50,000 rows) has the columns `network,post_id,published_at,title,url,media_type,duration_sec,views,likes,comments,shares,saves,reach,impressions,clicks,watch_minutes,avg_view_seconds`. Cells that start with `= + - @` are prefixed with an apostrophe to block spreadsheet formula injection.
+
+### `GET /api/owned-social/dashboard`
+
+Leadership (leader or admin) analytics for the official accounts' posts (`src/server/owned-social/dashboard.ts`), over the last 90 days. Returns `{ generatedAt, windowDays, lastUpdatedAt, totals30d, networks, recentPosts, topPosts, weekly }`:
+
+- `networks[]`: per network with posts, views, likes, comments and shares over 30 days, `engagementRate30d` (likes + comments + shares) / views, and `medianViews90d`.
+- `recentPosts`: newest 50 across networks, each with `performanceIndex` (views / that network's 90-day median) and `label` (`Above typical` at 1.5 or more, `Typical` from 0.67, `Below typical` under 0.67, `Still growing` under 72 hours old).
+- `topPosts`: top 5 by views per network. `weekly`: 13 Monday-start weeks (UTC) of views and post counts per network, by publish date.
+
+Responses are `Cache-Control: no-store`. Hosts get `403`.
+
+### `GET|POST /api/owned-social/cron`
+
+Bearer `CRON_SECRET` required (fails closed in production). Query `mode`:
+
+- `all` (default): renew OAuth connections, then backfill posts.
+- `refresh`: renew only.
+- `backfill`: backfill only.
+
+Response: `{ ok, outcomes, backfill, alerts }`. `ok` is false when a renewal failed (the workflow fails on that). `alerts` lists the platforms that were emailed, or why not (already alerted within 3 days, no recipients, send failed). Email problems never change the status code.
+
+Returns `{ ok, outcomes, backfill }`. `ok` reflects renewal failures only: backfill errors appear in `backfill` but do not fail the response. Unknown modes return 400.
 
 ## 7. Webhooks
 

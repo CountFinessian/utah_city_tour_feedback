@@ -21,6 +21,7 @@ import {
   Redo2,
 } from "lucide-react";
 import { Recorder, type RecorderRef } from "./Recorder";
+import { isLeadershipRole } from "@/server/auth/roles";
 
 function fireHaptic(kind: "submit" | "error" | "tap") {
   return import("@/lib/haptics").then((h) => {
@@ -619,7 +620,7 @@ export function MobileCaptureApp({ serverAsr = false }: { serverAsr?: boolean })
         )}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          {currentUser?.role === "leader" ? (
+          {isLeadershipRole(currentUser?.role) ? (
             <Link href="/command" className="command-action-button inline-flex">
               Open Command
             </Link>
