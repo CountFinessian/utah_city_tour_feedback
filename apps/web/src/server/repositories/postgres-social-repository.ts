@@ -353,13 +353,15 @@ export const postgresSocialRepository: SocialListeningRepository = {
     return rows.map(mapPostRow);
   },
 
-  async countPosts(filter?: { commentHarvest?: boolean }): Promise<number> {
+  async countPosts(filter?: { commentHarvest?: boolean; contentOnly?: boolean }): Promise<number> {
     await ensureSocialSchema();
     const sql = db();
     const commentHarvest = filter?.commentHarvest === true;
+    const contentOnly = filter?.contentOnly === true;
     const rows = await sql`
       select count(*)::int as n from social_posts
       where (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
+        and (${contentOnly}::boolean = false or (relevance_status = 'relevant' and is_official_source = false))
     `;
     return Number(rows[0]?.n ?? 0);
   },

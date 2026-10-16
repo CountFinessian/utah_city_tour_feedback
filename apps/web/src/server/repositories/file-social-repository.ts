@@ -323,10 +323,12 @@ export const fileSocialRepository: SocialListeningRepository = {
     }
   },
 
-  async countPosts(filter?: { commentHarvest?: boolean }): Promise<number> {
+  async countPosts(filter?: { commentHarvest?: boolean; contentOnly?: boolean }): Promise<number> {
     const data = await readStorage();
-    if (!filter?.commentHarvest) return data.posts.length;
-    return data.posts.filter((p) => postCommentsInDashboard(p)).length;
+    let posts = data.posts;
+    if (filter?.commentHarvest) posts = posts.filter((p) => postCommentsInDashboard(p));
+    if (filter?.contentOnly) posts = posts.filter((p) => p.relevanceStatus === "relevant" && !p.isOfficialSource);
+    return posts.length;
   },
 
   async listOfficialAccounts() {

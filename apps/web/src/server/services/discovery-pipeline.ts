@@ -102,6 +102,10 @@ export class DiscoveryPipelineService {
     resetCost?: boolean;
     /** Stop before the next query or result once this time is reached. */
     deadlineAt?: number;
+    /** Results requested per platform search. Default 8 (the daily listener). Topic refreshes pass 25. */
+    resultsPerQuery?: number;
+    /** Results processed (relevance check, save) per query. Default 6. Topic refreshes pass 25. */
+    maxProcessPerQuery?: number;
     /** Resume a sweep. Absent on the legacy scheduler path. */
     cursor?: DiscoveryQueryCursor[];
     /** Run exactly these queries (skipResults 0), bypassing the repo's enabled list and cycle selection. */
@@ -122,6 +126,8 @@ export class DiscoveryPipelineService {
   }> {
     if (options?.resetCost !== false) tregClient.resetCycleCost();
     const budget = options?.cycleBudgetUsd ?? resolveCycleBudgetUsd();
+    const resultsPerQuery = options?.resultsPerQuery ?? 8;
+    const maxProcessPerQuery = options?.maxProcessPerQuery ?? 6;
     const trackCursor = options?.deadlineAt != null;
 
     const allQueries = options?.queries ? [] : await this.repo.listQueries(true);
@@ -180,7 +186,7 @@ export class DiscoveryPipelineService {
         const rawResults = await tregClient.searchPlatform(
           q.platform,
           q.query,
-          8,
+          resultsPerQuery,
           strategy,
           options?.since ? { since: options.since } : undefined
         );
@@ -190,7 +196,6 @@ export class DiscoveryPipelineService {
         let nextSkip = q.skipResults;
 
         let processed = 0;
-        const maxProcessPerQuery = 6;
         for (let index = 0; index < rawResults.length; index += 1) {
           if (index < q.skipResults) continue;
           if (pastDeadline() || tregClient.getCycleCostUsd() >= budget) {

@@ -29,7 +29,8 @@ async function loadCorpus(overrides?: {
   const [posts, comments, trackedPostCount] = await Promise.all([
     repo.listPosts({ dashboardImportant: true, limit: POST_LIMIT }),
     repo.listComments({ dashboardOnly: true, limit: COMMENT_LIMIT }),
-    repo.countPosts({ commentHarvest: true }),
+    // Leadership sees independent coverage only; Utah City's own posts are not counted.
+    repo.countPosts({ contentOnly: true }),
   ]);
   return { posts, comments, trackedPostCount };
 }

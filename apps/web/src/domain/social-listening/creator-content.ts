@@ -1,5 +1,6 @@
 import { Post, Comment } from "./types";
 import { isOfficialAuthor, SEEDED_OFFICIAL_ACCOUNTS } from "./relevance";
+import { isAffiliatedComment, isAffiliatedPost } from "./affiliation";
 
 export type CreatorEligibility =
   | "INDEPENDENT_COMMENTATOR"
@@ -409,17 +410,20 @@ export function extractIndependentCreatorContent(
     const key = `${post.platform.toLowerCase()}:${post.authorUsername.toLowerCase()}`;
     const profile = profilesMap?.get(key) || evaluateCreatorEligibility(post);
 
-    // Strict filter: ONLY INDEPENDENT_COMMENTATOR and LOCAL_RESIDENT_OR_VISITOR with high confidence
+    // Strict filter: ONLY INDEPENDENT_COMMENTATOR and LOCAL_RESIDENT_OR_VISITOR with high confidence.
+    // Utah City's programs, venues and on-site partners (and posts on affiliated sites) never count
+    // as independent creators, whatever the keyword classifier says.
     const isIndependent =
       (profile.creatorEligibility === "INDEPENDENT_COMMENTATOR" ||
         profile.creatorEligibility === "LOCAL_RESIDENT_OR_VISITOR") &&
-      profile.eligibilityConfidence >= 0.7;
+      profile.eligibilityConfidence >= 0.7 &&
+      !isAffiliatedPost(post);
 
     if (!isIndependent) {
       continue;
     }
 
-    const postComments = comments.filter((c) => c.postId === post.id && !c.dropped);
+    const postComments = comments.filter((c) => c.postId === post.id && !c.dropped && !isAffiliatedComment(c, post));
     const postText = (post.caption || post.title || "").trim();
     const transcript = (post.transcript || "").trim();
 

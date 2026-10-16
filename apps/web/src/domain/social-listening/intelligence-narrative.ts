@@ -1,5 +1,6 @@
 import { isOfficialStoredComment, isPublicOpinionComment, commentDropReason, normalizeCommentKey } from "@/domain/social-listening/comment-signal";
-import { isOfficialAuthor, postCommentsInDashboard, SEEDED_OFFICIAL_ACCOUNTS } from "@/domain/social-listening/relevance";
+import { postCommentsInDashboard } from "@/domain/social-listening/relevance";
+import { isAffiliatedComment } from "@/domain/social-listening/affiliation";
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type { Comment, Post, Platform, Sentiment, Topic } from "@/domain/social-listening/types";
 
@@ -110,9 +111,8 @@ export function isIrrelevantNoiseComment(text: string): boolean {
 export function isEligibleIntelligenceComment(comment: Comment, post: Post | undefined): boolean {
   if (!post || !postCommentsInDashboard(post)) return false;
   if (!isPublicOpinionComment(comment) || isOfficialStoredComment(comment)) return false;
-  if (isOfficialAuthor(comment.platform, comment.authorUsername, SEEDED_OFFICIAL_ACCOUNTS, [comment.authorId])) {
-    return false;
-  }
+  // Affiliated authors (official, programs, partners) and creator self-replies are not public opinion.
+  if (isAffiliatedComment(comment, post)) return false;
   if (comment.dropped || isIrrelevantNoiseComment(comment.text)) return false;
   return true;
 }

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { TopicEvidence, TopicSentiment } from "@/domain/social-listening/topics";
-import { CARD, FOCUS_RING, LABEL, formatYmd, isHttpUrl, localDateFormatter, platformLabel, type TopicDetail } from "./shared";
+import { CARD, FOCUS_RING, LABEL, authorLabel, formatItemDate, isHttpUrl, platformLabel, type Sentiment } from "./shared";
 
 /* --------------------------- small pieces --------------------------- */
 
@@ -17,14 +17,6 @@ export function ExternalSourceLink({ url, label }: { url: string | undefined | n
     >
       {label} ↗
     </a>
-  );
-}
-
-export function OfficialBadge() {
-  return (
-    <span className="px-1.5 py-0.5 rounded bg-[#20d0c3]/15 text-[#20d0c3] border border-[#20d0c3]/30 text-[10px] font-bold uppercase tracking-wider">
-      Official
-    </span>
   );
 }
 
@@ -63,7 +55,7 @@ export function Tile({ label, value, sub }: { label: string; value: ReactNode; s
     <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 min-w-0">
       <div className={LABEL}>{label}</div>
       <div className="mt-1.5 text-xl font-black text-white leading-tight break-words">{value}</div>
-      {sub && <div className="mt-1 text-[11px] text-slate-400">{sub}</div>}
+      {sub && <div className="mt-1 text-[11px] text-slate-400 break-words">{sub}</div>}
     </div>
   );
 }
@@ -77,88 +69,82 @@ export function Section({ title, children }: { title: string; children: ReactNod
   );
 }
 
-export function SentimentBar({ sentiment }: { sentiment: TopicSentiment }) {
+export function SentimentDot({ sentiment }: { sentiment: Sentiment | undefined }) {
+  const tone = sentiment ?? "unscored";
+  const color = { positive: "bg-emerald-400", neutral: "bg-slate-400", negative: "bg-rose-400", unscored: "bg-slate-600" }[tone];
+  return <span role="img" aria-label={`${tone} sentiment`} className={`w-2 h-2 shrink-0 rounded-full ${color}`} />;
+}
+
+/** Sentiment split. With onSelect, each segment and legend item sets the sentiment filter. */
+export function SentimentBar({
+  sentiment,
+  onSelect,
+}: {
+  sentiment: TopicSentiment;
+  onSelect?: (value: Sentiment) => void;
+}) {
   const total = sentiment.positive + sentiment.neutral + sentiment.negative;
   if (total === 0) return <p className="text-xs text-slate-500">No scored posts or comments yet.</p>;
-  const segments = [
+  const segments: Array<{ key: Sentiment; label: string; count: number; bar: string; text: string }> = [
     { key: "positive", label: "Positive", count: sentiment.positive, bar: "bg-emerald-400", text: "text-emerald-300" },
     { key: "neutral", label: "Neutral", count: sentiment.neutral, bar: "bg-slate-400", text: "text-slate-300" },
     { key: "negative", label: "Negative", count: sentiment.negative, bar: "bg-rose-400", text: "text-rose-300" },
   ];
   return (
     <div className="space-y-2">
-      <div
-        className="flex h-2.5 w-full overflow-hidden rounded-full bg-white/5"
-        role="img"
-        aria-label={segments.map((s) => `${s.count} ${s.label.toLowerCase()}`).join(", ")}
-      >
-        {segments.map((s) =>
-          s.count > 0 ? <div key={s.key} className={s.bar} style={{ width: `${(s.count / total) * 100}%` }} /> : null
-        )}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        {segments.map((s) => (
-          <span key={s.key} className={s.text}>
-            {s.label} <span className="font-bold">{s.count.toLocaleString()}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export function Sparkline({ timeline }: { timeline: TopicDetail["timeline"] }) {
-  if (timeline.length === 0) return <p className="text-xs text-slate-500">No activity recorded yet.</p>;
-  const sorted = [...timeline].sort((a, b) => a.date.localeCompare(b.date));
-  const first = sorted[0];
-  const last = sorted[sorted.length - 1];
-  const width = 100;
-  const height = 40;
-  const max = Math.max(1, ...sorted.map((p) => p.count));
-  const step = width / sorted.length;
-  return (
-    <div className="space-y-1.5">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        className="w-full h-16"
-        role="img"
-        aria-label={`Daily activity from ${formatYmd(first.date)} to ${formatYmd(last.date)}`}
-      >
-        {sorted.map((p, i) => {
-          const barHeight = (p.count / max) * (height - 2);
-          return (
-            <rect
-              key={p.date}
-              x={step * 0.15 + i * step}
-              y={height - barHeight}
-              width={step * 0.7}
-              height={barHeight}
-              rx={0.6}
-              className="fill-[#20d0c3]/70"
-            >
-              <title>{`${formatYmd(p.date)}: ${p.count}`}</title>
-            </rect>
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-white/5" role="group" aria-label="Sentiment split">
+        {segments.map((s) => {
+          if (s.count === 0) return null;
+          const width = `${(s.count / total) * 100}%`;
+          return onSelect ? (
+            <button
+              key={s.key}
+              type="button"
+              title={`${s.label}: ${s.count.toLocaleString()}`}
+              aria-label={`Show ${s.count} ${s.label.toLowerCase()}`}
+              onClick={() => onSelect(s.key)}
+              className={`h-full ${s.bar} hover:opacity-80 transition ${FOCUS_RING}`}
+              style={{ width }}
+            />
+          ) : (
+            <div key={s.key} className={s.bar} style={{ width }} />
           );
         })}
-      </svg>
-      <div className="flex justify-between text-[10px] text-slate-500">
-        <span>{formatYmd(first.date)}</span>
-        <span>{formatYmd(last.date)}</span>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {segments.map((s) =>
+          onSelect ? (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => onSelect(s.key)}
+              className={`${s.text} hover:underline rounded ${FOCUS_RING}`}
+            >
+              {s.label} <span className="font-bold">{s.count.toLocaleString()}</span>
+            </button>
+          ) : (
+            <span key={s.key} className={s.text}>
+              {s.label} <span className="font-bold">{s.count.toLocaleString()}</span>
+            </span>
+          )
+        )}
       </div>
     </div>
   );
 }
 
+/** Full text of one evidence item: a post, comment, article or review. */
 export function EvidenceDetail({ ev }: { ev: TopicEvidence }) {
+  const date = formatItemDate(ev.createdAt);
   return (
     <div className="p-3 rounded-xl bg-black/40 border border-white/10 space-y-2 text-xs min-w-0">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
-        <span className="font-semibold text-slate-200">@{ev.authorUsername}</span>
+        <span className="font-semibold text-slate-200 break-all">{authorLabel(ev)}</span>
         <span>{platformLabel(ev.platform)}</span>
-        {ev.createdAt && <span>{localDateFormatter.format(Date.parse(ev.createdAt))}</span>}
-        {ev.isOfficial && <OfficialBadge />}
+        {typeof ev.rating === "number" && <span className="text-amber-300">★ {ev.rating}</span>}
+        {date && <span>{date}</span>}
       </div>
+      {ev.title && <p className="text-sm font-semibold text-white break-words">{ev.title}</p>}
       <p className="text-slate-200 leading-relaxed break-words">{ev.text}</p>
       <ExternalSourceLink url={ev.url} label="Open source" />
     </div>
@@ -180,13 +166,13 @@ export function EvidenceChips({ items }: { items: TopicEvidence[] }) {
               type="button"
               aria-expanded={active}
               onClick={() => setOpenId(active ? null : ev.id)}
-              className={`px-2 py-0.5 rounded-md text-[11px] border transition ${FOCUS_RING} ${
+              className={`max-w-full px-2 py-0.5 rounded-md text-[11px] border break-all text-left transition ${FOCUS_RING} ${
                 active
                   ? "bg-[#20d0c3]/20 border-[#20d0c3]/40 text-[#20d0c3]"
                   : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
               }`}
             >
-              @{ev.authorUsername}
+              {authorLabel(ev)}
             </button>
           );
         })}
@@ -195,4 +181,3 @@ export function EvidenceChips({ items }: { items: TopicEvidence[] }) {
     </div>
   );
 }
-

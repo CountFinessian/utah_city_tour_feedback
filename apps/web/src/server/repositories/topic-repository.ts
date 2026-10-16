@@ -11,6 +11,8 @@ import {
   type TopicDefinition,
   type TopicRefreshOutcome,
   type TopicReport,
+  type TopicSource,
+  type TopicWebSource,
 } from "@/domain/social-listening/topics";
 import type { Platform, Sentiment } from "@/domain/social-listening/types";
 
@@ -20,18 +22,36 @@ export interface TopicRecord {
   lastRefresh: TopicRefreshOutcome | null;
 }
 
-/** One Treg search the topic refresh ran (or attempted). */
+/** One search the topic refresh ran (or attempted), social or web. */
 export interface TopicSearchRecord {
   id: string;
   topicId: string;
   query: string;
-  platform: Platform;
+  platform: TopicSource;
   searchedAt: string;
   resultsFound: number;
   newPosts: number;
   relevantPosts: number;
   costUsd: number;
   error?: string;
+}
+
+/** An article, listing, Threads post or review found by a web source. One row per (topic, url). */
+export interface TopicMentionRecord {
+  id: string;
+  topicId: string;
+  source: TopicWebSource;
+  url: string;
+  title?: string;
+  text: string;
+  /** Site name for articles and listings, handle for Threads, reviewer name for reviews. */
+  author: string;
+  publishedAt?: string;
+  likeCount: number;
+  rating?: number;
+  sentiment?: Sentiment;
+  query: string;
+  firstSeenAt: string;
 }
 
 /** Columns the topic service needs from a post. raw_provider_data is never loaded. */
@@ -72,9 +92,12 @@ export interface TopicCorpusComment {
   importanceScore?: number;
 }
 
+export type TopicCorpusMention = Omit<TopicMentionRecord, "topicId" | "query">;
+
 export interface TopicCorpus {
   posts: TopicCorpusPost[];
   comments: TopicCorpusComment[];
+  mentions: TopicCorpusMention[];
 }
 
 export interface TopicRepository {
@@ -92,12 +115,15 @@ export interface TopicRepository {
   listSearches(topicId: string): Promise<TopicSearchRecord[]>;
   /** searchDedupeKey values for searches run since sinceIso: this topic's ledger plus every main search run. */
   recentSearchKeys(sinceIso: string): Promise<Set<string>>;
-  /** Posts and comments that belong to the topic. */
+  /** Stores mentions. Returns how many were new: a url already stored for the topic is ignored. */
+  insertMentions(topicId: string, mentions: TopicMentionRecord[]): Promise<number>;
+  /** Posts, comments and web mentions that belong to the topic. */
   loadCorpus(topic: TopicDefinition): Promise<TopicCorpus>;
 }
 
 const CORPUS_POST_LIMIT = 300;
 const CORPUS_COMMENT_LIMIT = 1500;
+const CORPUS_MENTION_LIMIT = 1000;
 const RELEVANT_STATUSES = new Set(["relevant", "official_comment_source"]);
 
 function uniqueStrings(values: string[]): string[] {
@@ -152,6 +178,10 @@ function num(value: unknown): number {
   return Number(value ?? 0);
 }
 
+function optNum(value: unknown): number | undefined {
+  return value == null ? undefined : Number(value);
+}
+
 function iso(value: unknown): string {
   return new Date(value as string).toISOString();
 }
@@ -193,6 +223,7 @@ function ensureTopicSchema(): Promise<void> {
           updated_at timestamptz not null default now()
         )
       `;
+      await sql`alter table social_topics add column if not exists venue_query text`;
       await sql`
         create table if not exists social_topic_searches (
           id text primary key,
@@ -209,18 +240,45 @@ function ensureTopicSchema(): Promise<void> {
         )
       `;
       await sql`create index if not exists idx_social_topic_searches_key on social_topic_searches(query_key, searched_at desc)`;
+      await sql`
+        create table if not exists social_topic_mentions (
+          id text primary key,
+          topic_id text not null,
+          source text not null,
+          url text not null,
+          title text,
+          text text not null default '',
+          author text not null default '',
+          published_at timestamptz,
+          like_count int not null default 0,
+          rating real,
+          sentiment text,
+          query text not null default '',
+          first_seen_at timestamptz not null default now(),
+          unique (topic_id, url)
+        )
+      `;
+      await sql`create index if not exists idx_social_topic_mentions_topic on social_topic_mentions(topic_id, published_at desc)`;
 
       const seed = SPOOKTAH_CITY_TOPIC;
       await sql`
         insert into social_topics (
           id, name, description, official_url, starts_on, ends_on, keywords, search_queries,
-          platforms, enabled
+          platforms, enabled, venue_query
         ) values (
           ${seed.id}, ${seed.name}, ${seed.description}, ${seed.officialUrl ?? null},
           ${seed.startsOn ?? null}::date, ${seed.endsOn ?? null}::date, ${seed.keywords},
-          ${seed.searchQueries}, ${seed.platforms}, ${seed.enabled}
+          ${seed.searchQueries}, ${seed.platforms}, ${seed.enabled}, ${seed.venueQuery ?? null}
         )
         on conflict (id) do nothing
+      `;
+      // "on conflict do nothing" keeps the old row, so upgrade the seeded topic once: a row whose
+      // platforms predate the open-web sources gets the current platforms, queries, keywords and venue.
+      await sql`
+        update social_topics
+        set platforms = ${seed.platforms}, search_queries = ${seed.searchQueries}, keywords = ${seed.keywords},
+            venue_query = ${seed.venueQuery ?? null}, updated_at = now()
+        where id = ${seed.id} and not ('web' = any(platforms))
       `;
     })().catch((err) => {
       topicSchemaReady = null;
@@ -241,7 +299,8 @@ function mapTopicRow(r: Row): TopicRecord {
       endsOn: optStr(r.ends_on),
       keywords: stringArray(r.keywords),
       searchQueries: stringArray(r.search_queries),
-      platforms: stringArray(r.platforms) as Platform[],
+      platforms: stringArray(r.platforms) as TopicSource[],
+      venueQuery: optStr(r.venue_query),
       enabled: Boolean(r.enabled),
       createdAt: iso(r.created_at),
       updatedAt: iso(r.updated_at),
@@ -256,13 +315,29 @@ function mapSearchRow(r: Row): TopicSearchRecord {
     id: str(r.id),
     topicId: str(r.topic_id),
     query: str(r.query),
-    platform: str(r.platform) as Platform,
+    platform: str(r.platform) as TopicSource,
     searchedAt: iso(r.searched_at),
     resultsFound: num(r.results_found),
     newPosts: num(r.new_posts),
     relevantPosts: num(r.relevant_posts),
     costUsd: num(r.cost_usd),
     error: optStr(r.error),
+  };
+}
+
+function mapMentionRow(r: Row): TopicCorpusMention {
+  return {
+    id: str(r.id),
+    source: str(r.source) as TopicWebSource,
+    url: str(r.url),
+    title: optStr(r.title),
+    text: str(r.text),
+    author: str(r.author),
+    publishedAt: isoOrUndefined(r.published_at),
+    firstSeenAt: iso(r.first_seen_at),
+    likeCount: num(r.like_count),
+    rating: optNum(r.rating),
+    sentiment: asSentiment(r.sentiment),
   };
 }
 
@@ -273,7 +348,7 @@ const postgresTopicRepository: TopicRepository = {
     const rows = await sql`
       select id, name, description, official_url,
              to_char(starts_on, 'YYYY-MM-DD') as starts_on, to_char(ends_on, 'YYYY-MM-DD') as ends_on,
-             keywords, search_queries, platforms, enabled, report, last_refresh, created_at, updated_at
+             keywords, search_queries, platforms, venue_query, enabled, report, last_refresh, created_at, updated_at
       from social_topics
       order by created_at asc
     `;
@@ -286,7 +361,7 @@ const postgresTopicRepository: TopicRepository = {
     const rows = await sql`
       select id, name, description, official_url,
              to_char(starts_on, 'YYYY-MM-DD') as starts_on, to_char(ends_on, 'YYYY-MM-DD') as ends_on,
-             keywords, search_queries, platforms, enabled, report, last_refresh, created_at, updated_at
+             keywords, search_queries, platforms, venue_query, enabled, report, last_refresh, created_at, updated_at
       from social_topics
       where id = ${id}
     `;
@@ -299,11 +374,11 @@ const postgresTopicRepository: TopicRepository = {
     const rows = await sql`
       insert into social_topics (
         id, name, description, official_url, starts_on, ends_on, keywords, search_queries,
-        platforms, enabled, created_at, updated_at
+        platforms, venue_query, enabled, created_at, updated_at
       ) values (
         ${topic.id}, ${topic.name}, ${topic.description}, ${topic.officialUrl ?? null},
         ${topic.startsOn ?? null}::date, ${topic.endsOn ?? null}::date, ${topic.keywords},
-        ${topic.searchQueries}, ${topic.platforms}, ${topic.enabled},
+        ${topic.searchQueries}, ${topic.platforms}, ${topic.venueQuery ?? null}, ${topic.enabled},
         ${topic.createdAt}::timestamptz, ${topic.updatedAt}::timestamptz
       )
       on conflict (id) do nothing
@@ -403,6 +478,28 @@ const postgresTopicRepository: TopicRepository = {
     return keys;
   },
 
+  async insertMentions(topicId: string, mentions: TopicMentionRecord[]): Promise<number> {
+    await ensureTopicSchema();
+    const sql = db();
+    let inserted = 0;
+    for (const m of mentions) {
+      const rows = await sql`
+        insert into social_topic_mentions (
+          id, topic_id, source, url, title, text, author, published_at, like_count, rating,
+          sentiment, query, first_seen_at
+        ) values (
+          ${m.id}, ${topicId}, ${m.source}, ${m.url}, ${m.title ?? null}, ${m.text}, ${m.author},
+          ${m.publishedAt ?? null}::timestamptz, ${m.likeCount}, ${m.rating ?? null}, ${m.sentiment ?? null},
+          ${m.query}, ${m.firstSeenAt}::timestamptz
+        )
+        on conflict (topic_id, url) do nothing
+        returning id
+      `;
+      inserted += rows.length;
+    }
+    return inserted;
+  },
+
   async loadCorpus(topic: TopicDefinition): Promise<TopicCorpus> {
     await ensureTopicSchema();
     const sql = db();
@@ -471,7 +568,16 @@ const postgresTopicRepository: TopicRepository = {
       importanceScore: r.importance_score == null ? undefined : num(r.importance_score),
     }));
 
-    return { posts, comments };
+    const mentionRows = await sql`
+      select id, source, url, title, text, author, published_at, first_seen_at, like_count, rating, sentiment
+      from social_topic_mentions
+      where topic_id = ${topic.id}
+      order by coalesce(published_at, first_seen_at) desc
+      limit ${CORPUS_MENTION_LIMIT}
+    `;
+    const mentions = mentionRows.map(mapMentionRow);
+
+    return { posts, comments, mentions };
   },
 };
 
@@ -483,6 +589,7 @@ function createMemoryTopicRepository(): TopicRepository {
   const now = new Date().toISOString();
   const topics = new Map<string, TopicRecord>();
   const searches: TopicSearchRecord[] = [];
+  const mentions: TopicMentionRecord[] = [];
   const leases = new Map<string, number>();
   topics.set(SPOOKTAH_CITY_TOPIC.id, {
     topic: { ...SPOOKTAH_CITY_TOPIC, createdAt: now, updatedAt: now },
@@ -568,6 +675,16 @@ function createMemoryTopicRepository(): TopicRepository {
       return keys;
     },
 
+    async insertMentions(topicId, incoming) {
+      let inserted = 0;
+      for (const mention of incoming) {
+        if (mentions.some((item) => item.topicId === topicId && item.url === mention.url)) continue;
+        mentions.push({ ...structuredClone(mention), topicId });
+        inserted += 1;
+      }
+      return inserted;
+    },
+
     async loadCorpus(topic) {
       const social = getSocialRepository();
       const [allPosts, allComments] = await Promise.all([
@@ -608,6 +725,24 @@ function createMemoryTopicRepository(): TopicRepository {
         })
         .slice(0, CORPUS_COMMENT_LIMIT);
 
+      const topicMentions: TopicCorpusMention[] = mentions
+        .filter((item) => item.topicId === topic.id)
+        .sort((a, b) => (b.publishedAt || b.firstSeenAt).localeCompare(a.publishedAt || a.firstSeenAt))
+        .slice(0, CORPUS_MENTION_LIMIT)
+        .map((item) => ({
+          id: item.id,
+          source: item.source,
+          url: item.url,
+          title: item.title,
+          text: item.text,
+          author: item.author,
+          publishedAt: item.publishedAt,
+          likeCount: item.likeCount,
+          rating: item.rating,
+          sentiment: item.sentiment,
+          firstSeenAt: item.firstSeenAt,
+        }));
+
       return {
         posts: posts.map((post) => ({
           id: post.id,
@@ -643,6 +778,7 @@ function createMemoryTopicRepository(): TopicRepository {
           isOfficialAuthor: Boolean(comment.isOfficialAuthor),
           importanceScore: comment.importanceScore,
         })),
+        mentions: topicMentions,
       };
     },
   };
@@ -660,7 +796,7 @@ export function getTopicRepository(): TopicRepository {
   return memoryRepository;
 }
 
-/** Test helper: drops in-memory topics, searches and leases, and re-seeds the default topic. */
+/** Test helper: drops in-memory topics, searches, mentions and leases, and re-seeds the default topic. */
 export function resetTopicRepositoryForTests(): void {
   memoryRepository = null;
 }

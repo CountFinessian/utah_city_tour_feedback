@@ -1,4 +1,5 @@
 import { Comment, Post } from "./types";
+import { isAffiliatedComment } from "./affiliation";
 
 export interface EmergingIssue {
   id: string;
@@ -19,8 +20,9 @@ export interface EmergingIssue {
 }
 
 export function detectEmergingIssues(comments: Comment[], posts: Post[]): EmergingIssue[] {
-  const eligible = comments.filter((c) => !c.dropped);
   const postMap = new Map<string, Post>(posts.map((p) => [p.id, p]));
+  // Public opinion only: official, program and partner voices and creator self-replies are excluded.
+  const eligible = comments.filter((c) => !c.dropped && !isAffiliatedComment(c, postMap.get(c.postId)));
 
   // Categorize comments into emerging issue buckets
   const issues: EmergingIssue[] = [];

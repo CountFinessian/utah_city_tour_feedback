@@ -9,6 +9,8 @@ export const STORAGE_KEY = "social-pulse:selected-topic";
 export const POLL_INTERVAL_MS = 5_000;
 export const POLL_MAX_MS = 5 * 60_000;
 export const VOICE_PAGE_SIZE = 20;
+/** Automatic follow-up refreshes per page view while a wide search is still queued. */
+export const MAX_AUTO_CONTINUATIONS = 3;
 
 export const FOCUS_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#20d0c3]/70";
 export const CARD = "p-5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-3.5 min-w-0";
@@ -118,8 +120,35 @@ export function formatNet(net: number | null): string {
   return `${points > 0 ? "+" : ""}${points}`;
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  x: "X",
+  tiktok: "TikTok",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  youtube: "YouTube",
+  reddit: "Reddit",
+  linkedin: "LinkedIn",
+  threads: "Threads",
+  web: "Web",
+  news: "News",
+  reviews: "Google review",
+};
+
 export function platformLabel(platform: string): string {
-  return platform === "x" ? "X" : platform.charAt(0).toUpperCase() + platform.slice(1);
+  return SOURCE_LABELS[platform] ?? platform.charAt(0).toUpperCase() + platform.slice(1);
+}
+
+/** Social handles get "@"; web, news and reviewer names are shown as they are. */
+export function authorLabel(ev: TopicEvidence): string {
+  const plain = ev.platform === "web" || ev.platform === "news" || ev.platform === "reviews";
+  return plain ? ev.authorUsername : `@${ev.authorUsername}`;
+}
+
+/** Short date for a voice or mention, or null when missing or unparseable. */
+export function formatItemDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? null : localDateFormatter.format(at);
 }
 
 export function splitList(value: string): string[] {
@@ -135,6 +164,9 @@ export function describeOutcome(outcome: TopicRefreshOutcome): string {
   const dupes = skipped > 0 ? ` · ${skipped} duplicate ${skipped === 1 ? "search" : "searches"} avoided` : "";
   if (outcome.decision === "skipped") return `Skipped search: ${outcome.reason} · ${ago}${dupes}`;
   const queries = `${outcome.searchesRun} ${outcome.searchesRun === 1 ? "query" : "queries"}`;
-  return `Searched ${queries} · ${outcome.newPosts} new posts · ${outcome.newComments} new comments · $${outcome.costUsd.toFixed(2)} · ${ago}${dupes}`;
+  const mentions = outcome.newMentions ?? 0;
+  const webPart = ` · ${mentions} web ${mentions === 1 ? "mention" : "mentions"}`;
+  const queued = outcome.searchesRemaining > 0 ? ` · ${outcome.searchesRemaining} more ${outcome.searchesRemaining === 1 ? "search" : "searches"} queued` : "";
+  return `Searched ${queries} · ${outcome.newPosts} new posts · ${outcome.newComments} new comments${webPart} · $${outcome.costUsd.toFixed(2)}${queued} · ${ago}${dupes}`;
 }
 

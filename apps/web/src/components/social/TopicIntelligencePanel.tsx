@@ -11,6 +11,7 @@ import type {
 import {
   CHIP_BASE,
   EMPTY_CARD,
+  MAX_AUTO_CONTINUATIONS,
   POLL_INTERVAL_MS,
   POLL_MAX_MS,
   errorMessage,
@@ -54,7 +55,11 @@ export function TopicIntelligencePanel() {
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [continuation, setContinuation] = useState(0);
   const kickedOff = useRef<Set<string>>(new Set());
+  // Automatic follow-up refreshes made in this page view, and the last refresh timestamp seen per topic.
+  const autoContinues = useRef(0);
+  const seenRefreshAt = useRef<Map<string, string | null>>(new Map());
 
   // Only trust detail that belongs to the selected topic (avoids a stale frame after switching).
   const current = detail && selectedId && detail.topic.id === selectedId ? detail : null;
@@ -104,6 +109,7 @@ export function TopicIntelligencePanel() {
         if (next.report === null && next.lastRefresh === null && next.status === "idle" && !kickedOff.current.has(id)) {
           kickedOff.current.add(id);
           setRefreshingId(id);
+          setContinuation(0);
           postRefresh(id, {})
             .then(() => setDetailNonce((n) => n + 1))
             .catch((err: unknown) => setActionError(errorMessage(err)))
@@ -144,6 +150,32 @@ export function TopicIntelligencePanel() {
     };
   }, [running, selectedId]);
 
+  // After a refresh completes, continue a wide search that stopped early (deadline or budget).
+  // Only refreshes seen in this page view count; the first observation of a topic never triggers one.
+  useEffect(() => {
+    if (!current || current.status !== "idle") return;
+    const id = current.topic.id;
+    const at = current.lastRefresh?.at ?? null;
+    const seen = seenRefreshAt.current;
+    if (!seen.has(id)) {
+      seen.set(id, at);
+      return;
+    }
+    if (seen.get(id) === at) return;
+    seen.set(id, at);
+    const outcome = current.lastRefresh;
+    if (!outcome || !outcome.stoppedEarly || outcome.searchesRemaining <= 0) return;
+    if (autoContinues.current >= MAX_AUTO_CONTINUATIONS) return;
+    autoContinues.current += 1;
+    setRefreshingId(id);
+    setActionError(null);
+    setContinuation(autoContinues.current);
+    postRefresh(id, {})
+      .then(() => setDetailNonce((n) => n + 1))
+      .catch((err: unknown) => setActionError(errorMessage(err)))
+      .finally(() => setRefreshingId((cur) => (cur === id ? null : cur)));
+  }, [current]);
+
   const reloadTopics = (prefer: TopicsRequest = {}) => {
     setTopicsLoading(true);
     setTopicsReq(prefer);
@@ -151,6 +183,7 @@ export function TopicIntelligencePanel() {
 
   const runRefresh = (id: string, body: TopicRefreshRequest) => {
     setRefreshingId(id);
+    setContinuation(0);
     setActionError(null);
     postRefresh(id, body)
       .then(() => setDetailNonce((n) => n + 1))
@@ -219,6 +252,7 @@ export function TopicIntelligencePanel() {
             key={current.topic.id}
             detail={current}
             busy={busy}
+            continuation={continuation}
             actionError={actionError}
             detailError={detailError}
             onRefresh={(request) => runRefresh(current.topic.id, request)}

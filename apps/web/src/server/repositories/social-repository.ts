@@ -61,7 +61,8 @@ export interface SocialListeningRepository {
     includeRaw?: boolean;
   }): Promise<Post[]>;
   /** Count of posts matching the comment-harvest filter, without loading rows. */
-  countPosts(filter?: { commentHarvest?: boolean }): Promise<number>;
+  /** contentOnly: independent posts shown as content (relevance_status = relevant), never official sources. */
+  countPosts(filter?: { commentHarvest?: boolean; contentOnly?: boolean }): Promise<number>;
   listOfficialAccounts(): Promise<OfficialAccountRef[]>;
   recordPipelineEvent(event: SocialPipelineEvent): Promise<void>;
   getPost(id: string): Promise<Post | null>;

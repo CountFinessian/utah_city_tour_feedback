@@ -2,7 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { rmSync } from "fs";
 import path from "path";
 import type { Comment, Post, SearchQuery } from "@/domain/social-listening/types";
-import { SPOOKTAH_CITY_TOPIC, type TopicReport } from "@/domain/social-listening/topics";
+import {
+  ALL_TOPIC_SOURCES,
+  SPOOKTAH_CITY_TOPIC,
+  TOPIC_MAX_SEARCHES_PER_REFRESH,
+  TOPIC_RESULTS_PER_SEARCH,
+  isWebSource,
+  type TopicReport,
+} from "@/domain/social-listening/topics";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
 import { getTopicRepository, resetTopicRepositoryForTests } from "@/server/repositories/topic-repository";
 import {
@@ -15,7 +22,8 @@ import {
   TopicValidationError,
 } from "@/server/services/topic-intelligence";
 
-const { generateObjectMock, runDiscoveryMock, syncCommentsMock, tregMock } = vi.hoisted(() => ({
+const { generateObjectMock, runDiscoveryMock, syncCommentsMock, tregMock, tregHttpCall } = vi.hoisted(() => ({
+  tregHttpCall: vi.fn(),
   generateObjectMock: vi.fn(),
   runDiscoveryMock: vi.fn(),
   syncCommentsMock: vi.fn(),
@@ -45,8 +53,36 @@ vi.mock("@/server/services/discovery-pipeline", async (importOriginal) => {
   };
 });
 
+// Open-web calls go through tregHttp; the cost meter is faked so budget checks stay with tregClient.
+vi.mock("@/server/social/providers/http", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/social/providers/http")>();
+  return {
+    ...actual,
+    tregHttp: { call: tregHttpCall, getCycleCostUsd: () => 0, resetCycleCost: () => undefined },
+  };
+});
+
 const TOPIC_ID = SPOOKTAH_CITY_TOPIC.id;
 const PLATFORMS = SPOOKTAH_CITY_TOPIC.platforms;
+const SOCIAL_PLATFORMS = PLATFORMS.filter((platform) => !isWebSource(platform));
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A tregHttp result, the shape the real client returns for a successful call. */
+function httpOk(payload: unknown, costUsd = 0.001) {
+  const object = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
+  return { data: object, output: object, costMicro: costUsd * 1e6, costUsd, error: undefined };
+}
+
+/** Answers each Treg endpoint with a fixed payload (or a function of the call). Unlisted endpoints answer empty. */
+function routeHttp(routes: Record<string, unknown>) {
+  tregHttpCall.mockImplementation(
+    async (params: { endpointId: string; data?: Record<string, unknown>; queryParams?: Record<string, unknown> }) => {
+      const route = routes[params.endpointId];
+      const payload = typeof route === "function" ? route(params) : route;
+      return httpOk(payload ?? null);
+    }
+  );
+}
 
 /** Fake runDiscovery: one successful run per query, the way the real pipeline reports them. */
 function fakeDiscovery(options: { queries?: SearchQuery[] }) {
@@ -128,6 +164,8 @@ function emptyReport(overrides: Partial<TopicReport> = {}): TopicReport {
     keyInsights: [],
     actionItems: [],
     improvements: [],
+    sentimentDrivers: { negative: [], positive: [] },
+    affiliatedAuthors: [],
     excludedIds: [],
     ...overrides,
   };
@@ -141,6 +179,8 @@ function reportObject(overrides: Record<string, unknown> = {}) {
     keyInsights: [],
     actionItems: [],
     improvements: [],
+    sentimentDrivers: { negative: [], positive: [] },
+    affiliatedAuthors: [],
     excludedIds: [],
     ...overrides,
   };
@@ -167,6 +207,8 @@ beforeEach(() => {
   tregMock.getCycleCostUsd.mockReturnValue(0);
   tregMock.searchPlatform.mockReset();
   tregMock.searchPlatform.mockResolvedValue([]);
+  tregHttpCall.mockReset();
+  routeHttp({});
 });
 
 afterEach(() => {
@@ -258,7 +300,7 @@ describe("search planning and dedupe", () => {
     expect(generateObjectMock).not.toHaveBeenCalled();
     expect(outcome?.searchesSkippedAsDuplicate).toBe(1);
     const queries: SearchQuery[] = runDiscoveryMock.mock.calls[0][0].queries;
-    expect(queries).toHaveLength(8);
+    expect(queries.length).toBeLessThanOrEqual(TOPIC_MAX_SEARCHES_PER_REFRESH);
     expect(planKeys(queries)).not.toContain("tiktok|Spooktah City");
   });
 
@@ -270,11 +312,11 @@ describe("search planning and dedupe", () => {
 
     expect(outcome?.reason.startsWith("Fallback rule (model call failed)")).toBe(true);
     const queries: SearchQuery[] = runDiscoveryMock.mock.calls[0][0].queries;
-    expect(planKeys(queries)).toEqual([
-      ...PLATFORMS.map((platform) => `${platform}|Spooktah City`).slice(0, 6),
-      "tiktok|Spooktah",
-      "instagram|Spooktah",
-    ]);
+    // Exact event name on every social platform first, then the next phrase.
+    expect(planKeys(queries).slice(0, SOCIAL_PLATFORMS.length)).toEqual(
+      SOCIAL_PLATFORMS.map((platform) => `${platform}|Spooktah City`)
+    );
+    expect(planKeys(queries)).toContain(`${SOCIAL_PLATFORMS[0]}|Spooktah`);
   });
 
   it("the LLM plan is used, with at most three phrases outside the candidate list", async () => {
@@ -412,12 +454,13 @@ describe("report", () => {
 
     const detail = await loadTopicDetail(TOPIC_ID);
 
-    expect(detail?.coverage.posts).toBe(2);
-    expect(detail?.coverage.independentPosts).toBe(1);
+    // Official posts are never evidence, so only alice's post is counted.
+    expect(detail?.coverage.posts).toBe(1);
     expect(detail?.coverage.uniqueVoices).toBe(1);
     expect(detail?.voices.map((v) => v.authorUsername)).toEqual(["alice"]);
+    expect(detail?.topPosts.map((p) => p.id)).toEqual([`post:${alice.id}`]);
     expect(detail?.topPosts.map((p) => p.id)).not.toContain(`post:${bob.id}`);
-    expect(detail?.topPosts.map((p) => p.id)).toContain(`post:${official.id}`);
+    expect(detail?.topPosts.map((p) => p.id)).not.toContain(`post:${official.id}`);
     expect(detail?.voices.map((v) => v.id)).toEqual([`post:${alice.id}`]);
   });
 
@@ -491,5 +534,283 @@ describe("runDiscovery with explicit queries", () => {
       ["instagram", "#spooktahcity", "hashtag"],
     ]);
     expect(result.runs.map((run) => run.queryId)).toEqual(["topic_a", "topic_b"]);
+  });
+
+  it("runDiscovery requests 8 results per platform search by default and 25 when a topic asks", async () => {
+    const { DiscoveryPipelineService: RealPipeline } = await vi.importActual<
+      typeof import("@/server/services/discovery-pipeline")
+    >("@/server/services/discovery-pipeline");
+    const service = new RealPipeline();
+    (service as unknown as { repo: unknown }).repo = {
+      listQueries: vi.fn(async () => []),
+      listOfficialAccounts: vi.fn(async () => []),
+      recordSearchRun: vi.fn(async (run: unknown) => run),
+      updateQueryLastRun: vi.fn(async () => undefined),
+    };
+    const stamp = new Date().toISOString();
+    const queries = [
+      { id: "topic_w", query: "Spooktah", platform: "tiktok", searchGroup: "topic", discoveryStrategy: "keyword", priority: 2, enabled: false, createdAt: stamp, updatedAt: stamp },
+    ] as SearchQuery[];
+
+    await service.runDiscovery({ queries, cycleBudgetUsd: 1, deadlineAt: Date.now() + 60_000, resetCost: true });
+    await service.runDiscovery({
+      queries,
+      cycleBudgetUsd: 1,
+      deadlineAt: Date.now() + 60_000,
+      resetCost: true,
+      resultsPerQuery: TOPIC_RESULTS_PER_SEARCH,
+      maxProcessPerQuery: TOPIC_RESULTS_PER_SEARCH,
+    });
+
+    const limits = (tregMock.searchPlatform.mock.calls as unknown as unknown[][]).map((call) => call[2]);
+    expect(limits).toEqual([8, TOPIC_RESULTS_PER_SEARCH]);
+  });
+});
+
+describe("public opinion only", () => {
+  it("official posts are never evidence, but a resident comment on one is kept", async () => {
+    const official = await seedPost({
+      id: "p-pub-o",
+      platform: "tiktok",
+      caption: "Spooktah City is here!",
+      authorUsername: "utahcityutah",
+      isOfficialSource: true,
+    });
+    await getSocialRepository().bulkUpsertComments([
+      makeComment({ id: "c-pub-1", postId: official.id, text: "Went last weekend and loved it", authorUsername: "resident_ann", platform: "tiktok" }),
+    ]);
+    // Route a report that cites the official post: the id must not survive sanitizing.
+    await getTopicRepository().saveReport(
+      TOPIC_ID,
+      emptyReport({
+        keyQuestions: [{ question: "Is it free?", askedBy: 1, evidenceIds: [`post:${official.id}`, "comment:c-pub-1"] }],
+      })
+    );
+    clearTopicCache(TOPIC_ID);
+
+    const detail = await loadTopicDetail(TOPIC_ID);
+
+    expect(detail?.voices.map((v) => v.id)).toEqual(["comment:c-pub-1"]);
+    expect(detail?.topPosts).toEqual([]);
+    expect(detail?.coverage.posts).toBe(0);
+    expect(detail?.evidence[`post:${official.id}`]).toBeUndefined();
+  });
+
+  it("partner and vendor accounts are excluded", async () => {
+    await seedPost({ id: "p-partner", platform: "instagram", caption: "Spooktah City food trucks, come hungry!", authorUsername: "utahcityfoodtruckrally" });
+    await seedPost({ id: "p-resident", platform: "instagram", caption: "Spooktah City lights were beautiful", authorUsername: "resident_bo" });
+
+    clearTopicCache(TOPIC_ID);
+    const detail = await loadTopicDetail(TOPIC_ID);
+
+    expect(detail?.voices.map((v) => v.authorUsername)).toEqual(["resident_bo"]);
+  });
+
+  it("a creator's replies in their own comment section are excluded, residents' comments are kept", async () => {
+    const post = await seedPost({ id: "p-self", platform: "instagram", caption: "Spooktah City is open this weekend", authorUsername: "creator1" });
+    await getSocialRepository().bulkUpsertComments([
+      makeComment({ id: "c-self-1", postId: post.id, text: "See you there everyone!", authorUsername: "creator1", platform: "instagram" }),
+      makeComment({ id: "c-self-2", postId: post.id, text: "Is parking free at the Racquet Club?", authorUsername: "fan_cy", platform: "instagram" }),
+    ]);
+
+    clearTopicCache(TOPIC_ID);
+    const detail = await loadTopicDetail(TOPIC_ID);
+
+    expect(detail?.voices.map((v) => v.id)).toContain("comment:c-self-2");
+    expect(detail?.voices.map((v) => v.id)).not.toContain("comment:c-self-1");
+  });
+
+  it("authors listed in report.affiliatedAuthors are excluded from every output", async () => {
+    await seedPost({ id: "p-vendor", platform: "instagram", caption: "Spooktah City pumpkin treats for sale", authorUsername: "bigvendor" });
+    await seedPost({ id: "p-local", platform: "instagram", caption: "Spooktah City pumpkin patch was fun", authorUsername: "local_sam" });
+    await getTopicRepository().saveReport(TOPIC_ID, emptyReport({ affiliatedAuthors: ["instagram:bigvendor"] }));
+    clearTopicCache(TOPIC_ID);
+
+    const detail = await loadTopicDetail(TOPIC_ID);
+
+    expect(detail?.voices.map((v) => v.authorUsername)).toEqual(["local_sam"]);
+    expect(detail?.topPosts.map((p) => p.authorUsername)).toEqual(["local_sam"]);
+    expect(detail?.coverage.uniqueVoices).toBe(1);
+  });
+
+  it("low-signal reactions are flagged, questions are not, and duplicate texts collapse", async () => {
+    const post = await seedPost({ id: "p-flag", platform: "tiktok", caption: "Spooktah City opens soon", authorUsername: "host_ray" });
+    const same = "Spooktah City is the best event in Vineyard";
+    await getSocialRepository().bulkUpsertComments([
+      makeComment({ id: "c-flag-1", postId: post.id, text: "Love it!!!", authorUsername: "cheer1", platform: "tiktok" }),
+      makeComment({ id: "c-flag-2", postId: post.id, text: "Is parking free at the Racquet Club?", authorUsername: "asker", platform: "tiktok" }),
+      makeComment({ id: "c-flag-3", postId: post.id, text: same, authorUsername: "copy1", platform: "tiktok" }),
+      makeComment({ id: "c-flag-4", postId: post.id, text: same, authorUsername: "copy2", platform: "tiktok" }),
+    ]);
+    clearTopicCache(TOPIC_ID);
+
+    const detail = await loadTopicDetail(TOPIC_ID);
+    const byId = new Map((detail?.voices ?? []).map((v) => [v.id, v]));
+
+    expect(byId.get("comment:c-flag-1")?.isLowSignal).toBe(true);
+    expect(byId.get("comment:c-flag-2")?.isLowSignal).toBe(false);
+    expect((detail?.voices ?? []).filter((v) => v.text === same)).toHaveLength(1);
+  });
+});
+
+describe("open-web sources", () => {
+  const organicWithDuplicate = {
+    organic_results: [
+      { link: "https://www.ksl.com/article/spooktah-city-opens", title: "Spooktah City opens in Vineyard", snippet: "Ghost mini golf and pumpkin sculptures", source: "KSL" },
+      { link: "https://utahcity.com/event/spooktahcity/", title: "Spooktah City", snippet: "Official event page" },
+      { link: "https://www.example-blog.com/pasta", title: "Pasta recipes", snippet: "Dinner ideas for fall" },
+    ],
+  };
+  const newsDeseret = {
+    news_results: [
+      { link: "https://www.ksl.com/article/spooktah-city-opens", title: "Spooktah City opens in Vineyard", snippet: "copy" },
+      { link: "https://www.deseret.com/halloween-greenline", title: "Halloween at the Greenline", snippet: "A pumpkin hunt returns", date: "2026-10-05T10:00:00Z" },
+    ],
+  };
+  const threadsPayload = {
+    data: {
+      items: [
+        { code: "ABC123", user: { username: "vineyardfan" }, caption: { text: "Spooktah City ghost mini golf is wild" }, like_count: 7, taken_at: 1790000000 },
+        { code: "ZZZ999", user: { username: "randomguy" }, caption: { text: "Lunch was great" }, like_count: 1 },
+      ],
+    },
+  };
+
+  it("parses several response shapes, drops off-topic and utahcity.com results, and stores each url once", async () => {
+    routeHttp({
+      "treg.google.serp.organic": organicWithDuplicate,
+      "treg.web.search.news": newsDeseret,
+      "treg.threads.search.posts": threadsPayload,
+    });
+
+    await refreshTopic(TOPIC_ID, { trigger: "dashboard" });
+    const detail = await loadTopicDetail(TOPIC_ID);
+
+    const urls = (detail?.webMentions ?? []).map((m) => m.url);
+    expect(urls).toEqual(expect.arrayContaining([
+      "https://www.ksl.com/article/spooktah-city-opens",
+      "https://www.deseret.com/halloween-greenline",
+    ]));
+    expect(urls.filter((u) => u.includes("ksl.com"))).toHaveLength(1);
+    expect(urls.some((u) => u.includes("utahcity.com"))).toBe(false);
+    expect(urls.some((u) => u.includes("example-blog"))).toBe(false);
+    const threadVoice = (detail?.voices ?? []).find((v) => v.platform === "threads");
+    expect(threadVoice?.url).toBe("https://www.threads.net/@vineyardfan/post/ABC123");
+    expect((detail?.voices ?? []).some((v) => v.text === "Lunch was great")).toBe(false);
+    const organicCall = tregHttpCall.mock.calls.find((call) => call[0].endpointId === "treg.google.serp.organic");
+    expect(organicCall?.[0]).toMatchObject({ method: "POST", data: { q: "Spooktah City", limit: 20 } });
+  });
+
+  it("a second run stores no new mentions", async () => {
+    routeHttp({ "treg.google.serp.organic": organicWithDuplicate, "treg.web.search.news": newsDeseret });
+
+    const first = await refreshTopic(TOPIC_ID, { trigger: "dashboard" });
+    // Two days later the dedupe window no longer covers the first run, so every web search runs again.
+    const second = await refreshTopic(TOPIC_ID, {
+      trigger: "dashboard",
+      now: new Date(Date.now() + 2 * DAY_MS),
+    });
+
+    expect(first?.newMentions).toBe(2);
+    expect(second?.searchesRun).toBeGreaterThan(0);
+    expect(second?.newMentions).toBe(0);
+  });
+
+  it("reviews keep only topic-word reviews that match the keywords or fall in the event window", async () => {
+    routeHttp({
+      "treg.google.serp.maps": { local_results: [{ title: "The Greenline", place_id: "ChIJtest123", rating: 4.6 }] },
+      "litescrape.google.maps.reviews": {
+        reviews: [
+          { author_name: "Dana", text: "The pumpkin sculptures were gorgeous", date: "2026-10-10T18:00:00Z", rating: 5 },
+          { author_name: "Lee", text: "Halloween decorations were lovely", date: "2019-06-01T00:00:00Z", rating: 4 },
+          { author_name: "Sam", text: "Spooktah ghost golf was a blast", date: "2019-01-01T00:00:00Z", rating: 5 },
+          { author_name: "Kim", text: "Great tacos and friendly staff", date: "2026-10-12T00:00:00Z", rating: 5 },
+          { author_name: "Ben", text: "Movie night on the lawn was great", date: "2026-10-20T00:00:00Z", rating: 4 },
+        ],
+      },
+    });
+
+    await refreshTopic(TOPIC_ID, { trigger: "dashboard" });
+    const detail = await loadTopicDetail(TOPIC_ID);
+
+    const reviewAuthors = (detail?.voices ?? []).filter((v) => v.platform === "reviews").map((v) => v.authorUsername);
+    expect(reviewAuthors.sort()).toEqual(["Ben", "Dana", "Sam"]);
+    const reviewsCall = tregHttpCall.mock.calls.find((call) => call[0].endpointId === "litescrape.google.maps.reviews");
+    expect(reviewsCall?.[0]).toMatchObject({
+      method: "GET",
+      queryParams: { place_id: "ChIJtest123", sort_by: "newestFirst", num: 50 },
+    });
+    expect(tregHttpCall.mock.calls.filter((call) => call[0].endpointId === "treg.google.serp.maps")).toHaveLength(1);
+  });
+
+  it("the plan covers every source with the exact event name before any broader phrase", async () => {
+    await refreshTopic(TOPIC_ID, { trigger: "dashboard" });
+
+    const socialQueries: SearchQuery[] = runDiscoveryMock.mock.calls[0][0].queries;
+    expect(socialQueries.slice(0, SOCIAL_PLATFORMS.length).map((q) => `${q.platform}|${q.query}`)).toEqual(
+      SOCIAL_PLATFORMS.map((platform) => `${platform}|Spooktah City`)
+    );
+    const exact = (await getTopicRepository().listSearches(TOPIC_ID))
+      .filter((search) => search.query === "Spooktah City")
+      .map((search) => search.platform);
+    expect(new Set(exact)).toEqual(new Set(ALL_TOPIC_SOURCES().filter((source) => source !== "reviews")));
+  });
+
+  it("when the budget runs out, unreached items are counted as remaining and not recorded as searched", async () => {
+    runDiscoveryMock.mockImplementation(async (options: { queries?: SearchQuery[] }) => {
+      // The social stage spends the whole budget, so the web stage never starts.
+      tregMock.getCycleCostUsd.mockReturnValue(1);
+      return fakeDiscovery(options);
+    });
+
+    const first = await refreshTopic(TOPIC_ID, { trigger: "dashboard" });
+    const ledger = await getTopicRepository().listSearches(TOPIC_ID);
+
+    expect(first?.stoppedEarly).toBe(true);
+    expect(first?.searchesRemaining).toBeGreaterThan(0);
+    expect(ledger.some((search) => isWebSource(search.platform))).toBe(false);
+    expect(tregHttpCall).not.toHaveBeenCalled();
+
+    // The next refresh has budget again and picks the unreached web items up.
+    tregMock.getCycleCostUsd.mockReturnValue(0);
+    runDiscoveryMock.mockImplementation(async (options: { queries?: SearchQuery[] }) => fakeDiscovery(options));
+    routeHttp({ "treg.google.serp.organic": organicWithDuplicate });
+    await refreshTopic(TOPIC_ID, { trigger: "dashboard", now: new Date(Date.now() + 2 * DAY_MS) });
+
+    expect(tregHttpCall.mock.calls.some((call) => call[0].endpointId === "treg.google.serp.organic")).toBe(true);
+  });
+});
+
+describe("report upgrades", () => {
+  it("a report saved before sentimentDrivers loads with defaults and is regenerated once", async () => {
+    await seedPost({ id: "p-legacy", platform: "tiktok", caption: "Spooktah City pumpkin sculptures", authorUsername: "ann" });
+    process.env.GEMINI_API_KEY = "test-key";
+    generateObjectMock.mockImplementation(async ({ prompt }: { prompt: string }) => {
+      if (prompt.startsWith("COVERAGE DECISION")) {
+        return { object: { shouldSearch: false, reason: "Solid.", plan: [] } };
+      }
+      return { object: reportObject() };
+    });
+    const reportCalls = () =>
+      generateObjectMock.mock.calls.filter(([args]) => String(args.prompt).startsWith("LEADERSHIP REPORT")).length;
+
+    await refreshTopic(TOPIC_ID, { trigger: "dashboard" });
+    expect(reportCalls()).toBe(1);
+
+    // Strip the new fields from the saved report, keeping its fingerprint, to mimic an old row.
+    const repo = getTopicRepository();
+    const saved = (await repo.getTopic(TOPIC_ID))?.report as TopicReport;
+    const legacy: Record<string, unknown> = { ...saved };
+    delete legacy.sentimentDrivers;
+    delete legacy.affiliatedAuthors;
+    await repo.saveReport(TOPIC_ID, legacy as unknown as TopicReport);
+    clearTopicCache(TOPIC_ID);
+
+    const loaded = await loadTopicDetail(TOPIC_ID);
+    expect(loaded?.report?.sentimentDrivers).toEqual({ negative: [], positive: [] });
+    expect(loaded?.report?.affiliatedAuthors).toEqual([]);
+
+    await refreshTopic(TOPIC_ID, { trigger: "dashboard" });
+    expect(reportCalls()).toBe(2);
   });
 });

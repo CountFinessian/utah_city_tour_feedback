@@ -1,104 +1,152 @@
 import { useState } from "react";
-import type { TopicEvidence } from "@/domain/social-listening/topics";
+import type { TopicEvidence, TopicSentimentDriver } from "@/domain/social-listening/topics";
 import {
   CARD,
   FOCUS_RING,
   INPUT,
   LABEL,
-  SENTIMENT_DOT,
   SENTIMENT_FILTERS,
   VOICE_PAGE_SIZE,
-  localDateFormatter,
+  authorLabel,
+  formatItemDate,
   platformLabel,
   type SentimentFilter,
 } from "./shared";
-import { ExternalSourceLink, OfficialBadge } from "./ui";
+import {
+  DEFAULT_VOICE_FILTERS,
+  filterItems,
+  hasActiveFilters,
+  lowSignalCount,
+  sentimentCounts,
+  withSentiment,
+  type VoiceFilters,
+} from "./filters";
+import { RootCausePanel } from "./RootCauses";
+import { VoiceCard } from "./VoiceCard";
+import { ExternalSourceLink } from "./ui";
 
-export function VoiceCard({ voice }: { voice: TopicEvidence }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <li className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-2 min-w-0">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
-        <span
-          role="img"
-          aria-label={`${voice.sentiment ?? "unscored"} sentiment`}
-          className={`w-2 h-2 rounded-full ${SENTIMENT_DOT[voice.sentiment ?? "unscored"]}`}
-        />
-        <span className="font-semibold text-slate-200">@{voice.authorUsername}</span>
-        <span className="px-1.5 py-0.5 rounded bg-white/5 text-slate-400">{platformLabel(voice.platform)}</span>
-        {voice.createdAt && <span className="text-slate-500">{localDateFormatter.format(Date.parse(voice.createdAt))}</span>}
-      </div>
-      <button
-        type="button"
-        onClick={() => setExpanded((e) => !e)}
-        aria-expanded={expanded}
-        className={`block w-full text-left text-xs text-slate-200 leading-relaxed break-words rounded ${FOCUS_RING}`}
-      >
-        <span className={expanded ? "block" : "block line-clamp-3"}>{voice.text}</span>
-      </button>
-      <div className="flex justify-end text-[11px]">
-        <ExternalSourceLink url={voice.url} label="Open" />
-      </div>
-    </li>
-  );
+export const PUBLIC_OPINION_ID = "public-opinion";
+
+export interface SentimentDrivers {
+  negative: TopicSentimentDriver[];
+  positive: TopicSentimentDriver[];
 }
 
-export function VoicesPanel({ voices }: { voices: TopicEvidence[] }) {
-  const [query, setQuery] = useState("");
-  const [sentiment, setSentiment] = useState<SentimentFilter>("all");
-  const [limit, setLimit] = useState(VOICE_PAGE_SIZE);
-  const needle = query.trim().toLowerCase();
-  const matches = voices.filter(
-    (v) =>
-      (sentiment === "all" || v.sentiment === sentiment) &&
-      (!needle || v.text.toLowerCase().includes(needle) || v.authorUsername.toLowerCase().includes(needle))
-  );
+interface PublicOpinionPanelProps {
+  voices: TopicEvidence[];
+  drivers: SentimentDrivers;
+  filters: VoiceFilters;
+  onChange: (next: VoiceFilters) => void;
+}
+
+/**
+ * Public opinion: sentiment is the main control. Root causes appear for Negative and Positive,
+ * the text search combines with everything, and short reactions stay hidden until toggled.
+ */
+export function PublicOpinionPanel({ voices, drivers, filters, onChange }: PublicOpinionPanelProps) {
+  // Paging resets whenever the filters change: the page is stored with the filter key it belongs to.
+  const [page, setPage] = useState({ key: "", limit: VOICE_PAGE_SIZE });
+  const filterKey = JSON.stringify(filters);
+  const limit = page.key === filterKey ? page.limit : VOICE_PAGE_SIZE;
+
+  const counts = sentimentCounts(voices, filters);
+  const matches = filterItems(voices, filters);
   const shown = matches.slice(0, limit);
   const remaining = matches.length - shown.length;
+  const lowCount = lowSignalCount(voices, filters);
+  const causeSide = filters.sentiment === "negative" || filters.sentiment === "positive" ? filters.sentiment : null;
+  const countFor = (value: SentimentFilter) => counts[value];
 
   return (
-    <div className={CARD}>
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+    <div id={PUBLIC_OPINION_ID} className={`${CARD} scroll-mt-4`}>
+      <div className="flex flex-col gap-3">
         <h3 className={LABEL}>
-          What people are saying{" "}
+          Public opinion{" "}
           <span className="normal-case tracking-normal text-slate-500">
             ({matches.length} of {voices.length})
           </span>
         </h3>
-        <div className="flex flex-col sm:flex-row gap-2 sm:items-center min-w-0">
+
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by sentiment">
+          {SENTIMENT_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              aria-pressed={filters.sentiment === f.value}
+              onClick={() => onChange(withSentiment(filters, f.value))}
+              className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition ${FOCUS_RING} ${
+                filters.sentiment === f.value
+                  ? "border-[#20d0c3]/50 bg-[#20d0c3]/15 text-[#20d0c3]"
+                  : "border-white/10 bg-white/[0.03] text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {f.label} <span className="tabular-nums opacity-80">{countFor(f.value).toLocaleString()}</span>
+            </button>
+          ))}
+        </div>
+
+        {causeSide && (
+          <div className="p-4 rounded-xl bg-black/20 border border-white/5">
+            <RootCausePanel
+              side={causeSide}
+              causes={causeSide === "negative" ? drivers.negative : drivers.positive}
+              active={filters.rootCause}
+              onSelect={(rootCause) => onChange({ ...filters, rootCause })}
+            />
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
           <input
             type="search"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setLimit(VOICE_PAGE_SIZE);
-            }}
-            placeholder="Filter by text or @author"
-            aria-label="Filter voices by text or author"
-            className={`${INPUT} sm:w-56`}
+            value={filters.query}
+            onChange={(e) => onChange({ ...filters, query: e.target.value })}
+            placeholder="Search text, title or @author"
+            aria-label="Search public opinion"
+            className={`${INPUT} sm:flex-1`}
           />
-          <div className="flex gap-1.5 flex-wrap" role="group" aria-label="Filter voices by sentiment">
-            {SENTIMENT_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                aria-pressed={sentiment === f.value}
-                onClick={() => setSentiment(f.value)}
-                className={`px-2.5 py-1 rounded-full border text-[11px] font-semibold transition ${FOCUS_RING} ${
-                  sentiment === f.value
-                    ? "border-[#20d0c3]/50 bg-[#20d0c3]/15 text-[#20d0c3]"
-                    : "border-white/10 bg-white/[0.03] text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            aria-pressed={filters.includeLowSignal}
+            onClick={() => onChange({ ...filters, includeLowSignal: !filters.includeLowSignal })}
+            className={`shrink-0 px-3 py-2 rounded-xl border text-xs font-semibold transition ${FOCUS_RING} ${
+              filters.includeLowSignal
+                ? "border-[#20d0c3]/50 bg-[#20d0c3]/15 text-[#20d0c3]"
+                : "border-white/10 bg-white/[0.03] text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            Include short reactions ({lowCount.toLocaleString()})
+          </button>
         </div>
       </div>
 
+      {filters.rootCause && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-slate-400">Filtered to one root cause</span>
+          <button
+            type="button"
+            onClick={() => onChange({ ...filters, rootCause: null })}
+            aria-label={`Clear root cause filter: ${filters.rootCause.cause}`}
+            className={`max-w-full px-3 py-1 rounded-full border border-[#20d0c3]/50 bg-[#20d0c3]/15 text-[#20d0c3] font-semibold break-words text-left ${FOCUS_RING}`}
+          >
+            Root cause: {filters.rootCause.cause} ✕
+          </button>
+        </div>
+      )}
+
       {shown.length === 0 ? (
-        <p className="text-xs text-slate-500 py-6 text-center">No voices match these filters.</p>
+        <div className="py-6 text-center space-y-2">
+          <p className="text-xs text-slate-500">No voices match these filters.</p>
+          {hasActiveFilters(filters) && (
+            <button
+              type="button"
+              onClick={() => onChange(DEFAULT_VOICE_FILTERS)}
+              className={`text-xs font-semibold text-[#20d0c3] hover:underline rounded ${FOCUS_RING}`}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
       ) : (
         <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {shown.map((v) => (
@@ -111,7 +159,7 @@ export function VoicesPanel({ voices }: { voices: TopicEvidence[] }) {
         <div className="flex justify-center">
           <button
             type="button"
-            onClick={() => setLimit((l) => l + VOICE_PAGE_SIZE)}
+            onClick={() => setPage({ key: filterKey, limit: limit + VOICE_PAGE_SIZE })}
             className={`px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-200 ${FOCUS_RING}`}
           >
             Show more (+{Math.min(VOICE_PAGE_SIZE, remaining)})
@@ -123,12 +171,13 @@ export function VoicesPanel({ voices }: { voices: TopicEvidence[] }) {
 }
 
 export function TopPostCard({ post }: { post: TopicEvidence }) {
+  const date = formatItemDate(post.createdAt);
   return (
     <li className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-2 min-w-0 flex flex-col">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
         <span className="px-1.5 py-0.5 rounded bg-white/5 text-slate-300">{platformLabel(post.platform)}</span>
-        <span className="font-semibold text-slate-200">@{post.authorUsername}</span>
-        {post.isOfficial && <OfficialBadge />}
+        <span className="font-semibold text-slate-200 break-all">{authorLabel(post)}</span>
+        {date && <span className="text-slate-500">{date}</span>}
       </div>
       <p className="text-xs text-slate-200 leading-relaxed line-clamp-2 break-words">{post.text}</p>
       <div className="mt-auto pt-1 flex items-center justify-between text-[11px] text-slate-400">
@@ -138,4 +187,3 @@ export function TopPostCard({ post }: { post: TopicEvidence }) {
     </li>
   );
 }
-

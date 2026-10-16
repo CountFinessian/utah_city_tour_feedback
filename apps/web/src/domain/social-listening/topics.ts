@@ -10,6 +10,22 @@
  */
 import type { Platform } from "./types";
 
+/**
+ * Where a topic searches. Social platforms go through the normal discovery pipeline (posts land in
+ * social_posts). The open-web sources are topic-only and land in social_topic_mentions:
+ * - "web": Google organic results (blogs, event listings, local sites, forum threads)
+ * - "news": Google News + news index
+ * - "threads": Threads posts
+ * - "reviews": Google Maps reviews of the topic's venue that mention the topic
+ */
+export type TopicWebSource = "web" | "news" | "threads" | "reviews";
+export type TopicSource = Platform | TopicWebSource;
+export const TOPIC_WEB_SOURCES: TopicWebSource[] = ["web", "news", "threads", "reviews"];
+
+export function isWebSource(source: TopicSource): source is TopicWebSource {
+  return (TOPIC_WEB_SOURCES as string[]).includes(source);
+}
+
 export interface TopicDefinition {
   /** URL-safe slug, e.g. "spooktah-city". */
   id: string;
@@ -23,7 +39,10 @@ export interface TopicDefinition {
   keywords: string[];
   /** Candidate Treg search phrases. The LLM picks from these; it may add at most a few of its own. */
   searchQueries: string[];
-  platforms: Platform[];
+  /** Every source searched. Default is all social platforms plus all web sources. */
+  platforms: TopicSource[];
+  /** Google Maps search for the venue whose reviews to scan, e.g. "The Greenline at Utah City Vineyard UT". */
+  venueQuery?: string;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -63,25 +82,41 @@ export const SPOOKTAH_CITY_TOPIC: Omit<TopicDefinition, "createdAt" | "updatedAt
     "Greenline Vineyard Halloween",
     "Bella's Market pumpkin patch",
     "Vineyard Utah Halloween",
+    "Greenline Utah City pumpkin",
+    "Utah City movie night Greenline",
+    "Vineyard Utah pet costume contest",
   ],
-  platforms: ["tiktok", "instagram", "facebook", "youtube", "x", "reddit"],
+  platforms: ALL_TOPIC_SOURCES(),
+  venueQuery: "The Greenline at Utah City, Vineyard, UT",
   enabled: true,
 };
+
+/** Every social platform the pipeline can search, plus every open-web source. */
+export function ALL_TOPIC_SOURCES(): TopicSource[] {
+  return ["x", "tiktok", "instagram", "facebook", "youtube", "reddit", "linkedin", ...TOPIC_WEB_SOURCES];
+}
 
 /** A planned Treg search. Dedupe key is normalized query + platform. */
 export interface TopicSearchPlanItem {
   query: string;
-  platform: Platform;
+  platform: TopicSource;
 }
 
+/**
+ * Every count here is public opinion only: affiliated accounts (see affiliation.ts), affiliated
+ * domains, creator self-replies and report.affiliatedAuthors are excluded before counting.
+ */
 export interface TopicCoverage {
+  /** Independent social posts. */
   posts: number;
-  /** Posts not from official Utah City accounts. */
+  /** Kept for API compatibility; equals posts now that official posts are never in the corpus. */
   independentPosts: number;
   comments: number;
-  /** Distinct platform:author across posts and comments, official accounts excluded. */
+  /** Open-web mentions: articles, listings, Threads posts, reviews. */
+  mentions: number;
+  /** Distinct source:author across posts, comments and mentions. */
   uniqueVoices: number;
-  platforms: Platform[];
+  platforms: TopicSource[];
   newestItemAt: string | null;
   lastSearchedAt: string | null;
 }
@@ -99,8 +134,13 @@ export interface TopicRefreshOutcome {
   newPosts: number;
   newRelevantPosts: number;
   newComments: number;
+  /** New open-web mentions (articles, listings, Threads posts, reviews). */
+  newMentions: number;
   costUsd: number;
+  /** True when the deadline or budget cut the plan short. The rest runs on the next refresh. */
   stoppedEarly: boolean;
+  /** Plan items not reached this time (they are not marked as searched, so they stay eligible). */
+  searchesRemaining: number;
 }
 
 /** Ids reference TopicEvidence.id so the panel can link every claim to its source. */
@@ -132,18 +172,37 @@ export interface TopicImprovement {
   evidenceIds: string[];
 }
 
+/**
+ * Public opinion only. Affiliated accounts/domains never become evidence, so there is no
+ * isOfficial flag: if it is here, it is not Utah City talking about itself.
+ */
 export interface TopicEvidence {
-  /** "post:<postId>" or "comment:<commentId>". */
+  /** "post:<postId>", "comment:<commentId>" or "mention:<mentionId>". */
   id: string;
-  kind: "post" | "comment";
-  platform: Platform;
+  kind: "post" | "comment" | "mention";
+  platform: TopicSource;
+  /** Handle for social items; site name (e.g. "ksl.com") for web/news; reviewer name for reviews. */
   authorUsername: string;
-  isOfficial: boolean;
+  /** Article or listing headline (web/news), when there is one. */
+  title?: string;
   text: string;
   url: string;
   createdAt: string | null;
   sentiment?: "positive" | "neutral" | "negative";
   likeCount: number;
+  /** Star rating for reviews. */
+  rating?: number;
+  /** Short generic reaction ("Love it!!!", emoji only, ≤ 4 words with no question). Counted in sentiment, hidden by default in lists. */
+  isLowSignal: boolean;
+}
+
+/** One root cause behind a sentiment, so leadership can dial into why people feel that way. */
+export interface TopicSentimentDriver {
+  cause: string;
+  detail: string;
+  /** Approximate number of distinct people expressing it. */
+  mentions: number;
+  evidenceIds: string[];
 }
 
 export interface TopicSentiment {
@@ -166,8 +225,18 @@ export interface TopicReport {
   keyInsights: TopicInsight[];
   actionItems: TopicActionItem[];
   improvements: TopicImprovement[];
+  /** Root causes per sentiment, max 5 each. Negative is what leadership drills into first. */
+  sentimentDrivers: {
+    negative: TopicSentimentDriver[];
+    positive: TopicSentimentDriver[];
+  };
   /** Evidence ids the model judged NOT to be about the topic. Excluded from stats and lists. */
   excludedIds: string[];
+  /**
+   * authorKey()s (affiliation.ts) the model judged to be businesses, vendors, partners or promoters
+   * advertising rather than giving an opinion (e.g. a food truck plugging its menu). Excluded everywhere.
+   */
+  affiliatedAuthors: string[];
 }
 
 /** GET /api/social-pulse/topics */
@@ -180,12 +249,16 @@ export interface TopicDetailResponse {
   topic: TopicDefinition;
   coverage: TopicCoverage;
   sentiment: TopicSentiment;
-  /** Daily counts of topic posts+comments (public, non-official) for a small timeline. */
-  timeline: Array<{ date: string; count: number }>;
   report: TopicReport | null;
-  /** One entry per unique public voice (latest or most-liked item), newest first, max 200. */
+  /**
+   * Every public opinion item (comments, independent posts, Threads posts, reviews), one row per
+   * distinct text (cross-posted copies collapsed), newest first, max 400. Includes low-signal rows
+   * (flagged) so the panel can count them; the panel hides them by default.
+   */
   voices: TopicEvidence[];
-  /** Highest-engagement topic posts, official and independent, max 12. */
+  /** Articles and listings from the open web and news (kind "mention", platform web/news), newest first, max 60. */
+  webMentions: TopicEvidence[];
+  /** Highest-engagement independent posts, max 12. Never official. */
   topPosts: TopicEvidence[];
   /** Every evidence item referenced by the report, keyed by id. */
   evidence: Record<string, TopicEvidence>;
@@ -221,8 +294,15 @@ export interface CreateTopicRequest {
 }
 
 export const TOPIC_SEARCH_DEDUPE_HOURS_DEFAULT = 24;
-export const TOPIC_MAX_SEARCHES_PER_REFRESH = 8;
-export const TOPIC_REFRESH_BUDGET_USD_DEFAULT = 0.4;
+/**
+ * Wide net. Measured cost on 2026-10-16: ~$0.003 per social search including relevance checks;
+ * web/news calls are ~$0.00015. 40 searches stay well under the budget; the 240s deadline is the
+ * real limit, and unreached items carry over to the next refresh.
+ */
+export const TOPIC_MAX_SEARCHES_PER_REFRESH = 40;
+/** Results requested per social search (the daily listener uses 8). */
+export const TOPIC_RESULTS_PER_SEARCH = 25;
+export const TOPIC_REFRESH_BUDGET_USD_DEFAULT = 0.75;
 export const TOPIC_REFRESH_LEASE_MINUTES = 10;
 /** Days after endsOn that daily auto-refresh still runs (post-event reviews and photos). */
 export const TOPIC_POST_EVENT_GRACE_DAYS = 14;
@@ -235,6 +315,29 @@ export function slugifyTopic(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
+}
+
+/**
+ * Generic reaction with nothing to act on: emoji/punctuation only, or ≤ 4 words with no question
+ * mark ("Love it!!!", "So good!", "Totally agree!"). Still counted in sentiment.
+ */
+export function isLowSignalText(text: string | undefined | null): boolean {
+  const clean = (text || "").replace(/https?:\/\/\S+/g, "").replace(/[@#]\w+/g, "").trim();
+  if (!/[a-z0-9]/i.test(clean)) return true;
+  if (clean.includes("?")) return false;
+  return clean.split(/\s+/).filter((word) => /[a-z0-9]/i.test(word)).length <= 4;
+}
+
+/** Collapses cross-posted copies: lowercase, URLs/handles/emoji/punctuation removed, whitespace squeezed. */
+export function textFingerprint(text: string | undefined | null): string {
+  return (text || "")
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[@#]\w+/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
 }
 
 export function normalizeSearchQuery(query: string): string {

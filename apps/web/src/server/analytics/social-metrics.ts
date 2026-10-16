@@ -8,6 +8,7 @@ import {
   Sentiment,
 } from "@/domain/social-listening/types";
 import { postCommentsInDashboard } from "@/domain/social-listening/relevance";
+import { isAffiliatedComment } from "@/domain/social-listening/affiliation";
 import { buildNarrativeIntelligence } from "../intelligence/narrative-engine";
 import { stripTranscriptTimestamps, sanitizeTranscript } from "@/domain/sanitize-text";
 
@@ -200,13 +201,16 @@ export function calculateDeterministicSocialMetrics(params: {
 
   // Comments are windowed by comment time, including fresh replies on older relevant posts.
   const relevantById = new Map(posts.filter((p) => postCommentsInDashboard(p)).map((p) => [p.id, p]));
+  // Affiliated authors (official, programs, partners) and creator self-replies are not opinion.
   const currentComments = comments.filter((c) => {
     if (!relevantById.has(c.postId)) return false;
+    if (isAffiliatedComment(c, relevantById.get(c.postId))) return false;
     const at = commentInstant(c);
     return at >= currentCutoff && at <= now;
   });
   const prevComments = comments.filter((c) => {
     if (!relevantById.has(c.postId)) return false;
+    if (isAffiliatedComment(c, relevantById.get(c.postId))) return false;
     const at = commentInstant(c);
     return at >= previousCutoff && at < currentCutoff;
   });

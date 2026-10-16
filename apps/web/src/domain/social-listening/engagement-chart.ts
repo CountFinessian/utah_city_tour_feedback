@@ -1,5 +1,5 @@
 import { Post, Comment } from "./types";
-import { isOfficialAuthor, SEEDED_OFFICIAL_ACCOUNTS } from "./relevance";
+import { isAffiliatedComment, isAffiliatedPost } from "./affiliation";
 
 export interface MonthlyEngagementPoint {
   month: string; // e.g., "2023-01"
@@ -67,11 +67,13 @@ export function buildPublicEngagementData(
   now: Date = new Date()
 ): PublicEngagementData {
   // Filter out official Utah City posts from post count, but keep public comments on official posts
-  const independentPosts = posts.filter(
-    (p) => !isOfficialAuthor(p.platform, p.authorUsername, SEEDED_OFFICIAL_ACCOUNTS)
-  );
+  const independentPosts = posts.filter((p) => !isAffiliatedPost(p));
 
-  const eligibleComments = comments.filter((c) => !c.dropped);
+  // Public opinion only: affiliated authors and creator self-replies are not counted.
+  const postsById = new Map<string, Post>(posts.map((p) => [p.id, p]));
+  const eligibleComments = comments.filter(
+    (c) => !c.dropped && !isAffiliatedComment(c, postsById.get(c.postId))
+  );
 
   // Generate monthly buckets from January 2023 through current month
   const startYear = 2023;

@@ -1,5 +1,6 @@
 import { isOfficialStoredComment, isPublicOpinionComment } from "@/domain/social-listening/comment-signal";
-import { isOfficialAuthor, postCommentsInDashboard, postShownAsContent, SEEDED_OFFICIAL_ACCOUNTS } from "@/domain/social-listening/relevance";
+import { postCommentsInDashboard, postShownAsContent } from "@/domain/social-listening/relevance";
+import { isAffiliatedComment, isAffiliatedPost } from "@/domain/social-listening/affiliation";
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type { Comment, Post, Sentiment, Topic } from "@/domain/social-listening/types";
 import { buildIntelligenceNarrative, type IntelligenceNarrativeData } from "@/domain/social-listening/intelligence-narrative";
@@ -216,10 +217,8 @@ export function netPoints(net: number | null): string {
 export function isDashboardComment(comment: Comment, post: Post | undefined): boolean {
   if (!post || !postCommentsInDashboard(post)) return false;
   if (!isPublicOpinionComment(comment) || isOfficialStoredComment(comment)) return false;
-  if (isOfficialAuthor(comment.platform, comment.authorUsername, SEEDED_OFFICIAL_ACCOUNTS, [comment.authorId])) {
-    return false;
-  }
-  return true;
+  // Affiliated authors (official, programs, partners) and creator self-replies are not public opinion.
+  return !isAffiliatedComment(comment, post);
 }
 
 function includedComments(posts: Post[], comments: Comment[], now: Date): Included[] {
@@ -297,7 +296,13 @@ function quoteFrom(transcript: string): string {
 
 function transcriptQuotes(posts: Post[]): TranscriptQuote[] {
   const eligible = posts
-    .filter((post) => postShownAsContent(post) && !post.isOfficialSource && (post.transcript || "").trim().length >= 40)
+    .filter(
+      (post) =>
+        postShownAsContent(post) &&
+        !post.isOfficialSource &&
+        !isAffiliatedPost(post) &&
+        (post.transcript || "").trim().length >= 40
+    )
     .sort((a, b) => (a.publishedAt || a.firstSeenAt || "").localeCompare(b.publishedAt || b.firstSeenAt || ""));
   if (!eligible.length) return [];
   const picks = [eligible[0], eligible[Math.floor(eligible.length / 2)], eligible[eligible.length - 1]];

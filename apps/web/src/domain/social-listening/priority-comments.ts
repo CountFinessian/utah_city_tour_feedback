@@ -1,5 +1,6 @@
 import { Comment, Post } from "./types";
 import { evaluateCommentImportance, ScoreCalculationResult } from "./importance-scoring";
+import { isAffiliatedComment } from "./affiliation";
 
 export interface PriorityCommentItem {
   id: string;
@@ -39,8 +40,9 @@ export function selectPriorityComments(
 
   const postMap = new Map<string, Post>(posts.map((p) => [p.id, p]));
 
-  // Eligible comments only
-  const eligible = comments.filter((c) => !c.dropped);
+  // Eligible comments only: public opinion. Official, program and partner voices and creator
+  // self-replies are not. The post is checked only when it is known.
+  const eligible = comments.filter((c) => !c.dropped && !isAffiliatedComment(c, postMap.get(c.postId)));
 
   // Score any that don't have stored scores
   const evaluated: Array<{ comment: Comment; score: number; evalResult: ScoreCalculationResult; post: Post }> = [];
