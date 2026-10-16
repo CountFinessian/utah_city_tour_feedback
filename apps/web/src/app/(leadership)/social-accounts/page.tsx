@@ -1,5 +1,3 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { Suspense } from "react";
 import { headers } from "next/headers";
 import { SocialAccountsHub, type HubPlatformSummary } from "@/components/SocialAccountsHub";
@@ -17,8 +15,6 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const GUIDE_PATH = path.join(process.cwd(), "src/content/social-accounts-guide.md");
-
 export default async function SocialAccountsPage() {
   // The middleware sets this header from the database's current role for every leadership page.
   const role = normalizeRole((await headers()).get("x-user-role"));
@@ -33,7 +29,7 @@ export default async function SocialAccountsPage() {
   );
 
   if (!isAdmin) {
-    // Non-admins get the dashboard and a connected count only. No admin summary, guide or key status is loaded.
+    // Non-admins get the dashboard and a connected count only. No admin summary or key status is loaded.
     const counts = await countConnectedAccounts().catch(() => ({ connected: 0, total: 5 }));
     return (
       <div className="command-page">
@@ -47,18 +43,13 @@ export default async function SocialAccountsPage() {
             initialDashboard={dashboard.data}
             dashboardFailed={dashboard.failed}
             backfill={null}
-            guideMarkdown={null}
           />
         </Suspense>
       </div>
     );
   }
 
-  const [summary, backfill, guideMarkdown] = await Promise.all([
-    getAdminSummary(),
-    getBackfillSummary().catch(() => []),
-    fs.readFile(GUIDE_PATH, "utf8"),
-  ]);
+  const [summary, backfill] = await Promise.all([getAdminSummary(), getBackfillSummary().catch(() => [])]);
   const platforms: HubPlatformSummary[] = summary.platforms.map((p) => ({
     platform: p.platform,
     status: p.status,
@@ -82,7 +73,6 @@ export default async function SocialAccountsPage() {
           initialDashboard={dashboard.data}
           dashboardFailed={dashboard.failed}
           backfill={backfillRows}
-          guideMarkdown={guideMarkdown}
         />
       </Suspense>
     </div>

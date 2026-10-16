@@ -42,9 +42,9 @@ describe("social accounts tab rules", () => {
     expect(resolveTab("guide", "leader", "live")).toBe("dashboard");
   });
 
-  it("shows admins dashboard, API keys and setup guide", () => {
-    expect(visibleTabs("admin")).toEqual(["dashboard", "api-keys", "guide"]);
-    expect(resolveTab("guide", "admin", "live")).toBe("guide");
+  it("shows admins the dashboard and API keys, and no longer a setup guide", () => {
+    expect(visibleTabs("admin")).toEqual(["dashboard", "api-keys"]);
+    expect(resolveTab("guide", "admin", "live")).toBe("dashboard");
   });
 
   it("opens admins on API keys in setup mode and on the dashboard in live mode", () => {

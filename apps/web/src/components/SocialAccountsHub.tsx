@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { OwnedSocialConnections } from "@/components/OwnedSocialConnections";
 import { SocialAccountsDashboard, type BackfillRow, type RefreshTarget } from "@/components/SocialAccountsDashboard";
-import { SocialGuideMarkdown } from "@/components/SocialGuideMarkdown";
 import type { OwnedDashboard } from "@/domain/owned-social-dashboard";
 import {
   HEALTH_LABELS,
@@ -25,7 +24,6 @@ import {
 const TAB_LABELS: Record<SocialAccountsTab, string> = {
   dashboard: "Dashboard",
   "api-keys": "API keys",
-  guide: "Setup guide",
 };
 
 /** Order the leader asked for when refreshing: Instagram and Facebook first, then the rest. */
@@ -52,8 +50,6 @@ type Props = {
   dashboardFailed: boolean;
   /** Admin only. */
   backfill: BackfillRow[] | null;
-  /** Admin only. */
-  guideMarkdown: string | null;
 };
 
 export function SocialAccountsHub({
@@ -65,7 +61,6 @@ export function SocialAccountsHub({
   initialDashboard,
   dashboardFailed,
   backfill,
-  guideMarkdown,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -201,11 +196,6 @@ export function SocialAccountsHub({
         {activeTab === "api-keys" && isAdmin && (
           <section className="command-panel">
             <OwnedSocialConnections />
-          </section>
-        )}
-        {activeTab === "guide" && isAdmin && guideMarkdown !== null && (
-          <section className="command-panel">
-            <SocialGuideMarkdown markdown={guideMarkdown} />
           </section>
         )}
       </div>

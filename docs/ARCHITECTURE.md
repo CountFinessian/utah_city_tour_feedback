@@ -29,7 +29,7 @@ The Next.js App Router is divided into two primary route groups for role separat
 - Roles: `host` (capture only), `leader` (leadership), `admin` (leadership plus admin-only powers). The type lives in `src/server/auth/roles.ts`, which is edge-safe so middleware can import it. Use `isLeadershipRole` for leadership gates and `isAdminRole` for admin-only checks. Do not compare role strings directly.
 - Admin-only: managing social API keys (`/api/owned-social/admin`, every method), removing people (`DELETE /api/auth/invite`), and assigning or changing the admin role (invite and role update).
 - Role freshness: `src/server/auth/session-alive.ts` (`lookupUserAccount`) reads the account's current role with the existence check (same 60-second cache). Middleware uses that role for the gates and for the `x-user-role` header. If the database cannot answer, the cookie role is used. Cookie routes use `liveSessionRole` (`src/server/auth/live-role.ts`).
-- Social Accounts page (`/social-accounts`): the server reads `x-user-role`. Non-admin leaders get the dashboard and a connected count only. The server does not load the admin summary, the setup guide, or key status for them. Admins also get the API keys tab and the setup guide.
+- Social Accounts page (`/social-accounts`): the server reads `x-user-role`. Non-admin leaders get the dashboard and a connected count only. The server does not load the admin summary or key status for them. Admins also get the API keys tab.
 - Social accounts mode (`social_accounts_mode` in `app_settings`): `setup` (default) opens admins on API keys and shows the setup banner to leaders. `live` opens everyone on the dashboard. See `DATA-MODEL.md` for the SQL that changes the mode.
 
 ## 3. Data Flow

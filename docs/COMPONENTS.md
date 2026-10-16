@@ -95,16 +95,16 @@ This document provides a comprehensive reference for all 14 React components in 
 
 ## Social Accounts
 
-Page at `/social-accounts` (`src/app/(leadership)/social-accounts/page.tsx`, server component). It loads the admin summary, backfill summary, the dashboard and the setup guide markdown, then renders `SocialAccountsHub`.
+Page at `/social-accounts` (`src/app/(leadership)/social-accounts/page.tsx`, server component). It reads the viewer's role and the `social_accounts_mode` setting, loads the dashboard (plus the admin summary and backfill summary for admins), then renders `SocialAccountsHub`.
 
 ### `SocialAccountsHub`
 - **Path:** `src/components/SocialAccountsHub.tsx`
 - **Type:** Client Component
-- **Props:** `{ platforms, initialDashboard, dashboardFailed, backfill, guideMarkdown }`
-- **Purpose:** Header, a five-platform status strip (Verified / Connected / Needs attention / Not set up), and the tabs Dashboard, Connections and Setup guide. The tab lives in `?tab=`. It defaults to Dashboard once all five platforms are verified, otherwise Connections.
+- **Props:** `{ isAdmin, mode, connectedCount, totalPlatforms, platforms, initialDashboard, dashboardFailed, backfill }`
+- **Purpose:** Header, a five-platform status strip (Verified / Connected / Needs attention / Not set up), and the tabs Dashboard and API keys (admins only). The tab lives in `?tab=`. Admins open on API keys while `social_accounts_mode` is `setup`; everyone opens on Dashboard when it is `live`. The setup guide is a shared document (`docs/social-coach/04-Social-Accounts-Setup-Guide.md`), not part of the app.
 - **Key State:** `platforms` (status, refreshed on tab change and window focus)
 - **API Calls:** `GET /api/owned-social/admin`
-- **Child Components:** `SocialAccountsDashboard`, `OwnedSocialConnections` (unchanged), `SocialGuideMarkdown`
+- **Child Components:** `SocialAccountsDashboard`, `OwnedSocialConnections` (unchanged)
 
 ### `SocialAccountsDashboard`
 - **Path:** `src/components/SocialAccountsDashboard.tsx`
@@ -120,12 +120,6 @@ Page at `/social-accounts` (`src/app/(leadership)/social-accounts/page.tsx`, ser
 - **Type:** Client Components (`next/dynamic`, `ssr: false`)
 - **Props:** `WeeklyViewsChart({ weekly, networks })`: stacked weekly views, one color per network
 - **Purpose:** Recharts bar chart for the weekly series. Lazy-loaded the same way as `CommandChartsLazy`.
-
-### `SocialGuideMarkdown`
-- **Path:** `src/components/SocialGuideMarkdown.tsx`
-- **Type:** Client Component
-- **Props:** `{ markdown: string }`
-- **Purpose:** Renders `src/content/social-accounts-guide.md` with `react-markdown` and `remark-gfm`, styled for the dark theme. Fenced code blocks have a Copy button. Raw HTML is not rendered.
 
 ## Evidence & Admin
 

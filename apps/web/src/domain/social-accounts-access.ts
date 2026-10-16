@@ -8,15 +8,15 @@ export const SOCIAL_ACCOUNTS_MODE_KEY = "social_accounts_mode";
 
 export type SocialAccountsMode = "setup" | "live";
 
-export type SocialAccountsTab = "dashboard" | "api-keys" | "guide";
+export type SocialAccountsTab = "dashboard" | "api-keys";
 
 export function normalizeSocialAccountsMode(value: unknown): SocialAccountsMode {
   return value === "live" ? "live" : "setup";
 }
 
-/** Non-admin leaders see only the dashboard. Admins also get the API keys and the setup guide. */
+/** Non-admin leaders see only the dashboard. Admins also get the API keys tab. */
 export function visibleTabs(role: UserRole | null | undefined): SocialAccountsTab[] {
-  return role === "admin" ? ["dashboard", "api-keys", "guide"] : ["dashboard"];
+  return role === "admin" ? ["dashboard", "api-keys"] : ["dashboard"];
 }
 
 /** Admins open on API keys while the feature is in setup. Live mode opens everyone on the dashboard. */
