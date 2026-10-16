@@ -9,7 +9,31 @@ import { tregHttp } from "@/server/social/providers/http";
 import { analyzeSentimentAndTopic } from "@/server/intelligence/sentiment-classifier";
 import type { TopicMentionRecord } from "../repositories/topic-repository";
 import { isAffiliatedAccount, isAffiliatedUrl } from "@/domain/social-listening/affiliation";
-import { matchesTopic, type TopicDefinition, type TopicWebSource } from "@/domain/social-listening/topics";
+import {
+  isSocialPlatformUrl,
+  matchesTopic,
+  matchesTopicOnWeb,
+  type TopicDefinition,
+  type TopicWebSource,
+} from "@/domain/social-listening/topics";
+
+/**
+ * Web/news: no social hosts (author unknowable, often Utah City itself) and the anchored match.
+ * Threads: native posts with known authors, so the plain keyword match plus affiliation check apply.
+ * Also used when loading stored mentions, so rows saved under older rules are filtered too.
+ */
+export function acceptWebMention(
+  source: TopicWebSource,
+  url: string,
+  text: string,
+  topic: Pick<TopicDefinition, "name" | "keywords">
+): boolean {
+  if (source === "web" || source === "news") {
+    return !isSocialPlatformUrl(url) && matchesTopicOnWeb(text, topic);
+  }
+  if (source === "threads") return matchesTopic(text, topic.keywords);
+  return true;
+}
 import type { Sentiment } from "@/domain/social-listening/types";
 
 /** Sources that run search calls. Reviews have their own flow (venue lookup, then reviews). */
@@ -290,7 +314,7 @@ export async function searchWebSource(
     if (!hit.url || seen.has(hit.url)) continue;
     seen.add(hit.url);
     if (isAffiliatedUrl(hit.url) || isAffiliatedAccount({ platform: item.platform, username: hit.author })) continue;
-    if (!matchesTopic(`${hit.title ?? ""} ${hit.text}`, topic.keywords)) continue;
+    if (!acceptWebMention(item.platform, hit.url, `${hit.title ?? ""} ${hit.text}`, topic)) continue;
     mentions.push(toMention(topic, item.platform, item.query, hit, nowIso));
   }
   for (const mention of mentions) await scoreSentiment(mention, budget);

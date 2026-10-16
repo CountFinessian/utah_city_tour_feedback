@@ -379,6 +379,54 @@ export function matchesTopic(text: string | undefined | null, keywords: string[]
 }
 
 /**
+ * Every topic is a Utah City subject. Social posts already passed the Utah City relevance check,
+ * but open-web pages did not, so generic event words ("pet costume contest") match events anywhere.
+ */
+export const UTAH_CITY_ANCHORS = ["utah city", "greenline", "vineyard", "bella's market"];
+
+/**
+ * Open-web match: the topic's full name (e.g. "Spooktah City"), or a topic keyword together with a
+ * Utah City anchor. A bare pun like "spooktah" is common across Utah and needs the anchor too.
+ */
+export function matchesTopicOnWeb(text: string | undefined | null, topic: Pick<TopicDefinition, "name" | "keywords">): boolean {
+  if (!text) return false;
+  if (matchesTopic(text, [topic.name])) return true;
+  return matchesTopic(text, topic.keywords) && matchesTopic(text, UTAH_CITY_ANCHORS);
+}
+
+const SOCIAL_HOSTS = [
+  "instagram.com",
+  "facebook.com",
+  "fb.com",
+  "tiktok.com",
+  "x.com",
+  "twitter.com",
+  "youtube.com",
+  "youtu.be",
+  "threads.net",
+  "threads.com",
+  "linkedin.com",
+  "reddit.com",
+  "pinterest.com",
+];
+
+/**
+ * Social platforms are searched natively, where the author is known and affiliation filtering works.
+ * A Google result pointing at instagram.com hides who posted it (often Utah City itself), so the
+ * open-web sources skip social hosts entirely.
+ */
+export function isSocialPlatformUrl(url: string | undefined | null): boolean {
+  if (!url) return false;
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/^(www|m|mobile)\./, "");
+  } catch {
+    return false;
+  }
+  return SOCIAL_HOSTS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+/**
  * Drops plan items already searched inside the window (from the topic ledger or the main
  * discovery run log), duplicates within the plan, and anything past the per-refresh cap.
  */

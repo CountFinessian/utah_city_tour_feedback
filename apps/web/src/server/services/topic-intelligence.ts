@@ -19,7 +19,13 @@ import {
   type TopicSearchRecord,
 } from "../repositories/topic-repository";
 import { discoveryPipelineService } from "./discovery-pipeline";
-import { searchVenueReviews, searchWebSource, type SentimentBudget, type TopicSearchableWebSource } from "./topic-web-search";
+import {
+  acceptWebMention,
+  searchVenueReviews,
+  searchWebSource,
+  type SentimentBudget,
+  type TopicSearchableWebSource,
+} from "./topic-web-search";
 import { tregClient } from "./treg-client";
 import {
   isOfficialAuthor,
@@ -186,7 +192,11 @@ function toItem(
  * their comments from residents are (the posts are join targets only). Report-driven exclusions
  * and duplicate collapsing happen in applyExclusions, so the LLM can see and re-judge everything.
  */
-function buildCandidates(corpus: TopicCorpus, accounts: OfficialAccountRef[]): TopicItem[] {
+function buildCandidates(
+  corpus: TopicCorpus,
+  accounts: OfficialAccountRef[],
+  topic: Pick<TopicDefinition, "name" | "keywords">
+): TopicItem[] {
   const postById = new Map(corpus.posts.map((post) => [post.id, post]));
   const items: TopicItem[] = [];
 
@@ -248,6 +258,7 @@ function buildCandidates(corpus: TopicCorpus, accounts: OfficialAccountRef[]): T
     if (isAffiliatedUrl(mention.url) || isAffiliated({ platform: mention.source, username: mention.author }, accounts)) {
       continue;
     }
+    if (!acceptWebMention(mention.source, mention.url, `${mention.title ?? ""} ${mention.text}`, topic)) continue;
     const when = toMs(mention.publishedAt || mention.firstSeenAt);
     const title = mention.title ? trimText(mention.title, 200) : undefined;
     const text = trimText(mention.text, EVIDENCE_TEXT_LIMIT);
@@ -413,7 +424,7 @@ export async function listTopicSummaries(): Promise<TopicListResponse> {
   const records = await repo.listTopics();
   const topics: TopicListResponse["topics"] = [];
   for (const record of records) {
-    const candidates = buildCandidates(await repo.loadCorpus(record.topic), accounts);
+    const candidates = buildCandidates(await repo.loadCorpus(record.topic), accounts, record.topic);
     const kept = applyExclusions(candidates, record.report);
     const searches = await repo.listSearches(record.topic.id);
     topics.push({
@@ -443,7 +454,7 @@ export async function loadTopicDetail(topicId: string): Promise<TopicDetailRespo
     repo.isRefreshRunning(topicId),
   ]);
   const report = normalizeReport(record.report);
-  const index = applyExclusions(buildCandidates(corpus, accounts), report);
+  const index = applyExclusions(buildCandidates(corpus, accounts, record.topic), report);
 
   const evidence: Record<string, TopicEvidence> = {};
   for (const id of referencedEvidenceIds(report)) {
@@ -1072,7 +1083,7 @@ async function runRefresh(
   const at = now.toISOString();
   const accounts = await getSocialRepository().listOfficialAccounts();
 
-  const candidates = buildCandidates(await repo.loadCorpus(topic), accounts);
+  const candidates = buildCandidates(await repo.loadCorpus(topic), accounts, topic);
   const kept = applyExclusions(candidates, record.report);
   const searches = await repo.listSearches(topic.id);
   const lastSearchedAt = latestSearchAt(searches);
@@ -1119,7 +1130,7 @@ async function runRefresh(
 
   // The report follows the corpus whether or not this refresh searched. Its fingerprint is taken
   // after its own exclusions, so the next refresh with the same corpus does not regenerate.
-  const latestCandidates = buildCandidates(await repo.loadCorpus(topic), accounts);
+  const latestCandidates = buildCandidates(await repo.loadCorpus(topic), accounts, topic);
   const saved = (await repo.getTopic(topic.id))?.report ?? record.report;
   const savedKept = applyExclusions(latestCandidates, saved);
   const fingerprint = corpusFingerprint(savedKept);
