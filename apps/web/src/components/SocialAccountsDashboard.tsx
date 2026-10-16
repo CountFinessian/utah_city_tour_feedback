@@ -18,7 +18,7 @@ export type RefreshTarget = { platform: string; label: string };
 export type BackfillRow = { network: string; lastRunAt?: string; lastError?: string };
 
 type Props = {
-  /** Admins see setup-only actions (API keys link, refresh). Other leaders get the read-only view. */
+  /** Admins see setup-only actions (Setup & keys link, refresh). Other leaders get the read-only view. */
   isAdmin: boolean;
   /** True while the page is in "setup" mode, which shows the setup banner. */
   setupMode: boolean;
@@ -29,7 +29,7 @@ type Props = {
   /** Platforms with saved or connected keys, in refresh order. */
   refreshTargets: RefreshTarget[];
   backfill: BackfillRow[];
-  /** Admin only: opens the API keys tab. */
+  /** Admin only: opens the Setup & keys tab. */
   onGoToApiKeys?: () => void;
 };
 
@@ -203,7 +203,7 @@ export function SocialAccountsDashboard({
     setProgress(null);
     setBusy(false);
     setNotice(
-      failures.length > 0 ? `Could not refresh ${failures.join(", ")}. Try again or check the API keys tab.` : "Data refreshed."
+      failures.length > 0 ? `Could not refresh ${failures.join(", ")}. Try again or check the Setup & keys tab.` : "Data refreshed."
     );
   }
 
@@ -214,13 +214,13 @@ export function SocialAccountsDashboard({
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" aria-hidden />
         <p className="text-sm text-command-soft">
           {isAdmin
-            ? `Showing data from ${verifiedCount} of ${totalPlatforms} verified accounts. Finish setup on the API keys tab.`
+            ? `Showing data from ${verifiedCount} of ${totalPlatforms} verified accounts. Finish setup on the Setup & keys tab.`
             : "Social analytics are being set up. Numbers will appear here once the accounts are connected."}
         </p>
       </div>
       {isAdmin && onGoToApiKeys && (
         <button type="button" onClick={onGoToApiKeys} className="command-action-button shrink-0 px-4 py-2 text-sm">
-          Go to API keys
+          Go to Setup & keys
         </button>
       )}
     </section>
@@ -261,11 +261,11 @@ export function SocialAccountsDashboard({
           {isAdmin ? (
             <>
               <p className="mt-2 text-sm text-command-soft">
-                Finish connecting the accounts on the API keys tab, then refresh. Posts and metrics load automatically after that.
+                Finish connecting the accounts on the Setup & keys tab, then refresh. Posts and metrics load automatically after that.
               </p>
               {onGoToApiKeys && (
                 <button type="button" onClick={onGoToApiKeys} className="command-action-button mt-4 px-4 py-2 text-sm">
-                  Go to API keys
+                  Go to Setup & keys
                 </button>
               )}
             </>

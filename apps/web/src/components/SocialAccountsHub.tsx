@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { OwnedSocialConnections } from "@/components/OwnedSocialConnections";
+import { SocialSetupWalkthrough } from "@/components/social-setup/SocialSetupWalkthrough";
 import { SocialAccountsDashboard, type BackfillRow, type RefreshTarget } from "@/components/SocialAccountsDashboard";
 import type { OwnedDashboard } from "@/domain/owned-social-dashboard";
 import {
@@ -23,7 +23,7 @@ import {
 
 const TAB_LABELS: Record<SocialAccountsTab, string> = {
   dashboard: "Dashboard",
-  "api-keys": "API keys",
+  "api-keys": "Setup & keys",
 };
 
 /** Order the leader asked for when refreshing: Instagram and Facebook first, then the rest. */
@@ -195,7 +195,7 @@ export function SocialAccountsHub({
         )}
         {activeTab === "api-keys" && isAdmin && (
           <section className="command-panel">
-            <OwnedSocialConnections />
+            <SocialSetupWalkthrough />
           </section>
         )}
       </div>

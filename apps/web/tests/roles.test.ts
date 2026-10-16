@@ -42,7 +42,7 @@ describe("social accounts tab rules", () => {
     expect(resolveTab("guide", "leader", "live")).toBe("dashboard");
   });
 
-  it("shows admins the dashboard and API keys, and no longer a setup guide", () => {
+  it("shows admins the dashboard and the Setup & keys tab (id api-keys), and no separate setup guide", () => {
     expect(visibleTabs("admin")).toEqual(["dashboard", "api-keys"]);
     expect(resolveTab("guide", "admin", "live")).toBe("dashboard");
   });
