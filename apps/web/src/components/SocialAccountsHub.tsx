@@ -39,40 +39,26 @@ const HEALTH_STYLE: Record<PlatformHealth, string> = {
 export type HubPlatformSummary = PlatformHealthInput & { platform: string };
 
 type Props = {
-  isAdmin: boolean;
   mode: SocialAccountsMode;
-  /** Non-admin view: how many of the five accounts are connected. */
-  connectedCount: number;
-  totalPlatforms: number;
-  /** Admin only: per-platform key status. Null for non-admins, so it is never sent to them. */
-  platforms: HubPlatformSummary[] | null;
+  /** Per-platform key status from the admin summary. Leaders only. */
+  platforms: HubPlatformSummary[];
   initialDashboard: OwnedDashboard | null;
   dashboardFailed: boolean;
-  /** Admin only. */
-  backfill: BackfillRow[] | null;
+  backfill: BackfillRow[];
 };
 
-export function SocialAccountsHub({
-  isAdmin,
-  mode,
-  connectedCount,
-  totalPlatforms,
-  platforms: initialPlatforms,
-  initialDashboard,
-  dashboardFailed,
-  backfill,
-}: Props) {
+export function SocialAccountsHub({ mode, platforms: initialPlatforms, initialDashboard, dashboardFailed, backfill }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const role = isAdmin ? "admin" : "leader";
-  const [platforms, setPlatforms] = useState<HubPlatformSummary[]>(initialPlatforms ?? []);
+  const [platforms, setPlatforms] = useState<HubPlatformSummary[]>(initialPlatforms);
 
   const byPlatform = new Map(platforms.map((p) => [p.platform, p]));
   const verifiedCount = HUB_PLATFORMS.filter((p) => platformHealth(byPlatform.get(p.platform)) === "verified").length;
-  const tabs = visibleTabs(role);
+  const totalPlatforms = HUB_PLATFORMS.length;
+  const tabs = visibleTabs("leader");
 
-  const activeTab: SocialAccountsTab = resolveTab(searchParams.get("tab"), role, mode);
+  const activeTab: SocialAccountsTab = resolveTab(searchParams.get("tab"), "leader", mode);
 
   // Keep the tab in the URL so a reload or a shared link lands on the same section.
   useEffect(() => {
@@ -80,7 +66,6 @@ export function SocialAccountsHub({
   }, [searchParams, activeTab, pathname, router]);
 
   const refreshStatus = useCallback(async () => {
-    if (!isAdmin) return;
     try {
       const res = await fetch("/api/owned-social/admin", { cache: "no-store" });
       if (!res.ok) return;
@@ -89,12 +74,12 @@ export function SocialAccountsHub({
     } catch {
       // Keep the last known status on a transient network error.
     }
-  }, [isAdmin]);
+  }, []);
 
   const setTab = useCallback(
     (tab: SocialAccountsTab) => {
       router.replace(`${pathname}?tab=${tab}`, { scroll: false });
-      // Status can change on the API keys tab, so re-read it whenever an admin moves between tabs.
+      // Status can change on the API keys tab, so re-read it whenever a leader moves between tabs.
       void refreshStatus();
     },
     [pathname, router, refreshStatus]
@@ -102,17 +87,14 @@ export function SocialAccountsHub({
 
   // Also re-read status when the window regains focus (the owner may have just approved an Authorize link).
   useEffect(() => {
-    if (!isAdmin) return;
     window.addEventListener("focus", refreshStatus);
     return () => window.removeEventListener("focus", refreshStatus);
-  }, [isAdmin, refreshStatus]);
+  }, [refreshStatus]);
 
-  const refreshTargets: RefreshTarget[] = isAdmin
-    ? REFRESH_ORDER.filter((p) => isRefreshable(byPlatform.get(p))).map((p) => ({
-        platform: p,
-        label: HUB_PLATFORMS.find((h) => h.platform === p)?.label ?? p,
-      }))
-    : [];
+  const refreshTargets: RefreshTarget[] = REFRESH_ORDER.filter((p) => isRefreshable(byPlatform.get(p))).map((p) => ({
+    platform: p,
+    label: HUB_PLATFORMS.find((h) => h.platform === p)?.label ?? p,
+  }));
 
   return (
     <div className="space-y-5">
@@ -120,35 +102,29 @@ export function SocialAccountsHub({
         <p className="command-label">Owned channels</p>
         <h1 className="mt-2 text-3xl font-black tracking-[-0.01em] text-command-ink md:text-4xl">Social Accounts</h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-command-soft md:text-base">
-          Read-only analytics for the official Utah City accounts.
+          Analytics for the official Utah City accounts, and the keys that connect them.
         </p>
       </header>
 
-      {isAdmin ? (
-        <section className="command-panel">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="command-label">Account status</p>
-            <p className="text-sm font-semibold text-command-ink">
-              {verifiedCount} of {HUB_PLATFORMS.length} verified
-            </p>
-          </div>
-          <ul className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
-            {HUB_PLATFORMS.map((p) => {
-              const health = platformHealth(byPlatform.get(p.platform));
-              return (
-                <li key={p.platform} className={`rounded-[8px] border px-3 py-2.5 ${HEALTH_STYLE[health]}`}>
-                  <p className="text-xs font-semibold text-command-ink">{p.label}</p>
-                  <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.08em]">{HEALTH_LABELS[health]}</p>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ) : (
-        <p className="text-sm font-semibold text-command-ink" aria-live="polite">
-          {connectedCount} of {totalPlatforms} accounts connected
-        </p>
-      )}
+      <section className="command-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="command-label">Account status</p>
+          <p className="text-sm font-semibold text-command-ink">
+            {verifiedCount} of {HUB_PLATFORMS.length} verified
+          </p>
+        </div>
+        <ul className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          {HUB_PLATFORMS.map((p) => {
+            const health = platformHealth(byPlatform.get(p.platform));
+            return (
+              <li key={p.platform} className={`rounded-[8px] border px-3 py-2.5 ${HEALTH_STYLE[health]}`}>
+                <p className="text-xs font-semibold text-command-ink">{p.label}</p>
+                <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.08em]">{HEALTH_LABELS[health]}</p>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
 
       <div role="tablist" aria-label="Social Accounts sections" className="flex gap-2 overflow-x-auto border-b border-white/10 pb-1">
         {tabs.map((tab) => {
@@ -169,11 +145,6 @@ export function SocialAccountsHub({
               }`}
             >
               {TAB_LABELS[tab]}
-              {tab === "api-keys" && (
-                <span className="ml-2 rounded-full border border-violet-400/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-violet-300">
-                  Admin
-                </span>
-              )}
             </button>
           );
         })}
@@ -182,18 +153,17 @@ export function SocialAccountsHub({
       <div role="tabpanel" id={`social-accounts-panel-${activeTab}`} aria-labelledby={`social-accounts-tab-${activeTab}`}>
         {activeTab === "dashboard" && (
           <SocialAccountsDashboard
-            isAdmin={isAdmin}
             setupMode={mode === "setup"}
             initial={initialDashboard}
             loadFailed={dashboardFailed}
-            verifiedCount={isAdmin ? verifiedCount : connectedCount}
+            verifiedCount={verifiedCount}
             totalPlatforms={totalPlatforms}
             refreshTargets={refreshTargets}
-            backfill={backfill ?? []}
-            onGoToApiKeys={isAdmin ? () => setTab("api-keys") : undefined}
+            backfill={backfill}
+            onGoToApiKeys={() => setTab("api-keys")}
           />
         )}
-        {activeTab === "api-keys" && isAdmin && (
+        {activeTab === "api-keys" && (
           <section className="command-panel">
             <SocialSetupWalkthrough />
           </section>

@@ -35,8 +35,8 @@ const GUIDES: Record<SetupSection["platform"], (props: { ctx: OwnedSocialContext
 };
 
 /**
- * Admin-only setup walkthrough for the "Setup & keys" tab. Static guide text, with one interactive
- * key panel per platform placed under that platform's instructions. The hook loads the admin summary once.
+ * Setup walkthrough for the "Setup & keys" tab, shown to every leader. Static guide text, with one interactive
+ * key panel per platform placed under that platform's instructions. The hook loads the status summary once.
  */
 export function SocialSetupWalkthrough() {
   const ctx = useOwnedSocial();

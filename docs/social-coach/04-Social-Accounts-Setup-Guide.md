@@ -6,7 +6,7 @@ _Last updated Oct 16, 2026 · Jacob Williams_
 
 Utah City gives the Host Intelligence app **read-only** access to its official social accounts. That lets us back-test past campaigns and score new posts as soon as they go live. We can't post, edit, delete or message on any account.
 
-You won't need to email any keys. On a **computer**, sign in at [www.utahcity.app](https://www.utahcity.app) with your Utah City account and open **Social Accounts** in the side menu. Everything happens on that page, and this guide is there too. (On a phone, the app opens the capture screen instead.)
+You won't need to email any keys. On a **computer**, sign in at [www.utahcity.app](https://www.utahcity.app) with your Utah City account and open **Social Accounts** in the side menu, then the **API keys** tab. Everything happens there. (On a phone, the app opens the capture screen instead.)
 
 1. **Create a read-only app** on each platform's developer site (steps below).
 2. **Register our return link** on TikTok, YouTube and LinkedIn. It's shown on the Social Accounts page with a Copy button.

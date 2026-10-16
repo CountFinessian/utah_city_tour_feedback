@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAdminRole } from "@/server/auth/roles";
+import { isLeadershipRole } from "@/server/auth/roles";
 import { isOAuthPlatform, isOwnedPlatform, type OwnedPlatform } from "@/server/owned-social/platforms";
 import { SecretNotConfiguredError } from "@/server/owned-social/crypto";
 import { getBackfillSummary, networksForPlatform, runBackfill } from "@/server/owned-social/backfill";
@@ -18,12 +18,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Social key management is admin-only. The middleware only lets leadership reach this path,
- * so this in-route check is what keeps leaders out. It applies to every method exported below.
+ * Social key management is leadership-only (leader). The middleware lets leadership reach this path,
+ * and this in-route check refuses hosts too, so it does not depend on the middleware alone.
+ * It applies to every method exported below.
  */
-function adminOnly(request: Request): NextResponse | null {
-  if (!isAdminRole(request.headers.get("x-user-role"))) {
-    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+function leaderOnly(request: Request): NextResponse | null {
+  if (!isLeadershipRole(request.headers.get("x-user-role"))) {
+    return NextResponse.json({ error: "Forbidden: Leadership access required" }, { status: 403 });
   }
   return null;
 }
@@ -37,7 +38,7 @@ function fail(err: unknown, fallback: string): NextResponse {
 }
 
 export async function GET(request: Request) {
-  const denied = adminOnly(request);
+  const denied = leaderOnly(request);
   if (denied) return denied;
   try {
     const summary = await getAdminSummary();
@@ -58,7 +59,7 @@ type Body = {
 };
 
 export async function POST(request: Request) {
-  const denied = adminOnly(request);
+  const denied = leaderOnly(request);
   if (denied) return denied;
 
   let body: Body;

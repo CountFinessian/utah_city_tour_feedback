@@ -4,12 +4,12 @@ import { InviteManager } from "@/components/InviteManager";
 import { CorpusEvidenceManager } from "@/components/CorpusEvidenceManager";
 import { listObservations } from "@/server/repositories/observations";
 import { headers } from "next/headers";
-import { isAdminRole, normalizeRole } from "@/server/auth/roles";
+import { isLeadershipRole, normalizeRole } from "@/server/auth/roles";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const isAdmin = isAdminRole(normalizeRole((await headers()).get("x-user-role")));
+  const isLeader = isLeadershipRole(normalizeRole((await headers()).get("x-user-role")));
   const observations = await listObservations();
   const hasData = observations.length > 0;
 
@@ -34,7 +34,7 @@ export default async function SettingsPage() {
         <InviteManager />
       </section>
 
-      {isAdmin && (
+      {isLeader && (
         <section className="command-panel">
           <p className="command-label">Social accounts</p>
           <h2 className="mt-1 text-lg font-semibold text-command-ink">Official account connections</h2>

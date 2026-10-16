@@ -167,7 +167,7 @@ describe("Test keys (verifyConnection)", () => {
   });
 });
 
-describe("Test keys (admin API)", () => {
+describe("Test keys (leader API)", () => {
   it("lets a leader run the check and returns the result", async () => {
     await saveStaticCredentials("x", X_KEYS);
     stubFetch((url, init) => xHandler(url, (init?.headers as Record<string, string> | undefined)?.Authorization));
@@ -175,7 +175,7 @@ describe("Test keys (admin API)", () => {
     const res = await adminPOST(
       new Request("https://www.utahcity.app/api/owned-social/admin", {
         method: "POST",
-        headers: { "x-user-role": "admin", "content-type": "application/json" },
+        headers: { "x-user-role": "leader", "content-type": "application/json" },
         body: JSON.stringify({ action: "verify", platform: "x" }),
       })
     );

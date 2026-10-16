@@ -18,8 +18,6 @@ export type RefreshTarget = { platform: string; label: string };
 export type BackfillRow = { network: string; lastRunAt?: string; lastError?: string };
 
 type Props = {
-  /** Admins see setup-only actions (Setup & keys link, refresh). Other leaders get the read-only view. */
-  isAdmin: boolean;
   /** True while the page is in "setup" mode, which shows the setup banner. */
   setupMode: boolean;
   initial: OwnedDashboard | null;
@@ -29,8 +27,8 @@ type Props = {
   /** Platforms with saved or connected keys, in refresh order. */
   refreshTargets: RefreshTarget[];
   backfill: BackfillRow[];
-  /** Admin only: opens the Setup & keys tab. */
-  onGoToApiKeys?: () => void;
+  /** Opens the Setup & keys tab. */
+  onGoToApiKeys: () => void;
 };
 
 const DISPLAY_TZ = "America/Denver";
@@ -141,7 +139,6 @@ function TitleLink({ post }: { post: DashboardPost }) {
 }
 
 export function SocialAccountsDashboard({
-  isAdmin,
   setupMode,
   initial,
   loadFailed,
@@ -180,7 +177,7 @@ export function SocialAccountsDashboard({
   }, [reload]);
 
   async function refreshNow() {
-    if (!isAdmin || busy || refreshTargets.length === 0) return;
+    if (busy || refreshTargets.length === 0) return;
     setBusy(true);
     setNotice(null);
     const failures: string[] = [];
@@ -207,22 +204,18 @@ export function SocialAccountsDashboard({
     );
   }
 
-  // Setup banner: only while the page is in setup mode. Admins see how many accounts still need verifying.
-  const banner = setupMode && (isAdmin ? verifiedCount < totalPlatforms : true) && (
+  // Setup banner: only while the page is in setup mode and some accounts still need verifying.
+  const banner = setupMode && verifiedCount < totalPlatforms && (
     <section className="flex flex-col gap-3 rounded-[8px] border border-command-warn/50 bg-command-warn/10 p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" aria-hidden />
         <p className="text-sm text-command-soft">
-          {isAdmin
-            ? `Showing data from ${verifiedCount} of ${totalPlatforms} verified accounts. Finish setup on the Setup & keys tab.`
-            : "Social analytics are being set up. Numbers will appear here once the accounts are connected."}
+          Showing data from {verifiedCount} of {totalPlatforms} verified accounts. Finish setup on the Setup & keys tab.
         </p>
       </div>
-      {isAdmin && onGoToApiKeys && (
-        <button type="button" onClick={onGoToApiKeys} className="command-action-button shrink-0 px-4 py-2 text-sm">
-          Go to Setup & keys
-        </button>
-      )}
+      <button type="button" onClick={onGoToApiKeys} className="command-action-button shrink-0 px-4 py-2 text-sm">
+        Go to Setup & keys
+      </button>
     </section>
   );
 
@@ -258,20 +251,12 @@ export function SocialAccountsDashboard({
         <section className="command-panel">
           <p className="command-label">No posts yet</p>
           <h2 className="mt-1 text-lg font-semibold text-command-ink">Nothing collected in the last 90 days</h2>
-          {isAdmin ? (
-            <>
-              <p className="mt-2 text-sm text-command-soft">
-                Finish connecting the accounts on the Setup & keys tab, then refresh. Posts and metrics load automatically after that.
-              </p>
-              {onGoToApiKeys && (
-                <button type="button" onClick={onGoToApiKeys} className="command-action-button mt-4 px-4 py-2 text-sm">
-                  Go to Setup & keys
-                </button>
-              )}
-            </>
-          ) : (
-            <p className="mt-2 text-sm text-command-soft">Posts and metrics will appear here once the accounts are connected.</p>
-          )}
+          <p className="mt-2 text-sm text-command-soft">
+            Finish connecting the accounts on the Setup & keys tab, then refresh. Posts and metrics load automatically after that.
+          </p>
+          <button type="button" onClick={onGoToApiKeys} className="command-action-button mt-4 px-4 py-2 text-sm">
+            Go to Setup & keys
+          </button>
         </section>
       ) : (
         <>
@@ -446,18 +431,16 @@ export function SocialAccountsDashboard({
           {progress && <p className="mt-1 text-command-soft" aria-live="polite">{progress}</p>}
           {notice && !progress && <p className="mt-1 text-command-soft" aria-live="polite">{notice}</p>}
         </div>
-        {isAdmin && (
-          <button
-            type="button"
-            onClick={() => void refreshNow()}
-            disabled={busy || refreshTargets.length === 0}
-            title={refreshTargets.length === 0 ? "Connect an account first" : undefined}
-            className="command-action-button inline-flex shrink-0 items-center gap-2 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} aria-hidden />
-            Refresh data now
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => void refreshNow()}
+          disabled={busy || refreshTargets.length === 0}
+          title={refreshTargets.length === 0 ? "Connect an account first" : undefined}
+          className="command-action-button inline-flex shrink-0 items-center gap-2 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} aria-hidden />
+          Refresh data now
+        </button>
       </footer>
     </div>
   );

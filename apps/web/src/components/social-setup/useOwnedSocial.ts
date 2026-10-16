@@ -27,7 +27,7 @@ export type OwnedSocialContext = {
   disconnect: (p: PlatformSummary) => Promise<void>;
 };
 
-/** Loads the admin summary once and exposes every key action. Admin-only endpoint; the server rejects other roles. */
+/** Loads the status summary once and exposes every key action. Leadership-only endpoint; the server rejects other roles. */
 export function useOwnedSocial(): OwnedSocialContext {
   const [data, setData] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -4,18 +4,17 @@ All API routes are under `/api/`. Authentication is enforced by middleware (`src
 
 ## Roles and access
 
-Roles are `host`, `leader`, and `admin`. **Admin is a superset of leader**: everything a leader can do, an admin can do.
+Roles are `host` and `leader`.
 
 - **Host**: tour capture only.
-- **Leader** ("Leadership"): command, analyst, evidence, settings, the social dashboard, and inviting hosts and leaders.
-- **Admin**: everything a leader can do, plus the admin-only powers below.
+- **Leader** ("Leadership"): command, analyst, evidence, settings, the social dashboard, Social Accounts (analytics and the Setup & keys tab), social API keys, inviting hosts and leaders, and removing people from the app.
 
-Admin-only:
-- Managing social API keys: every method of `/api/owned-social/admin` (save, authorize, disconnect, refresh, test, backfill, status). Non-admins get `403 "Admin access required"`.
-- Removing people from the app: `DELETE /api/auth/invite`.
-- Assigning the admin role: inviting someone as `admin`, or changing anyone's role to `admin`, or changing an existing admin's role (`PATCH /api/auth/invite`).
+Leader-only (every leader has these; hosts get `403`):
+- Managing social API keys: every method of `/api/owned-social/admin` (save, authorize, disconnect, refresh, test, backfill, status). Non-leaders get `403 "Forbidden: Leadership access required"`.
+- Inviting people and changing roles: `POST` and `PATCH /api/auth/invite`. The assignable roles are `host` and `leader`.
+- Removing people from the app: `DELETE /api/auth/invite`. A leader cannot remove their own account.
 
-Role freshness: middleware looks up the user's current role in the database (60-second cache) on every request and uses it for the route gates and the `x-user-role` header. A role change applies without re-login. The role in the session cookie is used only when the database cannot be reached. Routes that read the session cookie directly (`/api/auth/*`, `/api/observations` DELETE, `/api/social-pulse/refresh`) also check the current role in the database. A user who no longer exists is refused. An unrecognized stored role is treated as `host`.
+Role freshness: middleware looks up the user's current role in the database (60-second cache) on every request and uses it for the route gates and the `x-user-role` header. A role change applies without re-login. The role in the session cookie is used only when the database cannot be reached. Routes that read the session cookie directly (`/api/auth/*`, `/api/observations` DELETE, `/api/social-pulse/refresh`) also check the current role in the database. A user who no longer exists is refused. An unrecognized stored role, including the retired `admin`, is treated as `host`.
 
 
 ## 1. Authentication
@@ -85,21 +84,21 @@ Manages user invitations.
 - **`GET`** (Public)
   - **Service:** `listAllInvitationsWithStatus`
   - **Response `200 OK`**: `{ "invitations": [ { "email": "...", "name": "...", "role": "...", "claimed": false, "setupUrl": "..." } ] }`
-- **`POST`** (Leadership role required: leader or admin)
+- **`POST`** (Leadership role required: leader)
   - **Service:** `createOrUpdateInvitation`, `sendInvitationEmail`
-  - **Request Body**: `{ "email": "...", "role": "host|leader|admin", "name": "...", "title": "..." }`
+  - **Request Body**: `{ "email": "...", "role": "host|leader", "name": "...", "title": "..." }`
   - **Response `200 OK`**: `{ "success": true, "setupUrl": "...", "emailSent": true, "invite": { ... } }`
-  - **Errors**: `401 Unauthorized` without a session. `403 Forbidden` for non-leadership, or for a leader inviting `admin` (`"Only admins can assign the admin role."`). `400 Bad Request` if email exists, invalid, or the role is unknown.
-- **`PATCH`** (Leadership role required; admin role required to assign or change admin)
+  - **Errors**: `401 Unauthorized` without a session. `403 Forbidden` for non-leadership. `400 Bad Request` if email exists, invalid, or the role is not `host` or `leader`.
+- **`PATCH`** (Leadership role required: leader)
   - **Service:** `updateUserRole`
-  - **Request Body**: `{ "email": "...", "role": "host|leader|admin" }`
+  - **Request Body**: `{ "email": "...", "role": "host|leader" }`
   - **Response `200 OK`**: `{ "success": true, "email": "...", "role": "...", "message": "..." }`
-  - **Errors**: `403 Forbidden` if not leadership, or if a non-admin assigns `admin` or changes an existing admin.
-- **`DELETE`** (Admin only)
+  - **Errors**: `403 Forbidden` if not leadership. `400 Bad Request` if the role is not `host` or `leader`.
+- **`DELETE`** (Leadership role required: leader)
   - **Service:** `deleteUserAndInvitation`
   - **Request Query Params / Body**: `?email=...` or `{ "email": "..." }`
   - **Response `200 OK`**: `{ "success": true, "email": "...", "message": "..." }`
-  - **Errors**: `403 Forbidden` with `"Only admins can remove people from the app"` for leaders and hosts. `400 Bad Request` if the admin targets their own account.
+  - **Errors**: `403 Forbidden` with `"Forbidden: Only members of Leadership can remove accounts."` for hosts and anonymous callers. `400 Bad Request` if the leader targets their own account.
 
 ---
 
@@ -115,7 +114,7 @@ Manages observation/evidence records.
   - **Request Body**: `CreateObservationInput` schema (JSON)
   - **Response `200 OK`**: `{ "observation": { ... } }`
   - **Errors**: Returns appropriate HTTP status on validation errors.
-- **`DELETE`** (Leadership role required: leader or admin)
+- **`DELETE`** (Leadership role required: leader)
   - **Service:** `deleteObservation`
   - **Request Query Params / Body**: `?id=...` or `{ "id": "..." }`
   - **Response `200 OK`**: `{ "success": true, "message": "..." }`
@@ -190,11 +189,11 @@ Returns the platform status (lightweight health check).
 
 ---
 
-## 6b. Official Account Connections (admin only for keys; leadership for analytics; cron separate)
+## 6b. Official Account Connections (leader for keys and analytics; cron separate)
 
 ### `GET /api/owned-social/admin`
 
-**Admin only.** Any other caller gets `403 {"error": "Admin access required"}`. Applies to every method on this route.
+**Leader only.** Any other caller gets `403 {"error": "Forbidden: Leadership access required"}`. Applies to every method on this route.
 
 Connection status per platform plus `backfill`: per network `{ network, label, postCount, historyComplete, lastRunAt?, lastError?, lastNewPosts?, lastUpdatedPosts? }`. Never returns a secret.
 
@@ -206,11 +205,11 @@ Body `{ action, platform, ... }` where `action` is `save-credentials`, `create-l
 
 ### `GET /api/owned-social/posts`
 
-Leadership (leader or admin) export of backfilled posts, newest first. Query: `network` (`tiktok`, `youtube`, `linkedin`, `facebook`, `instagram`, `x`), `since` (date or ISO 8601), `format` (`json`, default, or `csv`). JSON returns `{ count, posts }`. CSV (up to 50,000 rows) has the columns `network,post_id,published_at,title,url,media_type,duration_sec,views,likes,comments,shares,saves,reach,impressions,clicks,watch_minutes,avg_view_seconds`. Cells that start with `= + - @` are prefixed with an apostrophe to block spreadsheet formula injection.
+Leadership (leader) export of backfilled posts, newest first. Query: `network` (`tiktok`, `youtube`, `linkedin`, `facebook`, `instagram`, `x`), `since` (date or ISO 8601), `format` (`json`, default, or `csv`). JSON returns `{ count, posts }`. CSV (up to 50,000 rows) has the columns `network,post_id,published_at,title,url,media_type,duration_sec,views,likes,comments,shares,saves,reach,impressions,clicks,watch_minutes,avg_view_seconds`. Cells that start with `= + - @` are prefixed with an apostrophe to block spreadsheet formula injection.
 
 ### `GET /api/owned-social/dashboard`
 
-Leadership (leader or admin) analytics for the official accounts' posts (`src/server/owned-social/dashboard.ts`), over the last 90 days. Returns `{ generatedAt, windowDays, lastUpdatedAt, totals30d, networks, recentPosts, topPosts, weekly }`:
+Leadership (leader) analytics for the official accounts' posts (`src/server/owned-social/dashboard.ts`), over the last 90 days. Returns `{ generatedAt, windowDays, lastUpdatedAt, totals30d, networks, recentPosts, topPosts, weekly }`:
 
 - `networks[]`: per network with posts, views, likes, comments and shares over 30 days, `engagementRate30d` (likes + comments + shares) / views, and `medianViews90d`.
 - `recentPosts`: newest 50 across networks, each with `performanceIndex` (views / that network's 90-day median) and `label` (`Above typical` at 1.5 or more, `Typical` from 0.67, `Below typical` under 0.67, `Still growing` under 72 hours old).

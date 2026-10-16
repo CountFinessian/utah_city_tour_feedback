@@ -98,9 +98,9 @@ The AI-extracted structured data, defined by `ExtractionSchema`.
 Found primarily in [`src/server/repositories/user-repository.ts`](file:///c:/Users/PC_User/jacob/bedrockDemo/utah_city_tour_feedback_2wktrial/src/server/repositories/user-repository.ts) and [`src/server/auth/session.ts`](file:///c:/Users/PC_User/jacob/bedrockDemo/utah_city_tour_feedback_2wktrial/src/server/auth/session.ts).
 
 ### `UserRole`
-`"host" | "leader" | "admin"` (defined in `src/server/auth/roles.ts`; re-exported by `user-repository.ts`)
+`"host" | "leader"` (defined in `src/server/auth/roles.ts`; re-exported by `user-repository.ts`)
 
-admin is a superset of leader. `users.role` and `invitations.role` are plain `TEXT`, so no migration is needed for new values. An unrecognized stored role is treated as `host`.
+`users.role` and `invitations.role` are plain `TEXT`. An unrecognized stored role, including the retired `admin`, is treated as `host`.
 
 ### `StoredUser`
 | Field | Type |
@@ -181,13 +181,7 @@ Current production tables.
 
 Accounts are created via invite claim or optional `SEED_USERS_JSON` (env). Password hash + salt are generated at runtime and never committed.
 
-**`users.role` values:** `host`, `leader`, `admin`.
-
-**Promote to admin (do NOT run until this code is deployed):** older code treats `admin` as a non-leader, so run this only after the deploy that includes the admin role:
-
-```sql
-update users set role = 'admin', updated_at = now() where lower(email) in ('jawoba004@gmail.com','adam.rencher12@gmail.com','jacklyn@utahcity.com');
-```
+**`users.role` values:** `host`, `leader`.
 
 ### `app_settings`
 

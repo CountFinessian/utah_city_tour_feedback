@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   MessageSquare,
   ExternalLink,
@@ -13,6 +14,7 @@ import {
   Flame,
   Star,
   Award,
+  CalendarHeart,
 } from "lucide-react";
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type {
@@ -54,11 +56,21 @@ export interface DashboardData {
   backfillStats?: any;
 }
 
+const TopicIntelligencePanel = dynamic(
+  () => import("@/components/social/TopicIntelligencePanel").then((m) => m.TopicIntelligencePanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="p-12 rounded-2xl bg-white/[0.02] border border-white/5 animate-pulse" aria-hidden />
+    ),
+  }
+);
+
 export default function SocialPulsePage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"themes" | "priority" | "creators" | "emerging">("themes");
+  const [activeTab, setActiveTab] = useState<"themes" | "priority" | "creators" | "emerging" | "topics">("themes");
 
   // Creator content pagination state (10 items per page)
   const [creatorPage, setCreatorPage] = useState<number>(1);
@@ -222,6 +234,18 @@ export default function SocialPulsePage() {
               >
                 <Flame className="w-4 h-4 text-amber-400" />
                 Emerging Issues ({emergingIssues.length})
+              </button>
+
+              <button
+                onClick={() => setActiveTab("topics")}
+                className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
+                  activeTab === "topics"
+                    ? "border-[#20d0c3] text-[#20d0c3] bg-white/[0.04]"
+                    : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
+                }`}
+              >
+                <CalendarHeart className="w-4 h-4" />
+                Events &amp; Topics
               </button>
             </div>
 
@@ -652,6 +676,9 @@ export default function SocialPulsePage() {
                 )}
               </div>
             )}
+
+            {/* TAB 5: EVENTS & TOPICS (TOPIC INTELLIGENCE PANEL) */}
+            {activeTab === "topics" && <TopicIntelligencePanel />}
           </div>
 
 

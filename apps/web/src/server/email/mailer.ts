@@ -29,12 +29,9 @@ export async function sendInvitationEmail({
     return { success: false, error: "RESEND_API_KEY is not configured in environment variables." };
   }
 
-  const roleLabel =
-    role === "admin"
-      ? "Admin (Leadership, plus social key management)"
-      : isLeadershipRole(role)
-        ? "Leadership (Command & Analyst)"
-        : "Tour Host (Mobile Capture)";
+  const roleLabel = isLeadershipRole(role)
+    ? "Leadership (Command & Analyst)"
+    : "Tour Host (Mobile Capture)";
 
   const html = `
 <!DOCTYPE html>

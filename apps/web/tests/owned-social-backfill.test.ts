@@ -16,7 +16,7 @@ const TT_TOKEN = "tt_ACCESS_SECRET_1";
 const META_TOKEN = "meta_SYSTEM_TOKEN_456";
 const PAGE_ID = "12345";
 const IG_ID = "17841";
-const leader = { "x-user-role": "admin", "content-type": "application/json" };
+const leader = { "x-user-role": "leader", "content-type": "application/json" };
 
 type Route = (url: string, body: any) => Response | undefined;
 
@@ -404,7 +404,7 @@ describe("X backfill (OAuth user context, capped)", () => {
     expect(seen).toHaveLength(0);
   });
 
-  it("the admin backfill runs X now instead of refusing it", async () => {
+  it("a leader backfill runs X now instead of refusing it", async () => {
     await saveStaticCredentials("x", X_KEYS);
     xFetch((params) => (params.get("pagination_token") ? { data: [], meta: {} } : { data: [xTweet("a1", "2026-10-10T00:00:00Z")], meta: {} }));
     const ran = await adminPOST(new Request("https://www.utahcity.app/api/owned-social/admin", { method: "POST", headers: leader, body: JSON.stringify({ action: "backfill", platform: "x" }) }));

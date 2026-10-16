@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { UserPlus, Check, AlertCircle, Trash2, X, Copy } from "lucide-react";
-import { isAdminRole, normalizeRole, type UserRole } from "@/server/auth/roles";
+import { isLeadershipRole, normalizeRole, type UserRole } from "@/server/auth/roles";
 
 type InviteItem = {
   email: string;
@@ -18,7 +18,7 @@ export function InviteManager() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRole>("host");
   const [callerRole, setCallerRole] = useState<UserRole | null>(null);
-  const isAdmin = isAdminRole(callerRole);
+  const isLeader = isLeadershipRole(callerRole);
   const [submitting, setSubmitting] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function InviteManager() {
 
   useEffect(() => {
     loadInvites();
-    // Role decides which controls appear: only admins can remove people or assign admin.
+    // Role decides which controls appear: leaders can remove people; hosts cannot.
     fetch("/api/auth/me", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setCallerRole(normalizeRole(data?.user?.role)))
@@ -221,7 +221,6 @@ export function InviteManager() {
             >
               <option value="host">Tour Host (Capture Only)</option>
               <option value="leader">Leadership (Command & Analyst)</option>
-              {isAdmin && <option value="admin">Admin (Leadership, plus social key management)</option>}
             </select>
           </div>
         </div>
@@ -261,14 +260,12 @@ export function InviteManager() {
                     {inv.name && <span className="text-xs text-command-muted">({inv.email})</span>}
                     <span
                       className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                        inv.role === "host"
-                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                          : inv.role === "admin"
-                            ? "bg-violet-500/10 text-violet-300 border border-violet-500/20"
-                            : "bg-sky-500/10 text-sky-400 border border-sky-500/20"
+                        inv.role === "leader"
+                          ? "bg-sky-500/10 text-sky-400 border border-sky-500/20"
+                          : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                       }`}
                     >
-                      {inv.role === "host" ? "Host" : inv.role === "admin" ? "Admin" : "Leadership"}
+                      {inv.role === "leader" ? "Leadership" : "Host"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-[11px]">
@@ -316,7 +313,7 @@ export function InviteManager() {
                     </button>
                   )}
 
-                  {isAdmin && (
+                  {isLeader && (
                     <button
                       type="button"
                       onClick={() => setConfirmRemoveUser(inv)}

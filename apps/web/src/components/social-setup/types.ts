@@ -1,4 +1,4 @@
-/** Shared types for the admin Setup & keys walkthrough. Mirrors the shape of GET /api/owned-social/admin. */
+/** Shared types for the Setup & keys walkthrough. Mirrors the shape of GET /api/owned-social/admin. */
 
 export type Field = { key: string; label: string; secret: boolean; set: boolean; optional?: boolean; help?: string };
 

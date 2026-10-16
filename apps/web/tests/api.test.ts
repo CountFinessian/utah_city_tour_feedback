@@ -23,7 +23,7 @@ describe("API routes", () => {
     const { signSessionToken, SESSION_COOKIE_NAME } = await import("@/server/auth/session");
     const leader = { id: "usr_api_leader", email: "api.leader@utahcity.com", name: "API Leader", role: "leader" as const };
     await createUser({ ...leader, passwordHash: "x", passwordSalt: "y" });
-    await createUser({ id: "usr_leader_nate", email: "nate@utahcity.com", name: "Nate", role: "admin", passwordHash: "x", passwordSalt: "y" });
+    await createUser({ id: "usr_leader_nate", email: "nate@utahcity.com", name: "Nate", role: "leader", passwordHash: "x", passwordSalt: "y" });
     leaderCookie = `${SESSION_COOKIE_NAME}=${await signSessionToken(leader)}`;
   });
 
@@ -172,14 +172,14 @@ describe("API routes", () => {
     expect(listAfter.observations.some((o: any) => o.id === target.id)).toBe(false);
   });
 
-  it("DELETE /api/auth/invite removes a user account and invitation when called by an admin", async () => {
+  it("DELETE /api/auth/invite removes a user account and invitation when called by a leader", async () => {
     const { DELETE: inviteDELETE, GET: inviteGET } = await import("@/app/api/auth/invite/route");
     const { signSessionToken, SESSION_COOKIE_NAME } = await import("@/server/auth/session");
 
     const leaderToken = await signSessionToken({
       id: "usr_leader_nate",
       email: "nate@utahcity.com",
-      role: "admin",
+      role: "leader",
       name: "Nate",
     });
 

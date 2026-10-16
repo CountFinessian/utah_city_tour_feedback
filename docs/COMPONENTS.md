@@ -95,20 +95,20 @@ This document provides a comprehensive reference for all 14 React components in 
 
 ## Social Accounts
 
-Page at `/social-accounts` (`src/app/(leadership)/social-accounts/page.tsx`, server component). It reads the viewer's role and the `social_accounts_mode` setting, loads the dashboard (plus the admin summary and backfill summary for admins), then renders `SocialAccountsHub`.
+Page at `/social-accounts` (`src/app/(leadership)/social-accounts/page.tsx`, server component). It reads the viewer's role (non-leaders are redirected to `/`), the `social_accounts_mode` setting, and the dashboard, the key status summary and the backfill summary, then renders `SocialAccountsHub`.
 
 ### `SocialAccountsHub`
 - **Path:** `src/components/SocialAccountsHub.tsx`
 - **Type:** Client Component
-- **Props:** `{ isAdmin, mode, connectedCount, totalPlatforms, platforms, initialDashboard, dashboardFailed, backfill }`
-- **Purpose:** Header, a five-platform status strip (Verified / Connected / Needs attention / Not set up), and the tabs Dashboard and Setup & keys (admins only). The tab id is still `api-keys`; only the label changed from "API keys". The tab lives in `?tab=`. Admins open on Setup & keys while `social_accounts_mode` is `setup`; everyone opens on Dashboard when it is `live`. The guide text in the app mirrors the shared document `docs/social-coach/04-Social-Accounts-Setup-Guide.md`, which is not loaded by the app.
+- **Props:** `{ mode, platforms, initialDashboard, dashboardFailed, backfill }`
+- **Purpose:** Header, a five-platform status strip (Verified / Connected / Needs attention / Not set up), and the tabs Dashboard and Setup & keys (both shown to every leader). The tab id is still `api-keys`; only the label changed from "API keys". The tab lives in `?tab=`. Leaders open on Setup & keys while `social_accounts_mode` is `setup`; everyone opens on Dashboard when it is `live`. The guide text in the app mirrors the shared document `docs/social-coach/04-Social-Accounts-Setup-Guide.md`, which is not loaded by the app.
 - **Key State:** `platforms` (status, refreshed on tab change and window focus)
 - **API Calls:** `GET /api/owned-social/admin`
-- **Child Components:** `SocialAccountsDashboard`, `SocialSetupWalkthrough` (admin Setup & keys tab only)
+- **Child Components:** `SocialAccountsDashboard`, `SocialSetupWalkthrough` (Setup & keys tab)
 
 ### `SocialSetupWalkthrough`
 - **Path:** `src/components/social-setup/SocialSetupWalkthrough.tsx` (guide text in `content.tsx`, section order and anchors in `sections.ts`)
-- **Type:** Client Component, admin only (rendered only in the Setup & keys tab)
+- **Type:** Client Component, leaders only (rendered only in the Setup & keys tab)
 - **Props:** none. Calls `useOwnedSocial()` once and passes the returned context to every section.
 - **Purpose:** One guided section per platform, in this order: TikTok, Facebook & Instagram (Meta), YouTube, X, LinkedIn. Each section is that platform's setup guide with a `PlatformKeysPanel` placed where the guide says to paste keys. Jump chips at the top show each platform's status (from `platformHealth`). Redirect URIs come from the live admin summary (`redirectUri`), never hardcoded. Static text; only the panels are interactive.
 - **API Calls:** via `useOwnedSocial` (`GET /api/owned-social/admin`, plus `POST` actions)
@@ -117,18 +117,18 @@ Page at `/social-accounts` (`src/app/(leadership)/social-accounts/page.tsx`, ser
 - **Path:** `src/components/social-setup/PlatformKeysPanel.tsx`
 - **Type:** Client Component
 - **Props:** `{ platform, ctx }` (`ctx` is the `OwnedSocialContext` from the walkthrough)
-- **Purpose:** The "Paste your keys here" box with an Admin pill. Key fields, Save keys, Authorize (OAuth platforms), Test keys with its result, and a collapsed "More" area with Create connect link (plus copy), Refresh now, Run backfill now, Disconnect, post history, and renewal and problem info. Replaces the former `OwnedSocialConnections` card component, which was deleted.
+- **Purpose:** The "Paste your keys here" box with the key fields, Save keys, Authorize (OAuth platforms), Test keys with its result, and a collapsed "More" area with Create connect link (plus copy), Refresh now, Run backfill now, Disconnect, post history, and renewal and problem info. Replaces the former `OwnedSocialConnections` card component, which was deleted.
 - **API Calls:** via `useOwnedSocial`
 
 ### `useOwnedSocial` (hook)
 - **Path:** `src/components/social-setup/useOwnedSocial.ts`
-- **Purpose:** Loads `GET /api/owned-social/admin` once and owns the busy, notice, form, connect-link and verify state plus every action (save, create link, authorize, refresh, test, backfill, disconnect). Shared types are in `types.ts`, formatting and status helpers in `format.ts`, and `CopyField` is the monospace copy box for URLs.
+- **Purpose:** Loads `GET /api/owned-social/admin` once (leaders only) and owns the busy, notice, form, connect-link and verify state plus every action (save, create link, authorize, refresh, test, backfill, disconnect). Shared types are in `types.ts`, formatting and status helpers in `format.ts`, and `CopyField` is the monospace copy box for URLs.
 
 ### `SocialAccountsDashboard`
 - **Path:** `src/components/SocialAccountsDashboard.tsx`
 - **Type:** Client Component
-- **Props:** `{ initial, loadFailed, verifiedCount, totalPlatforms, refreshTargets, backfill, onGoToConnections }`
-- **Purpose:** 30-day KPI row, per-network cards, the 13-week views chart, the filterable recent-posts table with performance pills, top posts per network, and the footer with **Refresh data now**. Refresh runs the admin `backfill` action per connected platform in turn, then reloads. Data also reloads on window focus.
+- **Props:** `{ setupMode, initial, loadFailed, verifiedCount, totalPlatforms, refreshTargets, backfill, onGoToApiKeys }`
+- **Purpose:** 30-day KPI row, per-network cards, the 13-week views chart, the filterable recent-posts table with performance pills, top posts per network, and the footer with **Refresh data now**. Refresh runs the leader `backfill` action per connected platform in turn, then reloads. Data also reloads on window focus.
 - **Key State:** `data`, `filter` (network chip), `progress`, `notice`, `busy`
 - **API Calls:** `GET /api/owned-social/dashboard`, `POST /api/owned-social/admin` (`action: "backfill"`)
 - **Child Components:** `WeeklyViewsChart` (lazy-loaded)

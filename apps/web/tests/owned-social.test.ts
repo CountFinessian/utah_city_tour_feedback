@@ -305,17 +305,20 @@ describe("automatic renewal", () => {
   });
 });
 
-describe("admin API", () => {
-  const admin = { "x-user-role": "admin", "content-type": "application/json" };
-  const post = (body: unknown, headers: Record<string, string> = admin) =>
+describe("social key API (leader-only)", () => {
+  const leader = { "x-user-role": "leader", "content-type": "application/json" };
+  const post = (body: unknown, headers: Record<string, string> = leader) =>
     adminPOST(new Request("https://www.utahcity.app/api/owned-social/admin", { method: "POST", headers, body: JSON.stringify(body) }));
 
-  it("rejects anyone who is not an admin, including leaders", async () => {
-    expect((await adminGET(new Request("https://x/api/owned-social/admin"))).status).toBe(403);
-    expect((await adminGET(new Request("https://x/api/owned-social/admin", { headers: { "x-user-role": "leader" } }))).status).toBe(403);
-    expect((await post({ action: "save-credentials", platform: "tiktok" }, { "x-user-role": "leader" })).status).toBe(403);
+  it("rejects anyone who is not a leader, and says so", async () => {
+    const none = await adminGET(new Request("https://x/api/owned-social/admin"));
+    expect(none.status).toBe(403);
+    expect((await none.json()).error).toBe("Forbidden: Leadership access required");
     expect((await adminGET(new Request("https://x/api/owned-social/admin", { headers: { "x-user-role": "host" } }))).status).toBe(403);
+    expect((await post({ action: "save-credentials", platform: "tiktok" }, { "x-user-role": "host" })).status).toBe(403);
     expect((await post({ action: "create-link", platform: "tiktok" }, { "x-user-role": "host" })).status).toBe(403);
+    // The retired admin role is not leadership.
+    expect((await adminGET(new Request("https://x/api/owned-social/admin", { headers: { "x-user-role": "admin" } }))).status).toBe(403);
   });
 
   it("saves keys, creates a link, and never returns a secret", async () => {
@@ -325,7 +328,7 @@ describe("admin API", () => {
     const link = await linkRes.json();
     expect(link.url).toContain("/api/owned-social/connect/tiktok?t=");
 
-    const summaryRes = await adminGET(new Request("https://x/api/owned-social/admin", { headers: { "x-user-role": "admin" } }));
+    const summaryRes = await adminGET(new Request("https://x/api/owned-social/admin", { headers: { "x-user-role": "leader" } }));
     const text = await summaryRes.text();
     expect(text).not.toContain("cs_VERY_SECRET");
     expect(text).not.toContain("x_bearer_SECRET");
@@ -398,15 +401,12 @@ describe("cron + middleware", () => {
     expect(dashboard.headers.get("location")).toContain("/login");
   });
 
-  it("blocks hosts and leaders from the admin API and lets admins through", async () => {
+  it("blocks hosts from the social key API and lets leaders through", async () => {
     const hostToken = await signSessionToken({ id: "h1", email: "host@utahcity.app", name: "Host", role: "host" });
     const leaderToken = await signSessionToken({ id: "l1", email: "leader@utahcity.app", name: "Leader", role: "leader" });
-    const adminToken = await signSessionToken({ id: "a1", email: "admin@utahcity.app", name: "Admin", role: "admin" });
     const host = await call("/api/owned-social/admin", `${SESSION_COOKIE_NAME}=${hostToken}`);
     expect(host.status).toBe(403);
-    // Middleware lets leadership through; the route itself refuses leaders (see the admin API tests).
-    void leaderToken;
-    const admin = await call("/api/owned-social/admin", `${SESSION_COOKIE_NAME}=${adminToken}`);
-    expect(admin.status).toBe(200);
+    const leader = await call("/api/owned-social/admin", `${SESSION_COOKIE_NAME}=${leaderToken}`);
+    expect(leader.status).toBe(200);
   });
 });

@@ -10,12 +10,12 @@ import {
 } from "@/server/repositories/user-repository";
 import { sendInvitationEmail } from "@/server/email/mailer";
 import { SESSION_COOKIE_NAME, verifySessionToken, signInvitationToken, type SessionPayload } from "@/server/auth/session";
-import { isAdminRole, isLeadershipRole, normalizeRole, type UserRole } from "@/server/auth/roles";
+import { isLeadershipRole, normalizeRole, type UserRole } from "@/server/auth/roles";
 import { liveSessionRole } from "@/server/auth/live-role";
 
 export const dynamic = "force-dynamic";
 
-const ASSIGNABLE_ROLES: readonly UserRole[] = ["host", "leader", "admin"];
+const ASSIGNABLE_ROLES: readonly UserRole[] = ["host", "leader"];
 
 function getAppOrigin(req: Request): string {
   if (process.env.NEXT_PUBLIC_APP_URL) {
@@ -104,10 +104,7 @@ export async function POST(req: Request) {
 
     const assignedRole = normalizeRole(role);
     if (!assignedRole || !ASSIGNABLE_ROLES.includes(assignedRole)) {
-      return NextResponse.json({ error: "Role must be 'host', 'leader', or 'admin'." }, { status: 400 });
-    }
-    if (assignedRole === "admin" && !isAdminRole(caller.role)) {
-      return NextResponse.json({ error: "Only admins can assign the admin role." }, { status: 403 });
+      return NextResponse.json({ error: "Role must be 'host' or 'leader'." }, { status: 400 });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -202,20 +199,12 @@ export async function PATCH(req: Request) {
 
     const assignedRole = normalizeRole(role);
     if (!assignedRole || !ASSIGNABLE_ROLES.includes(assignedRole)) {
-      return NextResponse.json({ error: "Role must be 'host', 'leader', or 'admin'." }, { status: 400 });
-    }
-
-    // Only admins can make someone an admin, or change an existing admin's role.
-    if (!isAdminRole(caller.role)) {
-      const target = await findUserByEmail(email);
-      if (assignedRole === "admin" || (target && normalizeRole(target.role) === "admin")) {
-        return NextResponse.json({ error: "Only admins can assign or change the admin role." }, { status: 403 });
-      }
+      return NextResponse.json({ error: "Role must be 'host' or 'leader'." }, { status: 400 });
     }
 
     const result = await updateUserRole(email, assignedRole);
 
-    const label = assignedRole === "admin" ? "Admin" : assignedRole === "leader" ? "Leadership" : "Tour Host";
+    const label = assignedRole === "leader" ? "Leadership" : "Tour Host";
     return NextResponse.json({
       success: true,
       email,
@@ -243,11 +232,6 @@ export async function DELETE(req: Request) {
       );
     }
 
-    // Removing people from the app is admin-only.
-    if (!isAdminRole(caller.role)) {
-      return NextResponse.json({ error: "Only admins can remove people from the app" }, { status: 403 });
-    }
-
     const { searchParams } = new URL(req.url);
     let targetEmail = searchParams.get("email");
     if (!targetEmail) {
@@ -259,7 +243,7 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Please provide a valid email address." }, { status: 400 });
     }
 
-    // Safety: an admin cannot remove their own account through this route
+    // Safety: a leader cannot remove their own account through this route
     if (caller.session.email && caller.session.email.toLowerCase() === targetEmail.toLowerCase()) {
       return NextResponse.json(
         { error: "Action blocked: You cannot delete your own active account." },

@@ -7,7 +7,7 @@ import type { OwnedSocialContext } from "./useOwnedSocial";
 
 /*
  * Walkthrough text, adapted from docs/social-coach/04-Social-Accounts-Setup-Guide.md.
- * The admin is already on this page, so there is no "open Social Accounts" navigation text.
+ * The leader is already on this page, so there is no "open Social Accounts" navigation text.
  * Apostrophes are typographic (’) so the JSX stays readable without entity escapes.
  */
 

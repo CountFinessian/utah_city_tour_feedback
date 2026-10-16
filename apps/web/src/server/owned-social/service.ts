@@ -5,7 +5,6 @@ import {
   OFFICIAL_ACCOUNTS,
   PLATFORM_LABELS,
   STATIC_FIELDS,
-  STATIC_PLATFORMS,
   isOAuthPlatform,
   oauthConfig,
   ownedSocialBaseUrl,
@@ -388,7 +387,7 @@ export async function getAccessToken(platform: OAuthPlatform): Promise<string | 
 }
 
 // ---------------------------------------------------------------------------
-// Admin (leader-only) operations. None of these ever return a secret.
+// Leader-only operations. None of these ever return a secret.
 // ---------------------------------------------------------------------------
 
 const MAX_FIELD_LENGTH = 4000;
@@ -456,24 +455,6 @@ export type PlatformSummary = {
   lastVerifySummary?: string;
   officialAccounts: Array<{ network: string; handle: string; url: string }>;
 };
-
-/**
- * How many of the five official accounts have a working connection, for the non-admin view.
- * Reads the connection store only: no secrets are decrypted and the admin summary is not built.
- */
-export async function countConnectedAccounts(): Promise<{ connected: number; total: number }> {
-  const store = getConnectionStore();
-  let connected = 0;
-  for (const platform of OAUTH_PLATFORMS) {
-    const record = await store.get(platform);
-    if (record?.tokensEnc && !record.needsReauth) connected += 1;
-  }
-  for (const platform of STATIC_PLATFORMS) {
-    const record = await store.get(platform);
-    if (record?.staticEnc && record.lastVerifyOk === true) connected += 1;
-  }
-  return { connected, total: OAUTH_PLATFORMS.length + STATIC_PLATFORMS.length };
-}
 
 export async function getAdminSummary(): Promise<{
   secretConfigured: boolean;

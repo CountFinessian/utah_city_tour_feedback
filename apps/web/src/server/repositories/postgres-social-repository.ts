@@ -25,7 +25,7 @@ function db() {
 }
 
 let schemaReady: Promise<void> | null = null;
-async function ensureSocialSchema(): Promise<void> {
+export async function ensureSocialSchema(): Promise<void> {
   if (!schemaReady) {
     const sql = db();
     schemaReady = (async () => {

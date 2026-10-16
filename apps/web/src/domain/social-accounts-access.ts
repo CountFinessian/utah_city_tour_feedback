@@ -14,23 +14,23 @@ export function normalizeSocialAccountsMode(value: unknown): SocialAccountsMode 
   return value === "live" ? "live" : "setup";
 }
 
-/** Non-admin leaders see only the dashboard. Admins also get the API keys tab. */
+/** Every leader sees both tabs. Hosts never reach this page; they get the dashboard only if they somehow do. */
 export function visibleTabs(role: UserRole | null | undefined): SocialAccountsTab[] {
-  return role === "admin" ? ["dashboard", "api-keys"] : ["dashboard"];
+  return role === "leader" ? ["dashboard", "api-keys"] : ["dashboard"];
 }
 
-/** Admins open on API keys while the feature is in setup. Live mode opens everyone on the dashboard. */
-export function defaultTab(role: UserRole | null | undefined, mode: SocialAccountsMode): SocialAccountsTab {
-  if (role === "admin" && mode === "setup") return "api-keys";
-  return "dashboard";
+/** Setup mode opens on Setup & keys. Live mode opens on the dashboard. */
+export function defaultTab(mode: SocialAccountsMode): SocialAccountsTab {
+  return mode === "setup" ? "api-keys" : "dashboard";
 }
 
-/** The requested tab when the viewer may see it, otherwise the default. */
+/** The requested tab when the viewer may see it, otherwise the default (or the dashboard if the viewer cannot see that default). */
 export function resolveTab(
   requested: string | null | undefined,
   role: UserRole | null | undefined,
   mode: SocialAccountsMode
 ): SocialAccountsTab {
   const allowed = visibleTabs(role);
-  return allowed.find((tab) => tab === requested) ?? defaultTab(role, mode);
+  const fallback = defaultTab(mode);
+  return allowed.find((tab) => tab === requested) ?? (allowed.includes(fallback) ? fallback : "dashboard");
 }

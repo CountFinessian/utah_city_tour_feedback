@@ -28,13 +28,14 @@ const LEADERSHIP_APIS = [
   "/api/social-pulse/refresh",
   "/api/social-pulse/dashboard",
   "/api/social-pulse/comments",
+  "/api/social-pulse/topics",
   "/api/owned-social/admin",
   "/api/owned-social/posts",
   "/api/owned-social/dashboard",
 ];
 
-// Leadership APIs are open to leader and admin. Admin-only methods are enforced inside
-// /api/owned-social/admin (the middleware cannot tell methods apart for admin-only rules).
+// Leadership APIs are open to leader. Leader-only methods are still checked inside the route
+// (/api/owned-social/admin and /api/auth/invite) so a route never depends on the middleware alone.
 
 /** Only real static asset requests (never API routes) skip authentication. */
 const STATIC_ASSET_PATTERN =

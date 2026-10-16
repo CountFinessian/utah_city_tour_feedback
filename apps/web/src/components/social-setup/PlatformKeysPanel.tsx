@@ -91,7 +91,6 @@ export function PlatformKeysPanel({ platform, ctx }: { platform: string; ctx: Ow
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <h4 className="text-sm font-bold text-command-ink">Paste your keys here</h4>
-          <span className="rounded-full border border-violet-400/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-bold text-violet-300">Admin</span>
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${st.cls}`}>{st.text}</span>
         </div>
         {p.kind === "oauth" && p.status !== "not_configured" && (
