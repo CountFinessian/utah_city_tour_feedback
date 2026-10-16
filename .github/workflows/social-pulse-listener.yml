@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "monitor | discover | comments | full"
+        description: "monitor | discover | comments | full | topics"
         required: false
         default: "monitor"
 
@@ -36,7 +36,8 @@ permissions:
 jobs:
   run-cycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    # Two requests of up to 280s each (listener, then topics), plus setup.
+    timeout-minutes: 10
     steps:
       - name: Choose mode
         id: mode
@@ -96,3 +97,19 @@ jobs:
           echo "HTTP $code mode=$MODE"
           cat /tmp/listener.json || true
           test "$code" = "200"
+
+      # Topic intelligence refresh. Advisory: a non-200 is logged but does not fail the job.
+      - name: Trigger topic intelligence refresh
+        if: steps.backup.outputs.skip != 'true'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          url="https://www.utahcity.app/api/social-pulse/cron?mode=topics"
+          code=$(curl -sS -L -o /tmp/topics.json -w "%{http_code}" \
+            -X POST "$url" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            --max-time 280) || true
+          echo "HTTP ${code:-000} mode=topics (advisory)"
+          cat /tmp/topics.json || true
+          exit 0

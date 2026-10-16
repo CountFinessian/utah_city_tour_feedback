@@ -11,7 +11,8 @@ export type SearchGroup =
   | "housing"
   | "infrastructure"
   | "positive_opinion"
-  | "negative_opinion";
+  | "negative_opinion"
+  | "topic";
 
 export type RelevanceStatus =
   | "unclassified"

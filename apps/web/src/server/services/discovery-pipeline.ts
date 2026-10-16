@@ -32,7 +32,7 @@ import {
   resolveMonitorSchedule,
   type DiscoveryQueryCursor,
 } from "@/domain/social-listening/monitoring";
-import { Post, Comment, SearchRun, ActivityState } from "@/domain/social-listening/types";
+import { Post, Comment, SearchQuery, SearchRun, ActivityState } from "@/domain/social-listening/types";
 import type { TregSearchResultItem } from "@/server/social/providers/types";
 
 const COMMENT_RESYNC_MIN_DELTA = 3;
@@ -104,6 +104,8 @@ export class DiscoveryPipelineService {
     deadlineAt?: number;
     /** Resume a sweep. Absent on the legacy scheduler path. */
     cursor?: DiscoveryQueryCursor[];
+    /** Run exactly these queries (skipResults 0), bypassing the repo's enabled list and cycle selection. */
+    queries?: SearchQuery[];
     /** Existing post, before this hit overwrites its counts. */
     onExisting?: (
       post: Post,
@@ -122,11 +124,13 @@ export class DiscoveryPipelineService {
     const budget = options?.cycleBudgetUsd ?? resolveCycleBudgetUsd();
     const trackCursor = options?.deadlineAt != null;
 
-    const allQueries = await this.repo.listQueries(true);
+    const allQueries = options?.queries ? [] : await this.repo.listQueries(true);
     const maxQueries = resolveMaxQueriesPerCycle(options?.maxQueries);
     let workingCursor: DiscoveryQueryCursor[] = options?.cursor || [];
     let targetQueries: Array<(typeof allQueries)[number] & { skipResults: number }>;
-    if (options?.queryId) {
+    if (options?.queries) {
+      targetQueries = options.queries.map((query) => ({ ...query, skipResults: 0 }));
+    } else if (options?.queryId) {
       targetQueries = allQueries
         .filter((query) => query.id === options.queryId)
         .map((query) => ({ ...query, skipResults: 0 }));
