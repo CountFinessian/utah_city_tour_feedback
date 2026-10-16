@@ -611,7 +611,7 @@ describe("Social Listener Intelligence Narrative & Evidence Diversity", () => {
   it("Acceptance Criterion 1: Themes & Narratives is the initial active tab and first button", () => {
     const pageSrc = readFileSync(path.join(process.cwd(), "src/app/(leadership)/social-pulse/page.tsx"), "utf8");
     // Verify default state
-    expect(pageSrc).toMatch(/useState<"themes"(?: \| "[a-z]+")*>\("themes"\)/);
+    expect(pageSrc).toContain('useState<"themes" | "priority" | "creators" | "emerging">("themes")');
     // Verify Themes & Narratives button is rendered before Priority Comments in the tab navigation
     const themesIdx = pageSrc.indexOf('setActiveTab("themes")');
     const priorityIdx = pageSrc.indexOf('setActiveTab("priority")');
