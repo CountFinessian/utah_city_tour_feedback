@@ -213,8 +213,16 @@ export interface TopicSentiment {
   net: number | null;
 }
 
+/**
+ * Bump when the report prompt or schema changes in a way that should rewrite saved reports.
+ * 2: short citation labels (v1 citations were all lost), drivers + affiliatedAuthors.
+ */
+export const TOPIC_REPORT_VERSION = 2;
+
 export interface TopicReport {
   generatedAt: string;
+  /** TOPIC_REPORT_VERSION at generation time. Missing on reports from before versioning (treat as 0). */
+  version?: number;
   /** Hash of the matched post/comment ids. Same fingerprint → report is reused, no LLM call. */
   fingerprint: string;
   /** "llm" or "heuristic" (no model key, or the model call failed). */

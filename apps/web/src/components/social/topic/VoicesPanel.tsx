@@ -37,13 +37,14 @@ interface PublicOpinionPanelProps {
   drivers: SentimentDrivers;
   filters: VoiceFilters;
   onChange: (next: VoiceFilters) => void;
+  resolve: (ids: string[]) => TopicEvidence[];
 }
 
 /**
  * Public opinion: sentiment is the main control. Root causes appear for Negative and Positive,
  * the text search combines with everything, and short reactions stay hidden until toggled.
  */
-export function PublicOpinionPanel({ voices, drivers, filters, onChange }: PublicOpinionPanelProps) {
+export function PublicOpinionPanel({ voices, drivers, filters, onChange, resolve }: PublicOpinionPanelProps) {
   // Paging resets whenever the filters change: the page is stored with the filter key it belongs to.
   const [page, setPage] = useState({ key: "", limit: VOICE_PAGE_SIZE });
   const filterKey = JSON.stringify(filters);
@@ -92,6 +93,7 @@ export function PublicOpinionPanel({ voices, drivers, filters, onChange }: Publi
               causes={causeSide === "negative" ? drivers.negative : drivers.positive}
               active={filters.rootCause}
               onSelect={(rootCause) => onChange({ ...filters, rootCause })}
+              resolve={resolve}
             />
           </div>
         )}

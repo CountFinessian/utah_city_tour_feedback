@@ -1,8 +1,7 @@
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
-import type { TopicEvidence, TopicSentiment } from "@/domain/social-listening/topics";
-import { CARD, FOCUS_RING, LABEL, authorLabel, formatItemDate, isHttpUrl, platformLabel, type Sentiment } from "./shared";
+import type { TopicSentiment } from "@/domain/social-listening/topics";
+import { CARD, FOCUS_RING, LABEL, isHttpUrl, type Sentiment } from "./shared";
 
 /* --------------------------- small pieces --------------------------- */
 
@@ -162,55 +161,6 @@ export function SentimentBar({
           )
         )}
       </div>
-    </div>
-  );
-}
-
-/** Full text of one evidence item: a post, comment, article or review. */
-export function EvidenceDetail({ ev }: { ev: TopicEvidence }) {
-  const date = formatItemDate(ev.createdAt);
-  return (
-    <div className="p-3 rounded-xl bg-black/40 border border-white/10 space-y-2 text-xs min-w-0">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
-        <span className="font-semibold text-slate-200 break-all">{authorLabel(ev)}</span>
-        <span>{platformLabel(ev.platform)}</span>
-        {typeof ev.rating === "number" && <span className="text-amber-300">★ {ev.rating}</span>}
-        {date && <span>{date}</span>}
-      </div>
-      {ev.title && <p className="text-sm font-semibold text-white break-words">{ev.title}</p>}
-      <p className="text-slate-200 leading-relaxed break-words">{ev.text}</p>
-      <ExternalSourceLink url={ev.url} label="Open source" />
-    </div>
-  );
-}
-
-export function EvidenceChips({ items }: { items: TopicEvidence[] }) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  if (items.length === 0) return null;
-  const open = items.find((ev) => ev.id === openId);
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((ev) => {
-          const active = ev.id === openId;
-          return (
-            <button
-              key={ev.id}
-              type="button"
-              aria-expanded={active}
-              onClick={() => setOpenId(active ? null : ev.id)}
-              className={`max-w-full px-2 py-0.5 rounded-md text-[11px] border break-all text-left transition ${FOCUS_RING} ${
-                active
-                  ? "bg-[#20d0c3]/20 border-[#20d0c3]/40 text-[#20d0c3]"
-                  : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
-              }`}
-            >
-              {authorLabel(ev)}
-            </button>
-          );
-        })}
-      </div>
-      {open && <EvidenceDetail ev={open} />}
     </div>
   );
 }

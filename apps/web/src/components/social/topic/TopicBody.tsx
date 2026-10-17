@@ -145,7 +145,7 @@ export function TopicBody({ detail, busy, continuation, actionError, detailError
       )}
 
       {/* Public opinion */}
-      <PublicOpinionPanel voices={voices} drivers={drivers} filters={filters} onChange={setFilters} />
+      <PublicOpinionPanel voices={voices} drivers={drivers} filters={filters} onChange={setFilters} resolve={resolve} />
 
       {/* Around the web */}
       <WebMentionsPanel mentions={webMentions} filters={filters} />

@@ -7,6 +7,7 @@ import {
   SPOOKTAH_CITY_TOPIC,
   TOPIC_MAX_SEARCHES_PER_REFRESH,
   TOPIC_RESULTS_PER_SEARCH,
+  TOPIC_REPORT_VERSION,
   isWebSource,
   type TopicReport,
 } from "@/domain/social-listening/topics";
@@ -422,6 +423,42 @@ describe("report", () => {
     expect(Object.keys(detail?.evidence ?? {})).toEqual([`post:${real.id}`]);
   });
 
+  it("short citation labels in the prompt map back to real evidence ids", async () => {
+    const a = await seedPost({ id: "p-l-1", platform: "tiktok", caption: "Spooktah City is great but parking?", authorUsername: "ann" });
+    const b = await seedPost({ id: "p-l-2", platform: "instagram", caption: "Spooktah City ghost mini golf was closed", authorUsername: "bo" });
+    process.env.GEMINI_API_KEY = "test-key";
+    let labelFor: Record<string, string> = {};
+    generateObjectMock.mockImplementation(async ({ prompt }: { prompt: string }) => {
+      if (prompt.startsWith("COVERAGE DECISION")) {
+        return { object: { shouldSearch: false, reason: "Solid.", plan: [] } };
+      }
+      // The prompt must label items E1, E2, … instead of exposing database ids.
+      expect(prompt).not.toContain(`post:${a.id}`);
+      labelFor = {};
+      for (const match of prompt.matchAll(/^\[(E\d+)\] \{[^}]+\} \([^)]*\): (.*)$/gm)) {
+        labelFor[match[2].includes("parking") ? "a" : "b"] = match[1];
+      }
+      return {
+        object: reportObject({
+          // Mixed formats the model produces: bare, bracketed, lowercase, plus an unknown label.
+          keyQuestions: [{ question: "Where do I park?", askedBy: 1, evidenceIds: [labelFor.a, "E999"] }],
+          sentimentDrivers: {
+            negative: [{ cause: "Mini golf closed", detail: "Closed for weather.", mentions: 1, evidenceIds: [`[${labelFor.b}]`] }],
+            positive: [{ cause: "Fun", detail: "Liked it.", mentions: 2, evidenceIds: [labelFor.a.toLowerCase(), labelFor.b] }],
+          },
+        }),
+      };
+    });
+
+    await refreshTopic(TOPIC_ID, { trigger: "dashboard" });
+    const report = (await loadTopicDetail(TOPIC_ID))?.report;
+
+    expect(report?.keyQuestions[0].evidenceIds).toEqual([`post:${a.id}`]);
+    expect(report?.sentimentDrivers.negative[0].evidenceIds).toEqual([`post:${b.id}`]);
+    expect(report?.sentimentDrivers.positive[0].evidenceIds).toEqual([`post:${a.id}`, `post:${b.id}`]);
+    expect(report?.version).toBe(TOPIC_REPORT_VERSION);
+  });
+
   it("without a model key the report is heuristic and questions come from public comments", async () => {
     const post = await seedPost({ id: "p-hz-1", platform: "youtube", caption: "Spooktah City is back", authorUsername: "fan" });
     await getSocialRepository().bulkUpsertComments([
@@ -803,6 +840,7 @@ describe("report upgrades", () => {
     const legacy: Record<string, unknown> = { ...saved };
     delete legacy.sentimentDrivers;
     delete legacy.affiliatedAuthors;
+    delete legacy.version;
     await repo.saveReport(TOPIC_ID, legacy as unknown as TopicReport);
     clearTopicCache(TOPIC_ID);
 

@@ -20,6 +20,14 @@ import {
   type VoiceFilters,
 } from "@/components/social/topic/filters";
 import type { TopicEvidence, TopicRefreshOutcome } from "@/domain/social-listening/topics";
+import {
+  countDistinctPeople,
+  pluralPeople,
+  relativeItemDate,
+  sortSources,
+  sourceHeader,
+  sourceNounFor,
+} from "@/components/social/topic/sources";
 
 const NOW = Date.parse("2026-10-16T12:00:00Z");
 
@@ -210,5 +218,82 @@ describe("public opinion filters", () => {
     expect(hasActiveFilters({ ...DEFAULT_VOICE_FILTERS, query: "park" })).toBe(true);
     expect(hasActiveFilters({ ...DEFAULT_VOICE_FILTERS, includeLowSignal: true })).toBe(true);
     expect(hasActiveFilters({ ...DEFAULT_VOICE_FILTERS, rootCause: CAUSE })).toBe(true);
+  });
+});
+
+describe("source comments under the report", () => {
+  const sources: TopicEvidence[] = [
+    voice({ id: "comment:a", sentiment: "positive", likeCount: 50, text: "Great parking" }),
+    voice({ id: "comment:b", sentiment: "negative", likeCount: 1, text: "Parking was awful" }),
+    voice({ id: "comment:c", sentiment: "negative", likeCount: 9, text: "Lines were huge" }),
+    voice({ id: "comment:d", sentiment: "negative", likeCount: 99, isLowSignal: true, text: "Bad!!" }),
+    voice({ id: "comment:e", sentiment: "neutral", likeCount: 3, text: "Okay I guess" }),
+  ];
+
+  it("puts low-signal reactions last and orders by likes without changing the input", () => {
+    const before = sources.map((s) => s.id);
+    const ids = sortSources(sources).map((s) => s.id);
+    expect(ids).toEqual(["comment:a", "comment:c", "comment:e", "comment:b", "comment:d"]);
+    expect(sources.map((s) => s.id)).toEqual(before);
+  });
+
+  it("leads with negative sources when emphasis is negative, and positive when it is positive", () => {
+    expect(sortSources(sources, "negative").map((s) => s.id)).toEqual([
+      "comment:c",
+      "comment:b",
+      "comment:a",
+      "comment:e",
+      "comment:d",
+    ]);
+    expect(sortSources(sources, "positive")[0].id).toBe("comment:a");
+  });
+
+  it("keeps the original order for ties", () => {
+    const tied = [voice({ id: "x1", likeCount: 2 }), voice({ id: "x2", likeCount: 2 })];
+    expect(sortSources(tied).map((s) => s.id)).toEqual(["x1", "x2"]);
+  });
+
+  it("counts distinct people per platform and author, ignoring case and spaces", () => {
+    const items = [
+      voice({ id: "1", platform: "instagram", authorUsername: "Parker" }),
+      voice({ id: "2", platform: "instagram", authorUsername: " parker " }),
+      voice({ id: "3", platform: "tiktok", authorUsername: "parker" }),
+      voice({ id: "4", platform: "instagram", authorUsername: "jo" }),
+    ];
+    expect(countDistinctPeople(items)).toBe(3);
+    expect(countDistinctPeople([])).toBe(0);
+  });
+
+  it("chooses the noun from a single kind and falls back to sources for mixed kinds", () => {
+    expect(sourceNounFor([voice({ id: "1", kind: "comment" })])).toEqual({ singular: "comment", plural: "comments" });
+    expect(sourceNounFor([voice({ id: "1", kind: "post" })])).toEqual({ singular: "post", plural: "posts" });
+    expect(sourceNounFor([voice({ id: "1", kind: "mention" })])).toEqual({ singular: "mention", plural: "mentions" });
+    expect(sourceNounFor([voice({ id: "1", kind: "post" }), voice({ id: "2", kind: "comment" })])).toEqual({
+      singular: "source",
+      plural: "sources",
+    });
+  });
+
+  it("writes the header line with correct singular and plural forms", () => {
+    expect(sourceHeader([])).toBeNull();
+    expect(sourceHeader([voice({ id: "1", authorUsername: "a" })])).toBe("From 1 comment by 1 person");
+    expect(
+      sourceHeader([
+        voice({ id: "1", authorUsername: "a" }),
+        voice({ id: "2", authorUsername: "a" }),
+        voice({ id: "3", authorUsername: "b" }),
+      ])
+    ).toBe("From 3 comments by 2 people");
+    expect(
+      sourceHeader([voice({ id: "1", kind: "post" }), voice({ id: "2", kind: "comment" })])
+    ).toBe("From 2 sources by 1 person");
+    expect(pluralPeople(1)).toBe("1 person");
+    expect(pluralPeople(4)).toBe("4 people");
+  });
+
+  it("formats source dates relatively and drops missing or invalid ones", () => {
+    expect(relativeItemDate("2026-10-16T10:00:00Z", NOW)).toBe("2h ago");
+    expect(relativeItemDate(null, NOW)).toBeNull();
+    expect(relativeItemDate("not a date", NOW)).toBeNull();
   });
 });
