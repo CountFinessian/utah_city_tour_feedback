@@ -25,8 +25,10 @@ export async function GET(request: Request) {
     }
 
     const repo = getSocialRepository();
-    const posts = await repo.listPosts();
-    const comments = await repo.listComments();
+    // Metrics compare this period with the one before it, so read 2x the period, not the whole table.
+    const windowStart = new Date(Date.now() - periodDays * 2 * 24 * 60 * 60 * 1000).toISOString();
+    const posts = await repo.listPosts({ metricsScope: true });
+    const comments = await repo.listComments({ onDashboardPosts: true, activeSince: windowStart });
 
     const metrics = calculateDeterministicSocialMetrics({
       posts,

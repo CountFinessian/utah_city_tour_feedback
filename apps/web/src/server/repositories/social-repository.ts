@@ -49,6 +49,8 @@ export interface SocialListeningRepository {
     commentHarvest?: boolean;
     /** Leadership dashboard: relevant posts, plus official comment sources that have at least one kept (non-dropped) comment. */
     dashboardImportant?: boolean;
+    /** Pulse metrics: posts flagged is_relevant, plus relevant and official comment sources. Skips rejected rows. */
+    metricsScope?: boolean;
     platform?: string;
     startDate?: string;
     endDate?: string;
@@ -86,6 +88,12 @@ export interface SocialListeningRepository {
     classificationVersionBelow?: number;
     /** Leadership dashboard: kept (non-dropped) comments on relevant or official-comment-source posts. */
     dashboardOnly?: boolean;
+    /** Comments on relevant or official-comment-source posts, dropped rows included (pulse metrics count them). */
+    onDashboardPosts?: boolean;
+    /** Comments whose created time (first-seen time when missing) is at or after this ISO time. Matches the metrics clock. */
+    activeSince?: string;
+    /** Comments whose first-seen time (created time when missing) is at or after this ISO time. Matches the alert clock. */
+    seenSince?: string;
     /** If true, fetch raw_provider_data JSONB. Defaults to false to minimize network transfer. */
     includeRaw?: boolean;
   }): Promise<Comment[]>;

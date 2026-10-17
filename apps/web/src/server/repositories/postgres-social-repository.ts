@@ -296,6 +296,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
             and (${contentOnly}::boolean = false or relevance_status = 'relevant')
             and (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
             and (${filter?.dashboardImportant === true}::boolean = false or relevance_status = 'relevant' or (relevance_status = 'official_comment_source' and exists (select 1 from social_comments c where c.post_id = social_posts.id and c.dropped = false)))
+            and (${filter?.metricsScope === true}::boolean = false or is_relevant = true or relevance_status in ('relevant', 'official_comment_source'))
             and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
             and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
             and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
@@ -333,6 +334,7 @@ export const postgresSocialRepository: SocialListeningRepository = {
             and (${contentOnly}::boolean = false or relevance_status = 'relevant')
             and (${commentHarvest}::boolean = false or relevance_status in ('relevant', 'official_comment_source'))
             and (${filter?.dashboardImportant === true}::boolean = false or relevance_status = 'relevant' or (relevance_status = 'official_comment_source' and exists (select 1 from social_comments c where c.post_id = social_posts.id and c.dropped = false)))
+            and (${filter?.metricsScope === true}::boolean = false or is_relevant = true or relevance_status in ('relevant', 'official_comment_source'))
             and (${filter?.platform || null}::text is null or platform = ${filter?.platform || null}::text)
             and (${filter?.startDate || null}::timestamptz is null or published_at >= ${filter?.startDate || null}::timestamptz)
             and (${filter?.endDate || null}::timestamptz is null or published_at <= ${filter?.endDate || null}::timestamptz)
@@ -544,6 +546,9 @@ export const postgresSocialRepository: SocialListeningRepository = {
             and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
             and (${filter?.topic || null}::text is null or topic = ${filter?.topic || null}::text)
             and (${filter?.dashboardOnly === true}::boolean = false or (dropped = false and post_id in (select id from social_posts where relevance_status in ('relevant', 'official_comment_source'))))
+            and (${filter?.onDashboardPosts === true}::boolean = false or post_id in (select id from social_posts where relevance_status in ('relevant', 'official_comment_source')))
+            and (${filter?.activeSince || null}::timestamptz is null or coalesce(created_at, first_seen_at) >= ${filter?.activeSince || null}::timestamptz)
+            and (${filter?.seenSince || null}::timestamptz is null or coalesce(first_seen_at, created_at) >= ${filter?.seenSince || null}::timestamptz)
             and (
               ${filter?.classificationVersionBelow ?? null}::int is null
               or (
@@ -569,6 +574,9 @@ export const postgresSocialRepository: SocialListeningRepository = {
             and (${filter?.sentiment || null}::text is null or sentiment = ${filter?.sentiment || null}::text)
             and (${filter?.topic || null}::text is null or topic = ${filter?.topic || null}::text)
             and (${filter?.dashboardOnly === true}::boolean = false or (dropped = false and post_id in (select id from social_posts where relevance_status in ('relevant', 'official_comment_source'))))
+            and (${filter?.onDashboardPosts === true}::boolean = false or post_id in (select id from social_posts where relevance_status in ('relevant', 'official_comment_source')))
+            and (${filter?.activeSince || null}::timestamptz is null or coalesce(created_at, first_seen_at) >= ${filter?.activeSince || null}::timestamptz)
+            and (${filter?.seenSince || null}::timestamptz is null or coalesce(first_seen_at, created_at) >= ${filter?.seenSince || null}::timestamptz)
             and (
               ${filter?.classificationVersionBelow ?? null}::int is null
               or (

@@ -8,6 +8,7 @@ import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 import { tregClient } from "./treg-client";
 import { dispatchSocialPulseAlerts } from "./social-alerts";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
 const BRAND_HANDLES = new Set(["utahcityutah", "utahcityfoodtruckrally"]);
 
 export function isBrandFollowPost(post: Post): boolean {
@@ -140,11 +141,23 @@ export class SocialSchedulerService {
     const viewsVelocityDelta = currentViewsTotal - initialViewsTotal;
     const commentsVelocityDelta = currentCommentsTotal - initialCommentsTotal + newCommentsTotal;
 
-    const allPosts = await this.repo.listPosts({ limit: 2000 });
-    const allComments = await this.repo.listComments({ limit: 5000 });
+    // Read only what metrics and alerts use: the 7d window plus its prior 7d, and the 24h alert window.
+    // Whole-table reads here ran on every cycle and drove most of the Neon network transfer.
+    const nowMs = Date.now();
+    const allPosts = await this.repo.listPosts({ metricsScope: true, limit: 2000 });
+    const metricComments = await this.repo.listComments({
+      onDashboardPosts: true,
+      activeSince: new Date(nowMs - 14 * DAY_MS).toISOString(),
+      limit: 5000,
+    });
+    const alertComments = await this.repo.listComments({
+      onDashboardPosts: true,
+      seenSince: new Date(Math.min(Date.parse(cycleStartedAt) || nowMs, nowMs - DAY_MS)).toISOString(),
+      limit: 5000,
+    });
     const metrics7d = calculateDeterministicSocialMetrics({
       posts: allPosts,
-      comments: allComments,
+      comments: metricComments,
       periodDays: 7,
     });
 
@@ -155,7 +168,7 @@ export class SocialSchedulerService {
     try {
       const alertState = await this.repo.getListenerState();
       const alerts = await dispatchSocialPulseAlerts({
-        comments: allComments,
+        comments: alertComments,
         posts: allPosts,
         cycleStartedAt,
         lastDigestAt: alertState.lastDigestAt,

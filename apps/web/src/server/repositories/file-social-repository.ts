@@ -135,6 +135,9 @@ export const fileSocialRepository: SocialListeningRepository = {
           (p.relevanceStatus === "official_comment_source" && postIdsWithKeptComments.has(p.id))
       );
     }
+    if (filter?.metricsScope) {
+      res = res.filter((p) => p.isRelevant || postCommentsInDashboard(p));
+    }
     if (filter?.platform) {
       res = res.filter((p) => p.platform === filter.platform);
     }
@@ -229,6 +232,18 @@ export const fileSocialRepository: SocialListeningRepository = {
     if (filter?.dashboardOnly) {
       const importantPostIds = new Set(data.posts.filter((p) => postCommentsInDashboard(p)).map((p) => p.id));
       res = res.filter((c) => !c.dropped && importantPostIds.has(c.postId));
+    }
+    if (filter?.onDashboardPosts) {
+      const dashboardPostIds = new Set(data.posts.filter((p) => postCommentsInDashboard(p)).map((p) => p.id));
+      res = res.filter((c) => dashboardPostIds.has(c.postId));
+    }
+    if (filter?.activeSince) {
+      const since = filter.activeSince;
+      res = res.filter((c) => Date.parse(c.createdAt || c.firstSeenAt) >= Date.parse(since));
+    }
+    if (filter?.seenSince) {
+      const since = filter.seenSince;
+      res = res.filter((c) => Date.parse(c.firstSeenAt || c.createdAt) >= Date.parse(since));
     }
     if (filter?.classificationVersionBelow != null) {
       const version = filter.classificationVersionBelow;

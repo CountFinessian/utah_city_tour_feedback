@@ -20,11 +20,14 @@ export interface ConversationDashboardResponse extends ConversationDashboard {
 async function loadCorpus(overrides?: {
   listPosts?: () => Promise<Post[]>;
   listComments?: () => Promise<Comment[]>;
+  skipCache?: boolean;
 }): Promise<{ posts: Post[]; comments: Comment[]; trackedPostCount?: number }> {
   if (overrides?.listPosts && overrides.listComments) {
     const [posts, comments] = await Promise.all([overrides.listPosts(), overrides.listComments()]);
     return { posts, comments };
   }
+  // Drill-down filters each re-read the whole corpus; share one read per instance for the cache TTL.
+  if (!overrides?.skipCache && corpusCache && corpusCache.expiresAt > Date.now()) return corpusCache.data;
   const repo = getSocialRepository();
   const [posts, comments, trackedPostCount] = await Promise.all([
     repo.listPosts({ dashboardImportant: true, limit: POST_LIMIT }),
@@ -32,8 +35,14 @@ async function loadCorpus(overrides?: {
     // Leadership sees independent coverage only; Utah City's own posts are not counted.
     repo.countPosts({ contentOnly: true }),
   ]);
-  return { posts, comments, trackedPostCount };
+  const data = { posts, comments, trackedPostCount };
+  corpusCache = { data, expiresAt: Date.now() + CORPUS_TTL_MS };
+  return data;
 }
+
+const CORPUS_TTL_MS = 300 * 1000;
+let corpusCache: { data: { posts: Post[]; comments: Comment[]; trackedPostCount?: number }; expiresAt: number } | null =
+  null;
 
 interface CachedDashboard {
   data: ConversationDashboardResponse;
