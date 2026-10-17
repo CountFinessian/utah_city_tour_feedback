@@ -20,6 +20,39 @@ export function ExternalSourceLink({ url, label }: { url: string | undefined | n
   );
 }
 
+/** Quotes longer than this get a More/Less toggle; shorter ones show in full. */
+const CLAMP_CHARS = 180;
+
+/**
+ * Comment or post text that leadership can drag-select and copy verbatim. The text is plain
+ * (a button would swallow the selection); long text clamps to 3 lines with a separate toggle.
+ */
+export function ExpandableText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > CLAMP_CHARS;
+  return (
+    <div className="space-y-1">
+      <p
+        className={`text-xs text-slate-200 leading-relaxed break-words select-text cursor-text ${
+          expanded || !long ? "whitespace-pre-line" : "line-clamp-3"
+        }`}
+      >
+        {text}
+      </p>
+      {long && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+          className={`text-[11px] font-semibold text-slate-400 hover:text-[#20d0c3] rounded ${FOCUS_RING}`}
+        >
+          {expanded ? "Less" : "More"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ErrorNotice({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div

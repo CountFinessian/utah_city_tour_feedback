@@ -4,6 +4,7 @@ import {
   isAffiliatedComment,
   isAffiliatedPost,
   isAffiliatedUrl,
+  isPromotionalText,
   isSelfReply,
 } from "@/domain/social-listening/affiliation";
 import { selectPriorityComments } from "@/domain/social-listening/priority-comments";
@@ -197,5 +198,42 @@ describe("leadership surfaces drop affiliated voices", () => {
     expect(issue).toBeDefined();
     expect(issue?.recentCommentCount).toBe(1);
     expect(issue?.sampleComments.map((sample) => sample.authorUsername)).toEqual(["resident_jane"]);
+  });
+});
+
+describe("isPromotionalText", () => {
+  it("flags event roundup posts in English and Portuguese", () => {
+    expect(
+      isPromotionalText(
+        "🎃🍿 FREE OUTDOOR MOVIE NIGHT IN UTAH COUNTY?! Count us in! 👻 Grab the blankets, bring the kids 🌙 Spooktah City is showing HOTEL TRANSYLVANIA for FREE! 🗓️ TONIGHT — Friday, October 9 ⏰ 7:30–9:00 PM 📍 The Greenline 🎟️ FREE admission!"
+      )
+    ).toBe(true);
+    expect(
+      isPromotionalText(
+        "🎃 Looking for an EASY, FREE fall activity this weekend? 👻 Have you checked out SPOOKTAH CITY at the Greenline at Utah City yet?! Every weekend through October! ⛳ FREE ghost mini golf 🎃 Pumpkin art 👻 Hay bale slide"
+      )
+    ).toBe(true);
+    expect(
+      isPromotionalText(
+        "Um passeio de Halloween fácil e DE GRAÇA em Utah 🎃 A Spooktah City fica montada o mês inteiro (2 a 31 de outubro): ⛳ Mini golfe GRÁTIS, todo dia 🎃 Esculturas 🅿️ Estacionamento GRÁTIS 🍂 abre só sex (17h–21h) e sáb (12h–21h)"
+      )
+    ).toBe(true);
+  });
+
+  it("keeps personal opinions, even enthusiastic ones", () => {
+    expect(isPromotionalText("Spooktah City was so fun 🎃👻🍿⛳ free mini golf this weekend!")).toBe(false);
+    expect(
+      isPromotionalText("We went to Spooktah City tonight, free mini golf but parking was a nightmare and the line was 45 min 😩")
+    ).toBe(false);
+    expect(isPromotionalText("How much are tickets?")).toBe(false);
+  });
+
+  it("drops promotional posts through isAffiliatedPost", () => {
+    const post = makePost({
+      id: "promo",
+      authorUsername: "utahfamilyfaves",
+      caption: "FREE movie night TONIGHT 7:30–9:00 PM at The Greenline! Grab the blankets 🎃🍿👻🌙",
+    });
+    expect(isAffiliatedPost(post)).toBe(true);
   });
 });

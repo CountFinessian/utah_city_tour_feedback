@@ -1,7 +1,6 @@
-import { useState } from "react";
 import type { TopicEvidence } from "@/domain/social-listening/topics";
 import { FOCUS_RING, authorLabel, formatItemDate, isHttpUrl, platformLabel } from "./shared";
-import { ExternalSourceLink, SentimentDot } from "./ui";
+import { ExpandableText, ExternalSourceLink, SentimentDot } from "./ui";
 
 function SourceTag({ platform }: { platform: TopicEvidence["platform"] }) {
   return <span className="px-1.5 py-0.5 rounded bg-white/5 text-slate-300">{platformLabel(platform)}</span>;
@@ -12,9 +11,8 @@ function Rating({ rating }: { rating: number | undefined }) {
   return <span className="font-semibold text-amber-300">★ {rating}</span>;
 }
 
-/** One public comment, post, Threads post or review. Text clamps to 3 lines; click to expand. */
+/** One public comment, post, Threads post or review. Text is selectable and clamps to 3 lines with a More toggle. */
 export function VoiceCard({ voice }: { voice: TopicEvidence }) {
-  const [expanded, setExpanded] = useState(false);
   const date = formatItemDate(voice.createdAt);
   return (
     <li className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-2 min-w-0">
@@ -26,14 +24,7 @@ export function VoiceCard({ voice }: { voice: TopicEvidence }) {
         {date && <span className="text-slate-500">{date}</span>}
       </div>
       {voice.title && <p className="text-xs font-bold text-white break-words">{voice.title}</p>}
-      <button
-        type="button"
-        onClick={() => setExpanded((e) => !e)}
-        aria-expanded={expanded}
-        className={`block w-full text-left text-xs text-slate-200 leading-relaxed break-words rounded ${FOCUS_RING}`}
-      >
-        <span className={expanded ? "block whitespace-pre-line" : "block line-clamp-3"}>{voice.text}</span>
-      </button>
+      <ExpandableText text={voice.text} />
       <div className="flex justify-end text-[11px]">
         <ExternalSourceLink url={voice.url} label="Open" />
       </div>
