@@ -23,10 +23,12 @@ function withNoStore(response: Response): Response {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-function authError(status: 401 | 403 | 503, error: string): Response {
+function authError(status: 401 | 403 | 503, error: string, appUrl: string): Response {
   const headers: Record<string, string> = { "Content-Type": "application/json", "Cache-Control": "no-store" };
-  if (status === 401) headers["WWW-Authenticate"] = `Bearer realm="utah-city-mcp", error="invalid_token"`;
-  if (status === 403) headers["WWW-Authenticate"] = `Bearer realm="utah-city-mcp", error="insufficient_scope"`;
+  // resource_metadata lets OAuth-capable clients discover the authorization server (RFC 9728).
+  const meta = `resource_metadata="${appUrl}/.well-known/oauth-protected-resource/api/mcp"`;
+  if (status === 401) headers["WWW-Authenticate"] = `Bearer realm="utah-city-mcp", error="invalid_token", ${meta}`;
+  if (status === 403) headers["WWW-Authenticate"] = `Bearer realm="utah-city-mcp", error="insufficient_scope", ${meta}`;
   if (status === 503) headers["Retry-After"] = "30";
   return new Response(JSON.stringify({ error }), { status, headers });
 }
@@ -72,7 +74,7 @@ export async function handleMcpHttpRequest(request: Request, deps: McpHttpDeps =
   const auth = await authenticateMcpRequest(request, config, deps.lookupUser, deps.now?.());
   if (!auth.ok) {
     log({ event: "mcp_auth_denied", status: auth.status, reason: auth.reason, method: request.method });
-    return authError(auth.status, auth.error);
+    return authError(auth.status, auth.error, config.appUrl);
   }
   const authInfo: AuthInfo = {
     token: "[redacted]",

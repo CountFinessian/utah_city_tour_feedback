@@ -92,6 +92,13 @@ export async function middleware(req: NextRequest) {
     // Read-only MCP endpoint. Clients send a Bearer MCP token, not a session cookie. The route verifies
     // the token and re-reads the user's role (leader only) on every request.
     pathname === "/api/mcp" ||
+    // OAuth for MCP clients (Grok). /authorize checks the session cookie and leader role itself;
+    // /token checks codes, PKCE, and the role. The discovery documents are public metadata.
+    pathname === "/api/mcp/oauth/authorize" ||
+    pathname === "/api/mcp/oauth/token" ||
+    pathname === "/.well-known/oauth-authorization-server" ||
+    pathname === "/.well-known/oauth-protected-resource" ||
+    pathname === "/.well-known/oauth-protected-resource/api/mcp" ||
     pathname.startsWith("/_next") ||
     (!pathname.startsWith("/api/") && STATIC_ASSET_PATTERN.test(pathname)) // static files: favicon.ico, images, etc.
   ) {

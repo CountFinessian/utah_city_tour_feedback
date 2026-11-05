@@ -76,6 +76,7 @@ How the counts line up with the app:
 | `MCP_REVOKED_TOKEN_IDS` | No | Comma-separated token ids (printed when a token is minted) to revoke individually. |
 | `MCP_DATABASE_URL` | No | Read-only Postgres connection for MCP reads. Falls back to `DATABASE_URL` / `POSTGRES_URL`. Account role checks always use the app's own connection. |
 | `MCP_APP_URL` | No | Base URL for links in results. Falls back to `NEXT_PUBLIC_APP_URL`, then `https://www.utahcity.app`. |
+| `MCP_OAUTH_CLIENTS` | No | Extra OAuth clients or redirect URIs: `client-id=https://a/cb\|https://b/cb,other=https://c/cb`. `utah-city-grok` is built in. https only. |
 
 Optional read-only role (run once in Neon as the owner, then set `MCP_DATABASE_URL` for that role):
 
@@ -137,7 +138,30 @@ Generic `mcpServers` JSON (Cursor and similar):
 { "mcpServers": { "utah-city": { "type": "http", "url": "https://www.utahcity.app/api/mcp", "headers": { "Authorization": "Bearer <token>" } } } }
 ```
 
-Clients that only support OAuth connectors (for example claude.ai custom connectors) cannot use bearer tokens. That would need an OAuth authorization server, which this app does not have.
+### OAuth sign-in (Grok on grok.com)
+
+Clients that cannot take a pasted token sign in through OAuth 2.1 (authorization code + PKCE S256, public client, no secret). The user signs in with their normal Utah City account, sees a consent page, and clicks **Allow**. Only accounts whose current role is leader can approve, exchange a code, or refresh.
+
+Grok: grok.com/connectors → **New Connector** → **Custom** → URL `https://www.utahcity.app/api/mcp`, then fill the OAuth form:
+
+| Field | Value |
+|---|---|
+| Client ID | `utah-city-grok` |
+| Client Secret | leave empty |
+| Authorization Endpoint | `https://www.utahcity.app/api/mcp/oauth/authorize` |
+| Token Endpoint | `https://www.utahcity.app/api/mcp/oauth/token` |
+| Scopes | `mcp:read` |
+| Token Auth Method | none (PKCE only) |
+
+Endpoints and lifetimes:
+
+- Discovery: `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/api/mcp`. 401s from `/api/mcp` carry `resource_metadata` pointing at the latter.
+- Access tokens are ordinary `ucmcp_` tokens that last 24 hours, so every MCP request still re-checks the role.
+- Refresh tokens last 30 days and rotate. One approval can be refreshed for at most 90 days, then the user signs in again.
+- Codes last 5 minutes and are bound to the client, redirect URI, and PKCE challenge.
+- Nothing is stored server-side: codes, refresh tokens, and consent-form tokens are HMAC-signed with `MCP_TOKEN_SECRET` under separate key prefixes. Because of that, a rotated refresh token stays valid until it expires. To cut one off, add its id to `MCP_REVOKED_TOKEN_IDS`. Demoting or deleting the user stops refreshes and requests immediately. Rotating `MCP_TOKEN_SECRET` ends every connection.
+- Registered redirect URIs for `utah-city-grok`: `https://grok.com/connectors-oauth-exchange-code/` and `https://grok.com/connectors/oauth/callback`. xAI does not document its callback; these are the ones Grok has been observed to use. If Grok reports "redirect_uri not registered", add the URI it shows with `MCP_OAUTH_CLIENTS` (no code change).
+- Unknown clients and unregistered redirect URIs get an error page, never a redirect.
 
 ## Example questions and the tool calls behind them
 

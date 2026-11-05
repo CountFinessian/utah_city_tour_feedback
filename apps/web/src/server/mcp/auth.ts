@@ -21,7 +21,7 @@ export type McpAuthResult =
 
 export type UserLookup = (email: string) => Promise<{ id: string; role: unknown } | null>;
 
-const defaultLookup: UserLookup = async (email) => {
+export const defaultLookup: UserLookup = async (email) => {
   const user = await findUserByEmail(email);
   return user ? { id: user.id, role: user.role } : null;
 };
