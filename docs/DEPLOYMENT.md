@@ -22,3 +22,8 @@ npm run mobile:open
 
 Bundle ID: `com.utahcity.host`
 
+
+
+## MCP endpoint
+
+Set `MCP_TOKEN_SECRET` in the Vercel project, deploy, then mint leader tokens with `node apps/web/scripts/mcp-token.mjs`. Full steps: [`MCP.md`](MCP.md).

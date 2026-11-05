@@ -126,3 +126,17 @@ Each platform card on the Settings page has a **Test keys** button. It makes a r
 | `LINKEDIN_SCOPES` | No | `r_organization_social rw_organization_admin` | Override if LinkedIn renames its page-analytics scopes. |
 | `LINKEDIN_API_VERSION` | No | `202608` | LinkedIn's monthly REST API version, sent with every LinkedIn call. Bump it if LinkedIn retires this version. |
 | `META_GRAPH_VERSION` | No | `v23.0` | Facebook Graph API version used by the Meta checks. |
+
+
+---
+
+## MCP server (read-only)
+
+See `docs/MCP.md`.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `MCP_TOKEN_SECRET` | Yes, to enable `/api/mcp` | — | At least 32 characters. Signs MCP bearer tokens. Without it the endpoint answers `503`. Rotating it revokes every token. |
+| `MCP_REVOKED_TOKEN_IDS` | No | — | Comma-separated token ids to revoke. |
+| `MCP_DATABASE_URL` | No | `DATABASE_URL` | Read-only Postgres role for MCP reads. |
+| `MCP_APP_URL` | No | `NEXT_PUBLIC_APP_URL`, then `https://www.utahcity.app` | Base URL for links in MCP results. |

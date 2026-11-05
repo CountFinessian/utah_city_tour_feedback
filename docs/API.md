@@ -243,3 +243,10 @@ Handles inbound emails via Resend.
 
 ### `/api/webhooks/inbound`
 Alias for `/api/webhooks/resend`. Re-exports `GET` and `POST`.
+
+
+## 8. MCP
+
+### `GET|POST|DELETE /api/mcp`
+
+Read-only Model Context Protocol endpoint (Streamable HTTP, stateless). Middleware lets the path through without a session cookie. The route requires `Authorization: Bearer <MCP token>` and re-reads the account's role on every request: leaders only (`401` bad or missing token, `403` non-leader, `503` unconfigured or role unverifiable). Responses are `Cache-Control: no-store`. Tools and setup: `docs/MCP.md`.

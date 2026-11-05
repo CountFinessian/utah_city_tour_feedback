@@ -284,6 +284,12 @@ const QUESTION_WORDS = /\b(where|when|why|how|who|what|can you|does anyone|is th
 const SAFETY_LEGAL = /\b(lawsuit|sue\b|suing|attorney|illegal|unsafe|danger|dangerous|accident|injury|injured)\b/i;
 const DISCOVERABILITY = /\b(google maps|doesn't show|doesnt show|can't find|cant find|not walkable|where is this|where is the)\b/i;
 
+/** Text that reads as a question: ends with "?" and contains a question word. */
+export function looksLikeQuestionText(text: string | undefined): boolean {
+  const value = text || "";
+  return RESPONSE_QUESTION.test(value.trim()) && QUESTION_WORDS.test(value);
+}
+
 export function isDirectLeadershipComment(comment: SignalComment): boolean {
   if (comment.dropped || comment.isOfficialAuthor) return false;
   if (comment.isLeadershipSignal) return true;
@@ -293,7 +299,7 @@ export function isDirectLeadershipComment(comment: SignalComment): boolean {
   if (comment.topic === "wayfinding_and_access") return true;
   const text = comment.text || "";
   if (SAFETY_LEGAL.test(text) || DISCOVERABILITY.test(text)) return true;
-  if (RESPONSE_QUESTION.test(text.trim()) && QUESTION_WORDS.test(text)) return true;
+  if (looksLikeQuestionText(text)) return true;
   return false;
 }
 

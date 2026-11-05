@@ -979,7 +979,7 @@ function parseHarvestCursor(value: unknown): Post["commentHarvestCursor"] {
   }
 }
 
-function mapPostRow(r: any): Post {
+export function mapPostRow(r: any): Post {
   return {
     id: r.id,
     canonicalId: r.canonical_id,
@@ -1051,7 +1051,7 @@ function mapPostRow(r: any): Post {
   };
 }
 
-function mapCommentRow(r: any): Comment {
+export function mapCommentRow(r: any): Comment {
   return {
     id: r.id,
     canonicalId: r.canonical_id,
