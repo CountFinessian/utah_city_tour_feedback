@@ -59,7 +59,7 @@ export type NarrativeGuardrail = {
   confidenceLanguage: string;
 };
 
-function normalizeQuestion(q: string): string {
+export function normalizeQuestion(q: string): string {
   return q.trim().toLowerCase().replace(/[?.!]+$/g, "").replace(/\s+/g, " ");
 }
 

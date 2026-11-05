@@ -89,6 +89,9 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/api/owned-social/connect/") ||
     pathname.startsWith("/api/owned-social/callback/") ||
     pathname === "/api/owned-social/cron" ||
+    // Read-only MCP endpoint. Clients send a Bearer MCP token, not a session cookie. The route verifies
+    // the token and re-reads the user's role (leader only) on every request.
+    pathname === "/api/mcp" ||
     pathname.startsWith("/_next") ||
     (!pathname.startsWith("/api/") && STATIC_ASSET_PATTERN.test(pathname)) // static files: favicon.ico, images, etc.
   ) {

@@ -42,6 +42,7 @@ npm run mobile:sync  # Capacitor iOS sync
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for Vercel + App Store setup.
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for system design.
+See [`docs/MCP.md`](docs/MCP.md) for the read-only MCP server (`/api/mcp`).
 
 ## Local folder name
 
