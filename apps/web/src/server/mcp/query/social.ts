@@ -74,18 +74,24 @@ export function scopedComments(corpus: McpCorpus, range: DateRange | null, now: 
 export function socialCoverage(corpus: McpCorpus, now: Date) {
   const lastRun = corpus.freshness.listenerLastSearchRunAt;
   const lastMonitor = corpus.freshness.listenerLastMonitorAt;
-  const latestListen = [lastRun, lastMonitor].filter(Boolean).sort().pop() ?? null;
-  const age = hoursSince(latestListen, now);
+  // Freshness comes from the monitor cursor only. It advances only when a run passes the Treg balance
+  // check and actually listens. Search-run rows are also written by topic refreshes whose searches fail
+  // (e.g. a rejected TREG_TOKEN), so they made a frozen listener look current.
+  const age = hoursSince(lastMonitor, now);
   return {
     comments: coverageOf("social_comments", corpus.socialComments, (c) => commentDate(c)),
     posts: coverageOf("social_posts", corpus.socialPosts, (p) => postDate(p)),
     backend: corpus.backend,
     loaded_at: corpus.loadedAt,
+    listener_last_successful_check_at: lastMonitor,
     listener_last_search_run_at: lastRun,
-    listener_last_monitor_at: lastMonitor,
-    hours_since_listener_activity: age,
+    hours_since_last_successful_check: age,
     listener_freshness:
-      age == null ? "unknown" : age <= 6 ? "fresh (listener runs every 3 hours)" : `stale: no listener activity for ${age} hours`,
+      age == null
+        ? "unknown"
+        : age <= 36
+          ? "current (listener is scheduled every 6 hours and should succeed at least daily)"
+          : `stale: last successful listener check was ${age} hours ago; newest stored comment and post dates are under comments/posts`,
     scope_note:
       "Public-opinion comments only, as on the Social Pulse dashboard: dropped low-signal comments, official and affiliated accounts, and creator self-replies are excluded.",
   };

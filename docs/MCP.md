@@ -38,7 +38,7 @@ Every result includes:
   - `dataset_unavailable` means the table is missing or the read failed. Treat counts as unknown, not zero.
 - **Source ids and links**: tour debriefs link to `/evidence?highlight=<id>`, and social comments carry their post URL.
 - **Dates**: all in UTC.
-- **`coverage`**: records loaded, earliest and latest dates, truncation, and freshness. For social data this includes the listener's last run.
+- **`coverage`**: records loaded, earliest and latest dates, truncation, and freshness. For social data this includes the listener's last successful check (`listener_last_successful_check_at`), which only advances when a run actually reaches Treg. Compare it with the newest comment and post dates: a check that finds nothing new is still a successful refresh.
 - **`counting`**: on summaries, a plain explanation of what each number counts.
 
 How the counts line up with the app:
