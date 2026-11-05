@@ -82,11 +82,70 @@ describe("live pulse", () => {
     const pulse = buildLivePulse({ posts: [post("p1")], comments, now: NOW });
     expect(pulse.last7d.total).toBe(3);
     expect(pulse.prior7d.total).toBe(1);
-    expect(pulse.volumeChange).toBe(2);
+    // Under five comments in a week, a percentage change is noise: show the counts instead.
+    expect(pulse.lowVolume).toBe(true);
+    expect(pulse.volumeChange).toBeNull();
+    expect(pulse.netChange).toBeNull();
     expect(pulse.last24h.total).toBe(0);
     expect(pulse.risingTopics[0]).toMatchObject({ topic: "traffic_and_infrastructure", thisWeek: 2, lastWeek: 1, delta: 1 });
-    expect(pulse.brief).toContain("3 public comments in the last 7 days");
+    expect(pulse.brief).toContain("3 comments this week · 1 last week.");
     expect(pulse.stale).toBe(false);
+  });
+
+  it("shows the week-over-week change once both weeks have at least five comments", () => {
+    const thisWeek = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5].map((d, i) => comment(`t${i}`, d));
+    const lastWeek = [8, 9, 10, 11, 12].map((d, i) => comment(`l${i}`, d));
+    const pulse = buildLivePulse({ posts: [post("p1")], comments: [...thisWeek, ...lastWeek], now: NOW });
+    expect(pulse.lowVolume).toBe(false);
+    expect(pulse.volumeChange).toBe(1);
+    expect(pulse.brief).toContain("10 public comments in the last 7 days (up 100% vs the week before)");
+  });
+
+  it("puts an old comment collected today in the week it was posted", () => {
+    const late = comment("late", 9, { firstSeenAt: ago(0.1) });
+    const pulse = buildLivePulse({ posts: [post("p1")], comments: [late], now: NOW, lastSuccessfulCheckAt: ago(0.1) });
+    expect(pulse.last7d.total).toBe(0);
+    expect(pulse.prior7d.total).toBe(1);
+    expect(pulse.newLast24h).toBe(1);
+    expect(pulse.collectedLate24h).toBe(1);
+    expect(pulse.brief).toBe(
+      "0 comments this week · 1 last week. 1 older comment collected in the last 24 hours, counted in the week it was posted."
+    );
+  });
+
+  it("treats a quiet stretch with successful checks as current, not stalled", () => {
+    const pulse = buildLivePulse({ posts: [post("p1")], comments: [comment("x", 5)], now: NOW, lastSuccessfulCheckAt: ago(0.2) });
+    expect(pulse.stale).toBe(false);
+    expect(pulse.brief).not.toMatch(/not current/);
+    const failing = buildLivePulse({ posts: [post("p1")], comments: [comment("x", 0.1)], now: NOW, lastSuccessfulCheckAt: ago(2) });
+    expect(failing.stale).toBe(true);
+  });
+
+  it("lists every collected comment in Latest, reactions and official replies included, newest posting date first", () => {
+    const reaction = comment("wow", 0.5, { text: "wow", dropped: true, dropReason: "filler_word" });
+    const cute = comment("cute", 2, { text: "It's so cute!!", sentiment: "positive", importanceBand: "LOW", importanceScore: 10 });
+    const official = comment("uc", 1, { text: "Thanks for coming out!", isOfficialAuthor: true });
+    const real = comment("real", 3);
+    const pulse = buildLivePulse({
+      posts: [post("p1")],
+      comments: [cute, real],
+      now: NOW,
+      collected: [
+        { comment: real, kind: "public" },
+        { comment: reaction, kind: "reaction" },
+        { comment: official, kind: "official" },
+        { comment: cute, kind: "reaction" },
+        { comment: comment("ancient", 45), kind: "public" },
+      ],
+    });
+    expect(pulse.latest.map((c) => [c.id, c.kind])).toEqual([
+      ["wow", "reaction"],
+      ["uc", "official"],
+      ["cute", "reaction"],
+      ["real", "public"],
+    ]);
+    // Top now still leaves simple reactions out; ranking is unchanged.
+    expect(pulse.topNow.map((c) => c.id)).toEqual(["real"]);
   });
 
   it("keeps comments older than 30 days and generic reactions out of the stream", () => {

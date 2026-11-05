@@ -26,6 +26,20 @@ export interface SocialListenerCursors {
   discovery?: DiscoveryQueryCursor[];
   /** Historical walk back to the 2023 announcement. Admin backfill only. */
   historicalBackfill?: HistoricalBackfillState;
+  /** Progress of the catch-up pass for the latest coverage gap. */
+  catchUp?: CatchUpProgress;
+}
+
+export interface CatchUpProgress {
+  /** End of the coverage gap this pass is recovering. A new gap starts a new pass. */
+  gapTo: string;
+  startedAt: string;
+  lastCallAt: string;
+  calls: number;
+  tregSpendUsd: number;
+  firstRead: number;
+  checked: number;
+  newComments: number;
 }
 
 export interface SocialListenerState {

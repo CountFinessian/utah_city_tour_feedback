@@ -11,7 +11,7 @@ import {
 } from "@/domain/social-listening/types";
 import { parseHistoricalBackfill } from "@/domain/social-listening/backfill";
 import { SEEDED_OFFICIAL_ACCOUNTS, withSeededExternalIds } from "@/domain/social-listening/relevance";
-import { SocialListenerState, SocialListeningRepository, type IgReplyBackfillCursor } from "./social-repository";
+import { SocialListenerState, SocialListeningRepository, type CatchUpProgress, type IgReplyBackfillCursor } from "./social-repository";
 import { fileSocialRepository } from "./file-social-repository";
 import { generateSeedQueries } from "@/domain/social-listening/vocabulary";
 import { stage1Statements } from "@/server/db/migrations/stage1";
@@ -945,10 +945,28 @@ export function parseListenerCursors(value: unknown): SocialListenerState["curso
       igReplyBackfill,
       discovery,
       historicalBackfill: parseHistoricalBackfill(record.historicalBackfill),
+      catchUp: parseCatchUp(record.catchUp),
     };
   } catch {
     return undefined;
   }
+}
+
+function parseCatchUp(value: unknown): CatchUpProgress | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  if (typeof row.gapTo !== "string") return undefined;
+  const text = (key: string) => (typeof row[key] === "string" ? (row[key] as string) : row.gapTo as string);
+  return {
+    gapTo: row.gapTo,
+    startedAt: text("startedAt"),
+    lastCallAt: text("lastCallAt"),
+    calls: Number(row.calls) || 0,
+    tregSpendUsd: Number(row.tregSpendUsd) || 0,
+    firstRead: Number(row.firstRead) || 0,
+    checked: Number(row.checked) || 0,
+    newComments: Number(row.newComments) || 0,
+  };
 }
 
 function mapQueryRow(r: any): SearchQuery {

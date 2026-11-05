@@ -15,6 +15,9 @@ import {
   Star,
   Award,
   CalendarHeart,
+  Inbox,
+  CircleDot,
+  Globe,
 } from "lucide-react";
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type {
@@ -26,6 +29,9 @@ import type { CreatorContentItem } from "@/domain/social-listening/creator-conte
 import type { EmergingIssue } from "@/domain/social-listening/emerging-issues";
 import type { LivePulse } from "@/domain/social-listening/live-pulse";
 import { LivePulsePanel, type ListenerHealthView } from "@/components/social/LivePulsePanel";
+import type { CoverageStatus } from "@/domain/social-listening/coverage";
+import { CommentIssueActions, NeedsReviewPanel, OpenIssuesPanel, useReviewBoard } from "@/components/social/ReviewBoard";
+import type { NarrativeDiscovery } from "@/server/services/narrative-discovery";
 
 export interface DashboardCommentItem {
   id: string;
@@ -58,7 +64,9 @@ export interface DashboardData {
   backfillStats?: any;
   livePulse?: LivePulse;
   listenerHealth?: ListenerHealthView | null;
+  coverage?: CoverageStatus | null;
 }
+
 
 /** The dashboard is cached for 5 minutes server-side; poll at the same pace so an open tab stays current. */
 const REFRESH_MS = 5 * 60 * 1000;
@@ -77,7 +85,9 @@ export default function SocialPulsePage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"themes" | "priority" | "creators" | "emerging" | "topics">("themes");
+  const [activeTab, setActiveTab] = useState<"themes" | "review" | "issues" | "priority" | "creators" | "emerging" | "topics" | "discovery">("themes");
+  const review = useReviewBoard();
+  const [discovery, setDiscovery] = useState<NarrativeDiscovery | null>(null);
 
   // Creator content pagination state (10 items per page)
   const [creatorPage, setCreatorPage] = useState<number>(1);
@@ -106,6 +116,12 @@ export default function SocialPulsePage() {
       }
     }
     loadData();
+    fetch("/api/social-pulse/discovery", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (isMounted && json) setDiscovery(json);
+      })
+      .catch(() => undefined);
     const refresh = setInterval(() => {
       if (document.visibilityState === "visible") loadData(true);
     }, REFRESH_MS);
@@ -122,6 +138,8 @@ export default function SocialPulsePage() {
   const priorityComments = data?.priorityComments || [];
   const creatorContent = data?.creatorContent || [];
   const emergingIssues = data?.emergingIssues || [];
+  // External discovery only appears once narrative topics have real results.
+  const discoveryItems = discovery?.items || [];
 
   // Curated priority comments (up to 30, ranked by importance weighted toward recent comments)
   const curatedPriorityComments = priorityComments.slice(0, 30);
@@ -190,7 +208,9 @@ export default function SocialPulsePage() {
         </div>
       ) : (
         <>
-          {data.livePulse && <LivePulsePanel pulse={data.livePulse} health={data.listenerHealth} />}
+          {data.livePulse && (
+            <LivePulsePanel pulse={data.livePulse} health={data.listenerHealth} coverage={data.coverage} review={review} />
+          )}
 
           {/* ========================================================================= */}
           {/* 2. CORE WORKSTATION TABS                                                  */}
@@ -215,6 +235,30 @@ export default function SocialPulsePage() {
               </button>
 
               <button
+                onClick={() => setActiveTab("review")}
+                className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
+                  activeTab === "review"
+                    ? "border-[#20d0c3] text-[#20d0c3] bg-white/[0.04]"
+                    : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
+                }`}
+              >
+                <Inbox className="w-4 h-4" />
+                Needs review ({review.board?.needsReview.length ?? "…"})
+              </button>
+
+              <button
+                onClick={() => setActiveTab("issues")}
+                className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
+                  activeTab === "issues"
+                    ? "border-[#20d0c3] text-[#20d0c3] bg-white/[0.04]"
+                    : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
+                }`}
+              >
+                <CircleDot className="w-4 h-4 text-amber-400" />
+                Open issues ({review.board?.openIssues.length ?? "…"})
+              </button>
+
+              <button
                 onClick={() => setActiveTab("priority")}
                 className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
                   activeTab === "priority"
@@ -223,7 +267,7 @@ export default function SocialPulsePage() {
                 }`}
               >
                 <Award className="w-4 h-4" />
-                Priority Comments ({curatedPriorityComments.length})
+                Priority Comments · History ({curatedPriorityComments.length})
               </button>
 
               <button
@@ -261,7 +305,63 @@ export default function SocialPulsePage() {
                 <CalendarHeart className="w-4 h-4" />
                 Events &amp; Topics
               </button>
+
+              {discoveryItems.length > 0 && (
+                <button
+                  onClick={() => setActiveTab("discovery")}
+                  className={`flex items-center gap-2 px-4 py-3 font-bold text-xs uppercase tracking-wider rounded-t-xl transition border-b-2 ${
+                    activeTab === "discovery"
+                      ? "border-[#20d0c3] text-[#20d0c3] bg-white/[0.04]"
+                      : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]"
+                  }`}
+                >
+                  <Globe className="w-4 h-4" />
+                  External discovery ({discoveryItems.length})
+                </button>
+              )}
             </div>
+
+            {activeTab === "review" && <NeedsReviewPanel state={review} />}
+            {activeTab === "issues" && <OpenIssuesPanel state={review} />}
+            {activeTab === "discovery" && discoveryItems.length > 0 && (
+              <div className="space-y-4">
+                <div className="bg-white/[0.02] p-4 rounded-xl border border-white/5">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-[#20d0c3]" />
+                    External discovery
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Conversations beyond Utah City&apos;s tracked posts, for {discovery?.tracked.map((t) => t.name).join(", ")}. Not counted in
+                    Utah City comment totals.
+                  </p>
+                </div>
+                <ul className="space-y-3">
+                  {discoveryItems.map((item) => (
+                    <li key={`${item.narrativeId}:${item.url}`} className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                        <span className="uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10">
+                          {item.narrative}
+                        </span>
+                        <span className="capitalize">{item.source}</span>
+                        <span className="font-semibold text-slate-200">{item.author}</span>
+                        <span>
+                          {item.dateIsPublished ? "Published" : "Found"} {new Date(item.date).toLocaleDateString()}
+                        </span>
+                        <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[#20d0c3] hover:underline inline-flex items-center gap-1 font-semibold">
+                          Source <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                      {item.title && <p className="text-sm font-semibold text-white">{item.title}</p>}
+                      <p className="text-sm text-slate-200 leading-relaxed break-words">{stripTranscriptTimestamps(item.text).slice(0, 400)}</p>
+                      <p className="text-[11px] text-slate-400">
+                        <span className="text-slate-500">Why it matters: </span>
+                        {item.whyItMatters}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* TAB: PRIORITY COMMENTS (CURATED RANKED LIST, NO FILTERS/SORTING CONTROLS) */}
             {activeTab === "priority" && (
@@ -269,10 +369,11 @@ export default function SocialPulsePage() {
                 <div className="bg-white/[0.02] p-4 rounded-xl border border-white/5">
                   <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                     <Star className="w-4 h-4 text-[#20d0c3]" />
-                    PRIORITY COMMENTS — WHAT LEADERSHIP SHOULD KNOW
+                    PRIORITY COMMENTS — HISTORY
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    High-value public comments ranked by importance, weighted toward recent comments so the list moves as the conversation does.
+                    High-value public comments ranked by importance, weighted toward recent comments. A historical record for review, not a
+                    list of unresolved items: create an issue from a card when something still needs action.
                   </p>
                 </div>
 
@@ -350,6 +451,7 @@ export default function SocialPulsePage() {
                               </a>
                             )}
                           </div>
+                          <CommentIssueActions commentId={c.canonicalId} text={c.text} state={review} />
                         </div>
                       );
                     })}

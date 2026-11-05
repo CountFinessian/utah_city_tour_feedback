@@ -8,10 +8,12 @@ import { runLookupDebug, runReferenceEval, runRelevanceReeval } from "@/server/s
 import { refreshActiveTopics } from "@/server/services/topic-intelligence";
 import { lastTregBalanceError } from "@/server/services/treg-balance";
 import { recordListenerRun } from "@/server/services/listener-health";
+import { alertAfterListenerRun, runListenerWatchdog } from "@/server/services/listener-alerts";
+import { runCatchUpPass } from "@/server/services/catch-up";
 
 const RELEVANCE_MODES = new Set(["relevance-eval", "relevance-reeval", "lookup-debug"]);
 const HARVEST_MODES = new Set(["harvest-first-crawl", "acceptance-test"]);
-const MONITOR_MODES = new Set(["monitor", "ig-replies-backfill", "reclassify-legacy"]);
+const MONITOR_MODES = new Set(["monitor", "ig-replies-backfill", "reclassify-legacy", "catchup"]);
 const BACKFILL_MODES = new Set(["backfill-discovery"]);
 const TOPIC_MODES = new Set(["topics"]);
 
@@ -75,6 +77,16 @@ export async function GET(request: Request) {
       return NextResponse.json(result);
     }
 
+    if (mode === "watchdog") {
+      // Daily, from Vercel cron: an independent clock for when GitHub Actions stops scheduling runs.
+      if (!process.env.CRON_SECRET || !authorizeCron(request)) {
+        return NextResponse.json({ error: "Unauthorized cron execution" }, { status: 401 });
+      }
+      const watchdog = await runListenerWatchdog();
+      console.log(`[CRON /api/social-pulse/cron] mode=watchdog ${JSON.stringify(watchdog)}`);
+      return NextResponse.json({ task: "watchdog", ...watchdog });
+    }
+
     if (MONITOR_MODES.has(mode)) {
       if (!process.env.CRON_SECRET || !authorizeCron(request)) {
         return NextResponse.json({ error: "Unauthorized cron execution" }, { status: 401 });
@@ -82,22 +94,40 @@ export async function GET(request: Request) {
       if (mode !== "reclassify-legacy" && !process.env.TREG_TOKEN) {
         return NextResponse.json({ error: "TREG_TOKEN is not configured in this environment" }, { status: 503 });
       }
+      if (mode === "catchup") {
+        const catchUp = await runCatchUpPass();
+        const blocked = catchUp.stopped === "balance";
+        const body = blocked ? { ...catchUp, balanceError: lastTregBalanceError() } : catchUp;
+        console.log(`[CRON /api/social-pulse/cron] ${JSON.stringify(body)}`);
+        return NextResponse.json(body, { status: blocked ? 503 : 200 });
+      }
       if (mode === "monitor") {
-        const monitor = await runMonitorCycle();
+        let monitor: Awaited<ReturnType<typeof runMonitorCycle>>;
+        try {
+          monitor = await runMonitorCycle();
+        } catch (err) {
+          // A crash is a failed run too: record it so the dashboard and the owner both see it.
+          const message = err instanceof Error ? err.message : "Monitor run failed";
+          const recorded = await recordListenerRun({ at: new Date(), stopped: "error", listened: false, error: message, newComments: 0 });
+          await alertAfterListenerRun(recorded.previous, recorded.health);
+          throw err;
+        }
         // A run that never reached Treg must not look healthy: record it and fail the job.
         const blocked = monitor.stopped === "balance";
         const balanceError = blocked
           ? lastTregBalanceError() ||
             (monitor.balanceUsd != null ? `Treg balance $${monitor.balanceUsd.toFixed(2)} is under the $1 minimum` : null)
           : null;
-        await recordListenerRun({
+        const recorded = await recordListenerRun({
           at: new Date(),
           stopped: monitor.stopped,
           listened: !blocked,
           error: balanceError,
           newComments: monitor.newComments,
         });
-        const body = balanceError ? { ...monitor, balanceError } : monitor;
+        const alert = await alertAfterListenerRun(recorded.previous, recorded.health);
+        const withAlert = alert.kind ? { ...monitor, alert } : monitor;
+        const body = balanceError ? { ...withAlert, balanceError } : withAlert;
         console.log(`[CRON /api/social-pulse/cron] ${JSON.stringify(body)}`);
         return NextResponse.json(body, { status: blocked ? 503 : 200 });
       }

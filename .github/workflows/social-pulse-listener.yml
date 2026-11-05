@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "monitor | discover | comments | full | topics"
+        description: "monitor | catchup | discover | comments | full | topics"
         required: false
         default: "monitor"
 
@@ -39,7 +39,8 @@ jobs:
   run-cycle:
     runs-on: ubuntu-latest
     # Two requests of up to 280s each (listener, then topics), plus setup.
-    timeout-minutes: 10
+    # A catch-up pass makes up to 10 listener calls of up to 280s each.
+    timeout-minutes: ${{ github.event.inputs.mode == 'catchup' && 55 || 10 }}
     steps:
       - name: Choose mode
         id: mode
@@ -76,7 +77,7 @@ jobs:
       # One request. Discovery is capped inside the function (~38% of the window)
       # and resumes from a cursor, so due checks still run before the deadline.
       - name: Trigger production listening cycle
-        if: steps.backup.outputs.skip != 'true'
+        if: steps.backup.outputs.skip != 'true' && steps.mode.outputs.mode != 'catchup'
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           MODE: ${{ steps.mode.outputs.mode }}
@@ -100,9 +101,37 @@ jobs:
           cat /tmp/listener.json || true
           test "$code" = "200"
 
+      # Catch-up after an outage: bounded calls (each capped at $0.50 and 240s, the pass at $2)
+      # until nothing the outage could have hidden is left, the pass budget is used, or 10 calls.
+      # Every post is saved as it is read, so a cancelled job resumes on the next dispatch.
+      - name: Run catch-up pass
+        if: steps.mode.outputs.mode == 'catchup'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          url="https://www.utahcity.app/api/social-pulse/cron?mode=catchup"
+          for call in $(seq 1 10); do
+            code=$(curl -sS -L -o /tmp/catchup.json -w "%{http_code}" \
+              -X POST "$url" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              -H "Content-Type: application/json" \
+              --max-time 280)
+            echo "call $call HTTP $code"
+            cat /tmp/catchup.json
+            echo
+            test "$code" = "200"
+            complete=$(jq -r '.complete' /tmp/catchup.json)
+            stopped=$(jq -r '.stopped' /tmp/catchup.json)
+            if [ "$complete" = "true" ] || [ "$stopped" = "pass_budget" ] || [ "$stopped" = "no_gap" ] || [ "$stopped" = "gemini_budget" ]; then
+              echo "Catch-up stopped: complete=$complete stopped=$stopped"
+              break
+            fi
+          done
+
       # Topic intelligence refresh. Advisory: a non-200 is logged but does not fail the job.
       - name: Trigger topic intelligence refresh
-        if: steps.backup.outputs.skip != 'true'
+        if: steps.backup.outputs.skip != 'true' && steps.mode.outputs.mode == 'monitor'
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |

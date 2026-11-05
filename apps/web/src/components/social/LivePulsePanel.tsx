@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, ExternalLink, TrendingUp } from "lucide-react";
 import { stripTranscriptTimestamps } from "@/domain/sanitize-text";
 import type { LivePulse, LivePulseComment, PulseWindow } from "@/domain/social-listening/live-pulse";
+import type { CoverageStatus } from "@/domain/social-listening/coverage";
+import { CommentIssueActions, type ReviewBoardState } from "@/components/social/ReviewBoard";
 
 export interface ListenerHealthView {
   lastRunAt: string;
@@ -24,6 +26,16 @@ function timeAgo(iso: string | null | undefined, nowMs: number): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function dateLabel(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function dateTimeLabel(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function netLabel(net: number | null): string {
@@ -94,7 +106,24 @@ function SentimentBar({ window: w }: { window: PulseWindow }) {
   );
 }
 
-function StreamRow({ c, nowMs, unseen }: { c: LivePulseComment; nowMs: number; unseen: boolean }) {
+const KIND_LABEL: Record<NonNullable<LivePulseComment["kind"]>, string | null> = {
+  public: null,
+  reaction: "Reaction",
+  official: "Official / partner",
+};
+
+function StreamRow({
+  c,
+  nowMs,
+  unseen,
+  review,
+}: {
+  c: LivePulseComment;
+  nowMs: number;
+  unseen: boolean;
+  review?: ReviewBoardState;
+}) {
+  const kindLabel = c.kind ? KIND_LABEL[c.kind] : null;
   return (
     <li className="py-3.5 flex gap-3">
       <span
@@ -120,9 +149,17 @@ function StreamRow({ c, nowMs, unseen }: { c: LivePulseComment; nowMs: number; u
               {c.importanceBand === "CRITICAL" ? "Critical" : "High"}
             </span>
           )}
+          {kindLabel && (
+            <span className="uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">
+              {kindLabel}
+            </span>
+          )}
           <span className="font-semibold text-slate-200">@{c.authorUsername}</span>
           <span className="capitalize">{c.platform}</span>
-          <span>{timeAgo(c.createdAt, nowMs)}</span>
+          <span title={`Posted ${new Date(c.createdAt).toLocaleString()}`}>posted {timeAgo(c.createdAt, nowMs)}</span>
+          {nowMs - Date.parse(c.firstSeenAt) < 24 * 60 * 60 * 1000 && Date.parse(c.firstSeenAt) - Date.parse(c.createdAt) > 24 * 60 * 60 * 1000 && (
+            <span className="text-slate-500">collected today</span>
+          )}
           {c.topic && <span className="text-slate-500">{topicLabel(c.topic)}</span>}
           {c.postUrl && (
             <a
@@ -135,12 +172,54 @@ function StreamRow({ c, nowMs, unseen }: { c: LivePulseComment; nowMs: number; u
             </a>
           )}
         </div>
+        {review && c.kind !== "official" && (
+          <div className="pt-1">
+            <CommentIssueActions commentId={c.canonicalId} text={c.text} state={review} />
+          </div>
+        )}
       </div>
     </li>
   );
 }
 
-export function LivePulsePanel({ pulse, health }: { pulse: LivePulse; health?: ListenerHealthView | null }) {
+function Fact({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <div className="min-w-0">
+      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">{label}</span>
+      <span className="text-sm font-bold text-slate-100 block">{value}</span>
+      {detail && <span className="text-[11px] text-slate-500 block">{detail}</span>}
+    </div>
+  );
+}
+
+function backlogLabel(coverage: CoverageStatus): { value: string; detail: string } {
+  const b = coverage.backlog;
+  const outage = b.unreadNew + b.gapRechecks;
+  const parts: string[] = [];
+  if (b.unreadNew) parts.push(`${b.unreadNew} new post${b.unreadNew === 1 ? "" : "s"} unread`);
+  if (b.gapRechecks) parts.push(`${b.gapRechecks} outage re-check${b.gapRechecks === 1 ? "" : "s"}`);
+  if (b.overdueChecks) parts.push(`${b.overdueChecks} routine check${b.overdueChecks === 1 ? "" : "s"} due`);
+  if (b.unreadOlder) parts.push(`${b.unreadOlder} older post${b.unreadOlder === 1 ? "" : "s"} never read`);
+  return {
+    value:
+      outage + b.overdueChecks === 0
+        ? "Caught up"
+        : `${(outage + b.overdueChecks).toLocaleString()} post${outage + b.overdueChecks === 1 ? "" : "s"} to check`,
+    detail: parts.join(" · ") || "Nothing waiting",
+  };
+}
+
+export function LivePulsePanel({
+  pulse,
+  health,
+  coverage,
+  review,
+}: {
+  pulse: LivePulse;
+  health?: ListenerHealthView | null;
+  coverage?: CoverageStatus | null;
+  review?: ReviewBoardState;
+}) {
   const [view, setView] = useState<"top" | "latest">("top");
   const [shown, setShown] = useState(PAGE_SIZE);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -160,8 +239,11 @@ export function LivePulsePanel({ pulse, health }: { pulse: LivePulse; health?: L
     return new Set(pulse.latest.concat(pulse.topNow).filter((c) => c.firstSeenAt > lastVisit).map((c) => c.id));
   }, [lastVisit, pulse]);
 
-  const stale = Boolean(health?.stale) || pulse.stale;
-  const updatedAt = health?.lastSuccessAt ?? pulse.lastHarvestAt;
+  // Run health decides staleness when present: a quiet day with no new comments is not a stalled listener.
+  const stale = health ? Boolean(health.stale) : pulse.stale;
+  const updatedAt = health ? health.lastSuccessAt : pulse.lastHarvestAt;
+  const provisional = Boolean(coverage?.provisional);
+  const backlog = coverage ? backlogLabel(coverage) : null;
 
   return (
     <section className="space-y-5 p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-[#20d0c3]/[0.06] to-transparent border border-[#20d0c3]/20">
@@ -176,16 +258,29 @@ export function LivePulsePanel({ pulse, health }: { pulse: LivePulse; health?: L
           </h2>
           <p className="text-sm text-slate-300 max-w-3xl leading-relaxed">{pulse.brief}</p>
         </div>
-        <div className="text-[11px] text-slate-400 sm:text-right shrink-0">
-          <div>
-            Listener {stale ? "last listened" : "updated"}{" "}
-            <span className="text-slate-200 font-semibold">{timeAgo(updatedAt, nowMs)}</span>
-          </div>
-          <div>
-            Latest public comment <span className="text-slate-200 font-semibold">{timeAgo(pulse.lastCommentAt, nowMs)}</span>
-          </div>
-        </div>
       </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-xl bg-black/20 border border-white/5">
+        <Fact
+          label="Last successful check"
+          value={timeAgo(updatedAt, nowMs)}
+          detail={`${dateTimeLabel(updatedAt)}${health && !stale ? " · a check that finds nothing new still counts" : ""}`}
+        />
+        <Fact
+          label="Newest comment posted"
+          value={dateLabel(coverage?.newestCommentPostedAt ?? pulse.lastCommentAt)}
+          detail="Original posting date, not when it was collected"
+        />
+        {backlog && <Fact label="Backlog" value={backlog.value} detail={backlog.detail} />}
+      </div>
+
+      {provisional && coverage?.gap && (
+        <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/25 text-sky-200 text-xs">
+          <span className="font-semibold">Counts are provisional.</span> The listener could not check posts from{" "}
+          {dateLabel(coverage.gap.from)} to {dateLabel(coverage.gap.to)}. Comments posted then are added to the week they were posted as
+          the catch-up re-checks posts ({coverage.backlog.gapRechecks + coverage.backlog.unreadNew} left), so these weeks can still rise.
+        </div>
+      )}
 
       {stale && (
         <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 text-xs flex gap-2.5">
@@ -202,14 +297,24 @@ export function LivePulsePanel({ pulse, health }: { pulse: LivePulse; health?: L
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Tile label="Last 24 hours" value={pulse.last24h.total.toLocaleString()}>
+        <Tile label={`Last 24 hours${provisional ? " · provisional" : ""}`} value={pulse.last24h.total.toLocaleString()}>
           <span className="text-[11px] text-slate-500">public comments posted</span>
         </Tile>
-        <Tile label="Last 7 days" value={pulse.last7d.total.toLocaleString()}>
-          <Change value={pulse.volumeChange == null ? null : pulse.volumeChange * 100} suffix="%" />
+        <Tile label={`Last 7 days${provisional ? " · provisional" : ""}`} value={pulse.last7d.total.toLocaleString()}>
+          {pulse.lowVolume ? (
+            <span className="text-[11px] text-slate-400" data-testid="weekly-counts">
+              {pulse.last7d.total} comment{pulse.last7d.total === 1 ? "" : "s"} this week · {pulse.prior7d.total} last week
+            </span>
+          ) : (
+            <Change value={pulse.volumeChange == null ? null : pulse.volumeChange * 100} suffix="%" />
+          )}
         </Tile>
-        <Tile label="Net sentiment · 7d" value={netLabel(pulse.last7d.net)}>
-          <Change value={pulse.netChange} suffix=" pts" />
+        <Tile label={`Net sentiment · 7d${provisional ? " · provisional" : ""}`} value={netLabel(pulse.last7d.net)}>
+          {pulse.lowVolume ? (
+            <span className="text-[11px] text-slate-500">too few comments to compare</span>
+          ) : (
+            <Change value={pulse.netChange} suffix=" pts" />
+          )}
           <SentimentBar window={pulse.last7d} />
         </Tile>
         <Tile label="New since your last visit" value={lastVisit ? unseenIds.size.toLocaleString() : "—"}>
@@ -261,7 +366,7 @@ export function LivePulsePanel({ pulse, health }: { pulse: LivePulse; health?: L
                   view === key ? "bg-[#20d0c3]/20 text-[#20d0c3]" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                {key === "top" ? "Top now" : "Latest"}
+                {key === "top" ? "Top now" : "Latest comments"}
               </button>
             ))}
           </div>
@@ -269,14 +374,16 @@ export function LivePulsePanel({ pulse, health }: { pulse: LivePulse; health?: L
         <p className="px-4 pt-2 text-[11px] text-slate-500">
           {view === "top"
             ? "Ranked by importance, weighted toward recent comments (weight halves every 3 days)."
-            : "Newest public comments first. Generic reactions are left out."}
+            : "Every collected comment, newest posting date first. Reactions and official replies are included and labeled."}
         </p>
         {rows.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-400">No substantive public comments in the last 30 days.</p>
+          <p className="px-4 py-8 text-center text-sm text-slate-400">
+            {view === "top" ? "No substantive public comments in the last 30 days." : "No comments collected in the last 30 days."}
+          </p>
         ) : (
           <ul className="px-4 divide-y divide-white/5">
             {rows.slice(0, shown).map((c) => (
-              <StreamRow key={c.id} c={c} nowMs={nowMs} unseen={unseenIds.has(c.id)} />
+              <StreamRow key={c.id} c={c} nowMs={nowMs} unseen={unseenIds.has(c.id)} review={view === "latest" ? review : undefined} />
             ))}
           </ul>
         )}

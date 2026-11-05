@@ -14,11 +14,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HALF_LIFE_DAYS = 3;
 /** Comments older than this never enter the stream. */
 const STREAM_WINDOW_DAYS = 30;
-/** No harvested comment in this long means the listener has stalled. */
+/** No harvested comment in this long means the listener has stalled (only used without run health). */
 export const STALE_AFTER_HOURS = 48;
+/** No successful check in this long means the listener has stalled. Matches LISTENER_STALE_HOURS. */
+export const CHECK_STALE_AFTER_HOURS = 36;
+/** Below this many comments in either week, a week-over-week change is noise and is not shown. */
+export const LOW_VOLUME_THRESHOLD = 5;
 
 export interface LivePulseComment {
   id: string;
+  /** Stable id across re-collection; reviewer actions use it. */
+  canonicalId: string;
   text: string;
   authorUsername: string;
   platform: string;
@@ -36,6 +42,8 @@ export interface LivePulseComment {
   isNew: boolean;
   postUrl: string;
   postTitle: string;
+  /** Latest view only. reaction: a filtered low-signal reply ("love it", emoji, tags); official: Utah City or a partner. */
+  kind?: "public" | "reaction" | "official";
 }
 
 export interface PulseWindow {
@@ -65,16 +73,20 @@ export interface LivePulse {
   last24h: PulseWindow;
   last7d: PulseWindow;
   prior7d: PulseWindow;
-  /** Change in weekly volume, as a share of the prior week. Null when the prior week was empty. */
+  /** Change in weekly volume, as a share of the prior week. Null when either week has under LOW_VOLUME_THRESHOLD comments. */
   volumeChange: number | null;
-  /** Change in net sentiment, in points (-100..100). */
+  /** Change in net sentiment, in points (-100..100). Null at low volume, like volumeChange. */
   netChange: number | null;
+  /** Either week has under LOW_VOLUME_THRESHOLD comments, so changes are left out. */
+  lowVolume: boolean;
+  /** Comments collected in the last 24 hours that were posted earlier than that. */
+  collectedLate24h: number;
   risingTopics: TopicMover[];
   /** One deterministic sentence on what changed this week. */
   brief: string;
   /** Highest live score first. */
   topNow: LivePulseComment[];
-  /** Newest first. */
+  /** Every collected comment on tracked posts, newest posting time first, reactions included. */
   latest: LivePulseComment[];
 }
 
@@ -130,14 +142,19 @@ function topicLabel(topic: string): string {
   return topic.replace(/_/g, " ");
 }
 
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
 function buildBrief(pulse: Omit<LivePulse, "brief" | "topNow" | "latest">): string {
   if (pulse.stale) {
-    return "No new public comments have been harvested recently, so this view is not current. The listener needs attention.";
+    return "The listener has not completed a successful check recently, so this view is not current. The listener needs attention.";
   }
   const parts: string[] = [];
   const week = pulse.last7d.total;
-  if (week === 0) {
-    parts.push("No public comments about Utah City were posted in the last 7 days.");
+  if (pulse.lowVolume) {
+    // Small counts read plainly; a percentage change on 0 vs 1 says nothing.
+    parts.push(`${plural(week, "comment")} this week · ${pulse.prior7d.total} last week.`);
   } else {
     const change =
       pulse.volumeChange == null
@@ -155,9 +172,18 @@ function buildBrief(pulse: Omit<LivePulse, "brief" | "topNow" | "latest">): stri
     parts.push(`Rising: ${rising.map((t) => `${topicLabel(t.topic)} (+${t.delta})`).join(", ")}.`);
   }
   if (pulse.newLast24h > 0) {
-    parts.push(`${pulse.newLast24h} new in the last 24 hours.`);
+    const late = pulse.collectedLate24h;
+    parts.push(
+      late === pulse.newLast24h
+        ? `${plural(late, "older comment")} collected in the last 24 hours, counted in the week ${late === 1 ? "it was" : "they were"} posted.`
+        : `${pulse.newLast24h} collected in the last 24 hours.`
+    );
   }
   return parts.join(" ");
+}
+
+function postTitleOf(post: Post | undefined): string {
+  return post?.title || post?.caption?.slice(0, 80) || "Social post";
 }
 
 /**
@@ -168,6 +194,15 @@ export function buildLivePulse(input: {
   comments: Comment[];
   now?: Date;
   limit?: number;
+  /**
+   * Last successful listener check. When given, staleness follows the checks, so a quiet stretch
+   * with no new comments is not mistaken for a stalled listener.
+   */
+  lastSuccessfulCheckAt?: string | null;
+  /** Every collected comment on tracked posts (reactions and official replies included) for the Latest view. */
+  collected?: Array<{ comment: Comment; kind: "public" | "reaction" | "official" }>;
+  /** Rows in the Latest view. */
+  latestLimit?: number;
 }): LivePulse {
   const now = input.now || new Date();
   const nowMs = now.getTime();
@@ -213,51 +248,81 @@ export function buildLivePulse(input: {
     .sort((a, b) => b.delta - a.delta || b.thisWeek - a.thisWeek)
     .slice(0, 5);
 
-  const scored: LivePulseComment[] = rows.map(({ comment, post, createdMs, seenMs }) => {
-    const evaluated =
-      comment.importanceScore != null && comment.importanceBand
-        ? { importanceScore: comment.importanceScore, importanceBand: comment.importanceBand }
-        : evaluateCommentImportance(comment, post ?? null, 1);
-    return {
-      id: comment.id,
-      text: comment.text,
-      authorUsername: comment.authorUsername,
-      platform: comment.platform,
-      createdAt: new Date(createdMs).toISOString(),
-      firstSeenAt: new Date(seenMs).toISOString(),
-      likeCount: comment.likeCount || 0,
-      replyCount: comment.replyCount || 0,
-      sentiment: comment.sentiment,
-      topic: comment.topic,
-      importanceScore: evaluated.importanceScore,
-      importanceBand: evaluated.importanceBand,
-      liveScore: Number(
-        liveScoreOf(evaluated.importanceScore, nowMs - createdMs, comment.likeCount || 0, comment.replyCount || 0).toFixed(2)
-      ),
-      isNew: nowMs - seenMs <= DAY_MS,
-      postUrl: post?.url || "",
-      postTitle: post?.title || post?.caption?.slice(0, 80) || "Social post",
-    };
-  });
+  const scored: LivePulseComment[] = rows.map(({ comment, post, createdMs, seenMs }) =>
+    toPulseComment(comment, post, createdMs, seenMs, nowMs)
+  );
 
   // Low-substance reactions ("love it", emoji) never lead the stream.
   const substantive = scored.filter((c) => c.importanceBand !== "LOW");
   const topNow = [...substantive].sort((a, b) => b.liveScore - a.liveScore).slice(0, limit);
-  const latest = [...substantive].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  const latestLimit = input.latestLimit ?? 200;
+  const latest = input.collected
+    ? input.collected
+        .flatMap(({ comment, kind }) => {
+          const createdMs = ms(comment.createdAt) ?? ms(comment.firstSeenAt);
+          if (createdMs == null || createdMs > nowMs + 60_000 || nowMs - createdMs > STREAM_WINDOW_DAYS * DAY_MS) return [];
+          const seenMs = ms(comment.firstSeenAt) ?? createdMs;
+          return [{ ...toPulseComment(comment, postById.get(comment.postId), createdMs, seenMs, nowMs), kind }];
+        })
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, latestLimit)
+    : [...substantive].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
 
-  const stale = lastHarvestMs == null || nowMs - lastHarvestMs > STALE_AFTER_HOURS * 60 * 60 * 1000;
+  const checkMs = input.lastSuccessfulCheckAt ? ms(input.lastSuccessfulCheckAt) : null;
+  const stale =
+    input.lastSuccessfulCheckAt !== undefined
+      ? checkMs == null || nowMs - checkMs > CHECK_STALE_AFTER_HOURS * 60 * 60 * 1000
+      : lastHarvestMs == null || nowMs - lastHarvestMs > STALE_AFTER_HOURS * 60 * 60 * 1000;
+  const lowVolume = last7d.total < LOW_VOLUME_THRESHOLD || prior7d.total < LOW_VOLUME_THRESHOLD;
+  const collected24h = rows.filter((r) => nowMs - r.seenMs <= DAY_MS);
   const base = {
     generatedAt: now.toISOString(),
     lastHarvestAt: lastHarvestMs == null ? null : new Date(lastHarvestMs).toISOString(),
     lastCommentAt: lastCommentMs == null ? null : new Date(lastCommentMs).toISOString(),
     stale,
-    newLast24h: rows.filter((r) => nowMs - r.seenMs <= DAY_MS).length,
+    newLast24h: collected24h.length,
+    collectedLate24h: collected24h.filter((r) => nowMs - r.createdMs > DAY_MS).length,
     last24h,
     last7d,
     prior7d,
-    volumeChange: prior7d.total ? (last7d.total - prior7d.total) / prior7d.total : null,
-    netChange: last7d.net != null && prior7d.net != null ? (last7d.net - prior7d.net) * 100 : null,
+    volumeChange: lowVolume || !prior7d.total ? null : (last7d.total - prior7d.total) / prior7d.total,
+    netChange: lowVolume || last7d.net == null || prior7d.net == null ? null : (last7d.net - prior7d.net) * 100,
+    lowVolume,
     risingTopics,
   };
   return { ...base, brief: buildBrief(base), topNow, latest };
+}
+
+function toPulseComment(
+  comment: Comment,
+  post: Post | undefined,
+  createdMs: number,
+  seenMs: number,
+  nowMs: number
+): LivePulseComment {
+  const evaluated =
+    comment.importanceScore != null && comment.importanceBand
+      ? { importanceScore: comment.importanceScore, importanceBand: comment.importanceBand }
+      : evaluateCommentImportance(comment, post ?? null, 1);
+  return {
+    id: comment.id,
+    canonicalId: comment.canonicalId,
+    text: comment.text,
+    authorUsername: comment.authorUsername,
+    platform: comment.platform,
+    createdAt: new Date(createdMs).toISOString(),
+    firstSeenAt: new Date(seenMs).toISOString(),
+    likeCount: comment.likeCount || 0,
+    replyCount: comment.replyCount || 0,
+    sentiment: comment.sentiment,
+    topic: comment.topic,
+    importanceScore: evaluated.importanceScore,
+    importanceBand: evaluated.importanceBand,
+    liveScore: Number(
+      liveScoreOf(evaluated.importanceScore, nowMs - createdMs, comment.likeCount || 0, comment.replyCount || 0).toFixed(2)
+    ),
+    isNew: nowMs - seenMs <= DAY_MS,
+    postUrl: post?.url || "",
+    postTitle: postTitleOf(post),
+  };
 }

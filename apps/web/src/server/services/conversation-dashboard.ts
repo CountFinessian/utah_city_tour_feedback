@@ -12,6 +12,8 @@ import { getSocialRepository } from "@/server/repositories/postgres-social-repos
 import { narrativeCacheStore } from "@/server/services/dashboard-narrative-cache";
 import { calculateDeterministicSocialMetrics } from "@/server/analytics/social-metrics";
 import { isListenerStale, readListenerHealth, type ListenerHealth } from "@/server/services/listener-health";
+import { buildCoverageStatus, type CoverageStatus } from "@/domain/social-listening/coverage";
+import { isAffiliatedComment } from "@/domain/social-listening/affiliation";
 
 // Generous ceilings. Current volume is about 455 posts and 5400 comments.
 const POST_LIMIT = 2000;
@@ -23,34 +25,65 @@ export interface ConversationDashboardResponse extends ConversationDashboard {
   creatorStats?: ReturnType<typeof import("@/server/services/creator-backfill").getLastCreatorBackfillResult>;
   livePulse?: LivePulse;
   listenerHealth?: (ListenerHealth & { stale: boolean }) | null;
+  /** Last check, newest comment's posting date and remaining backlog, as separate facts. */
+  coverage?: CoverageStatus;
+}
+
+const LATEST_WINDOW_DAYS = 30;
+const LATEST_COMMENT_LIMIT = 3000;
+
+/** Latest view labels: a filtered low-signal reply is a reaction; Utah City and partners are official. */
+export function latestKindOf(comment: Comment, post: Post | undefined): "public" | "reaction" | "official" {
+  if (isAffiliatedComment(comment, post)) return "official";
+  if (comment.dropped || comment.importanceBand === "LOW") return "reaction";
+  return "public";
+}
+
+interface Corpus {
+  posts: Post[];
+  comments: Comment[];
+  trackedPostCount?: number;
+  /** Every post the collector harvests, with its schedule. Coverage and the Latest view use it. */
+  harvestPosts?: Post[];
+  /** Every comment collected on those posts in the Latest window, reactions and official replies included. */
+  collected?: Comment[];
 }
 
 async function loadCorpus(overrides?: {
   listPosts?: () => Promise<Post[]>;
   listComments?: () => Promise<Comment[]>;
+  listHarvestPosts?: () => Promise<Post[]>;
+  listCollected?: () => Promise<Comment[]>;
   skipCache?: boolean;
-}): Promise<{ posts: Post[]; comments: Comment[]; trackedPostCount?: number }> {
+}): Promise<Corpus> {
   if (overrides?.listPosts && overrides.listComments) {
-    const [posts, comments] = await Promise.all([overrides.listPosts(), overrides.listComments()]);
-    return { posts, comments };
+    const [posts, comments, harvestPosts, collected] = await Promise.all([
+      overrides.listPosts(),
+      overrides.listComments(),
+      overrides.listHarvestPosts?.(),
+      overrides.listCollected?.(),
+    ]);
+    return { posts, comments, harvestPosts, collected };
   }
   // Drill-down filters each re-read the whole corpus; share one read per instance for the cache TTL.
   if (!overrides?.skipCache && corpusCache && corpusCache.expiresAt > Date.now()) return corpusCache.data;
   const repo = getSocialRepository();
-  const [posts, comments, trackedPostCount] = await Promise.all([
+  const latestSince = new Date(Date.now() - LATEST_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const [posts, comments, trackedPostCount, harvestPosts, collected] = await Promise.all([
     repo.listPosts({ dashboardImportant: true, limit: POST_LIMIT }),
     repo.listComments({ dashboardOnly: true, limit: COMMENT_LIMIT }),
     // Leadership sees independent coverage only; Utah City's own posts are not counted.
     repo.countPosts({ contentOnly: true }),
+    repo.listPosts({ commentHarvest: true, limit: 5000 }),
+    repo.listComments({ onDashboardPosts: true, activeSince: latestSince, limit: LATEST_COMMENT_LIMIT }),
   ]);
-  const data = { posts, comments, trackedPostCount };
+  const data = { posts, comments, trackedPostCount, harvestPosts, collected };
   corpusCache = { data, expiresAt: Date.now() + CORPUS_TTL_MS };
   return data;
 }
 
 const CORPUS_TTL_MS = 300 * 1000;
-let corpusCache: { data: { posts: Post[]; comments: Comment[]; trackedPostCount?: number }; expiresAt: number } | null =
-  null;
+let corpusCache: { data: Corpus; expiresAt: number } | null = null;
 
 interface CachedDashboard {
   data: ConversationDashboardResponse;
@@ -64,6 +97,9 @@ export async function loadConversationDashboard(options?: {
   now?: Date;
   listPosts?: () => Promise<Post[]>;
   listComments?: () => Promise<Comment[]>;
+  listHarvestPosts?: () => Promise<Post[]>;
+  listCollected?: () => Promise<Comment[]>;
+  readHealth?: () => Promise<ListenerHealth | null>;
   cache?: NarrativeCacheStore;
   generate?: NarrativeWriter | null;
   periodDays?: number;
@@ -71,6 +107,7 @@ export async function loadConversationDashboard(options?: {
 }): Promise<ConversationDashboardResponse> {
   // If standard options and cache is valid, return cached dashboard immediately (<1ms)
   const isStandardCall =
+    !options?.readHealth &&
     !options?.listPosts &&
     !options?.listComments &&
     !options?.generate &&
@@ -83,12 +120,28 @@ export async function loadConversationDashboard(options?: {
   }
 
   const now = options?.now || new Date();
-  const { posts, comments, trackedPostCount } = await loadCorpus(options);
+  const { posts, comments, trackedPostCount, harvestPosts, collected } = await loadCorpus(options);
   const dashboard = buildConversationDashboard({ posts, comments, now, trackedPostCount });
   const postById = new Map(posts.map((post) => [post.id, post]));
+  const health = options?.readHealth
+    ? await options.readHealth()
+    : options?.listPosts
+      ? null
+      : await readListenerHealth();
+  const harvestById = new Map((harvestPosts || posts).map((post) => [post.id, post]));
+  for (const post of posts) if (!harvestById.has(post.id)) harvestById.set(post.id, post);
   const livePulse = buildLivePulse({
-    posts,
+    posts: [...harvestById.values()],
     comments: comments.filter((comment) => isDashboardComment(comment, postById.get(comment.postId))),
+    now,
+    lastSuccessfulCheckAt: health ? health.lastSuccessAt : undefined,
+    collected: collected?.map((comment) => ({ comment, kind: latestKindOf(comment, harvestById.get(comment.postId)) })),
+  });
+  const coverage = buildCoverageStatus({
+    posts: harvestPosts || posts,
+    lastSuccessfulCheckAt: health?.lastSuccessAt ?? null,
+    newestCommentPostedAt: livePulse.lastCommentAt,
+    gap: health?.coverageGap ?? null,
     now,
   });
   const narrative = await resolveConversationNarrative(dashboard, {
@@ -108,7 +161,6 @@ export async function loadConversationDashboard(options?: {
   }
   const backfillStats = (await import("@/server/services/comment-backfill")).getLastBackfillStats();
   const creatorStats = (await import("@/server/services/creator-backfill")).getLastCreatorBackfillResult();
-  const health = options?.listPosts ? null : await readListenerHealth();
   const listenerHealth = health ? { ...health, stale: isListenerStale(health, now) } : null;
   const result: ConversationDashboardResponse = {
     ...dashboard,
@@ -119,6 +171,7 @@ export async function loadConversationDashboard(options?: {
     creatorStats,
     livePulse,
     listenerHealth,
+    coverage,
   };
 
   if (isStandardCall) {

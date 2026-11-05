@@ -133,6 +133,10 @@ interface CrawlOptions {
   claimOwner?: string;
   claimHarvest?: (postId: string, owner: string, now: number, leaseMs: number) => Promise<boolean>;
   releaseHarvest?: (postId: string, owner: string) => Promise<void>;
+  /** Only crawl posts this accepts. Catch-up uses it to read posts found since an outage first. */
+  include?: (post: Post) => boolean;
+  /** Ordering after resumable crawls. Defaults to most listed comments first. */
+  compare?: (a: Post, b: Post) => number;
 }
 
 function limitsOf(options: CrawlOptions) {
@@ -655,8 +659,9 @@ export async function runHarvestFirstCrawl(options: CrawlOptions = {}): Promise<
   if (!options.tregSpentUsd) tregClient.resetCycleCost();
   const gemini = { spent: 0 };
 
+  const include = options.include ?? (() => true);
   const queue = (await listPosts({ needsFirstCrawl: true, limit: 5000 }))
-    .filter((post) => postNeedsFirstCrawl(post))
+    .filter((post) => postNeedsFirstCrawl(post) && include(post))
     .sort((a, b) => {
       const pending = (post: Post) => {
         const sync = readCommentSync(post);
@@ -666,6 +671,7 @@ export async function runHarvestFirstCrawl(options: CrawlOptions = {}): Promise<
       };
       const byPending = pending(a) - pending(b);
       if (byPending !== 0) return byPending;
+      if (options.compare) return options.compare(a, b);
       return (b.commentCount || 0) - (a.commentCount || 0);
     });
 
