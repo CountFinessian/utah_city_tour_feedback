@@ -140,3 +140,4 @@ See `docs/MCP.md`.
 | `MCP_REVOKED_TOKEN_IDS` | No | — | Comma-separated token ids to revoke. |
 | `MCP_DATABASE_URL` | No | `DATABASE_URL` | Read-only Postgres role for MCP reads. |
 | `MCP_APP_URL` | No | `NEXT_PUBLIC_APP_URL`, then `https://www.utahcity.app` | Base URL for links in MCP results. |
+| `MCP_OAUTH_CLIENTS` | No | none (`utah-city-grok` is built in) | Extra OAuth clients or redirect URIs for MCP sign-in: `client-id=https://a/cb\|https://b/cb,other=https://c/cb`. See `MCP.md`. |
