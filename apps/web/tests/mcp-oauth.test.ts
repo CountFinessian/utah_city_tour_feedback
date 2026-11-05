@@ -238,6 +238,32 @@ describe("authorize", () => {
     expect((await handleAuthorize(post(fields, "allow"), deps({ session: null }))).status).toBe(401);
   });
 
+  it("accepts the Allow click as real browsers send it", async () => {
+    const fields = await consentFields();
+    const browserPost = (headers: Record<string, string>) => {
+      const body = new URLSearchParams(fields);
+      body.set("decision", "allow");
+      return new Request(`${APP}/api/mcp/oauth/authorize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers },
+        body: body.toString(),
+      });
+    };
+    // Origin: null happens under a no-referrer policy; Sec-Fetch-Site still says same-origin.
+    expect((await handleAuthorize(browserPost({ Origin: "null", "Sec-Fetch-Site": "same-origin" }), deps())).status).toBe(303);
+    expect((await handleAuthorize(browserPost({ Origin: APP, "Sec-Fetch-Site": "same-origin" }), deps())).status).toBe(303);
+    // Cross-site browsers are refused whichever header gives them away.
+    expect((await handleAuthorize(browserPost({ Origin: "null", "Sec-Fetch-Site": "cross-site" }), deps())).status).toBe(403);
+    expect((await handleAuthorize(browserPost({ Origin: "null" }), deps())).status).toBe(403);
+    expect((await handleAuthorize(browserPost({ "Sec-Fetch-Site": "cross-site" }), deps())).status).toBe(403);
+    expect((await handleAuthorize(browserPost({ Origin: "https://evil.example", "Sec-Fetch-Site": "same-origin" }), deps())).status).toBe(403);
+  });
+
+  it("serves the consent page with a referrer policy that keeps Origin on the form post", async () => {
+    const res = await handleAuthorize(new Request(authorizeUrl()), deps());
+    expect(res.headers.get("referrer-policy")).toBe("same-origin");
+  });
+
   it("re-checks the role when the form is submitted", async () => {
     const fields = await consentFields();
     users["leader@example.com"].role = "host";

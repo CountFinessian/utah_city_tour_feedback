@@ -66,7 +66,8 @@ h1{font-size:22px;margin:0 0 12px}p{color:#b8c4d6;margin:0 0 14px}ul{color:#b8c4
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Frame-Options": "DENY",
-      "Referrer-Policy": "no-referrer",
+      // same-origin (not no-referrer): with no-referrer, browsers send `Origin: null` on the Allow POST.
+      "Referrer-Policy": "same-origin",
       "Content-Security-Policy": `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
     },
   });
@@ -102,6 +103,19 @@ function consentPage(client: OAuthClient, params: AuthorizeParams, name: string,
   );
 }
 
+/**
+ * Defence in depth against cross-site form posts (the consent token is the primary CSRF guard).
+ * Accepts a matching Origin. A missing or "null" Origin is accepted only when the browser marks the
+ * request same-origin via Sec-Fetch-Site, or sends neither header (non-browser clients).
+ */
+function sameSiteSubmission(request: Request, ...allowed: string[]): boolean {
+  const origin = request.headers.get("origin");
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (origin && origin !== "null") return allowed.includes(origin);
+  if (fetchSite) return fetchSite === "same-origin";
+  return origin === null;
+}
+
 /** GET shows the consent page (after login); POST records the decision. */
 export async function handleAuthorize(request: Request, deps: OAuthHttpDeps = {}): Promise<Response> {
   const config = readMcpConfig(deps.env);
@@ -112,8 +126,7 @@ export async function handleAuthorize(request: Request, deps: OAuthHttpDeps = {}
 
   let input: URLSearchParams;
   if (request.method === "POST") {
-    const origin = request.headers.get("origin");
-    if (origin && origin !== url.origin && origin !== new URL(config.appUrl).origin) {
+    if (!sameSiteSubmission(request, url.origin, new URL(config.appUrl).origin)) {
       return page("Request blocked", "<h1>Request blocked.</h1><p>The form was submitted from another site.</p>", 403);
     }
     const text = await request.text();
