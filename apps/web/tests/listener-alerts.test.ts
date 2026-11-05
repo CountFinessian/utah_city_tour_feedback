@@ -57,7 +57,11 @@ describe("listener health and alerts", () => {
   });
 
   it("alerts when a run arrives after a skipped slot, and announces recovery after an alert", () => {
-    const previous = health({ lastRunAt: at(14).toISOString(), lastSuccessAt: at(14).toISOString() });
+    // GitHub usually starts one slot a day, so a 27 hour gap is normal and must not alert.
+    const daily = health({ lastRunAt: at(27).toISOString(), lastSuccessAt: at(27).toISOString() });
+    expect(alertAfterRun({ previous: daily, health: buildListenerHealth(daily, { at: at(0), stopped: "done", listened: true, newComments: 0 }), now: at(0), pulseUrl: url })).toBeNull();
+
+    const previous = health({ lastRunAt: at(31).toISOString(), lastSuccessAt: at(31).toISOString() });
     const now = buildListenerHealth(previous, { at: at(0), stopped: "done", listened: true, newComments: 2 });
     expect(alertAfterRun({ previous, health: now, now: at(0), pulseUrl: url })?.kind).toBe("missed");
 
@@ -69,8 +73,8 @@ describe("listener health and alerts", () => {
 
   it("the daily watchdog catches runs that stopped arriving and days without a success", () => {
     expect(watchdogAlert({ health: health(), now: at(0), pulseUrl: url })).toBeNull();
-    expect(watchdogAlert({ health: health({ lastRunAt: at(13).toISOString(), lastSuccessAt: at(13).toISOString() }), now: at(0), pulseUrl: url })?.kind).toBe("missed");
-    expect(watchdogAlert({ health: health({ lastSuccessAt: at(30).toISOString(), error: "Treg 401" }), now: at(0), pulseUrl: url })?.kind).toBe("stale");
+    expect(watchdogAlert({ health: health({ lastRunAt: at(31).toISOString(), lastSuccessAt: at(31).toISOString() }), now: at(0), pulseUrl: url })?.kind).toBe("missed");
+    expect(watchdogAlert({ health: health({ lastSuccessAt: at(32).toISOString(), error: "Treg 401" }), now: at(0), pulseUrl: url })?.kind).toBe("stale");
     expect(watchdogAlert({ health: null, now: at(0), pulseUrl: url })?.kind).toBe("stale");
   });
 });

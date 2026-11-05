@@ -34,10 +34,13 @@ export type ListenerAlertKind = "failed" | "missed" | "stale" | "recovered";
 const KEY = "social_listener_health";
 /** Two missed daily runs. */
 export const LISTENER_STALE_HOURS = 36;
-/** The schedule runs every 6 hours. No run at all for 12 hours means at least one whole slot was skipped. */
-export const LISTENER_MISSED_RUN_HOURS = 12;
-/** Collection must succeed at least once per calendar day. */
-export const LISTENER_DAILY_SUCCESS_HOURS = 24;
+/**
+ * The cron asks for every 6 hours, but since 2026-10-13 GitHub has started only about one slot a day,
+ * drifting between 09:00 and 15:00 UTC (gaps up to ~27 hours). Collection must still happen at least
+ * daily, so alert only when a day plus that drift has passed without a run or a success.
+ */
+export const LISTENER_MISSED_RUN_HOURS = 30;
+export const LISTENER_DAILY_SUCCESS_HOURS = 30;
 const ALERT_REPEAT_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -132,7 +135,7 @@ export function alertAllowed(health: ListenerHealth | null, kind: ListenerAlertK
 /**
  * What to tell the owner after a scheduled monitor run, if anything.
  * - failed: the run could not reach Treg (expired key, empty balance) or threw.
- * - missed: the run before this one was more than LISTENER_MISSED_RUN_HOURS earlier, so GitHub skipped a slot.
+ * - missed: the run before this one was more than LISTENER_MISSED_RUN_HOURS earlier, so a whole day passed without a run.
  * - recovered: a success after an alert, so the owner knows it is fixed.
  */
 export function alertAfterRun(input: {
@@ -211,7 +214,7 @@ export function watchdogAlert(input: { health: ListenerHealth | null; now: Date;
       : "Utah City Social Pulse: no successful listener check in the last day",
     body: [
       noRuns
-        ? `The last scheduled listener run was ${runAge} hours ago (${health.lastRunAt}); runs are due every 6 hours.`
+        ? `The last scheduled listener run was ${runAge} hours ago (${health.lastRunAt}); runs must arrive at least daily.`
         : `Runs are arriving but none has succeeded in ${successAge ?? "all recorded"} hours.`,
       `Last successful check: ${health.lastSuccessAt || "never"}.`,
       health.error ? `Latest error: ${health.error}` : "",
