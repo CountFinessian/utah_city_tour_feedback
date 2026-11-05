@@ -245,7 +245,24 @@ describe("social listening", () => {
     const cmp = res.comparison!;
     expect(cmp.comments).toEqual({ current: 4, previous: 1, delta: 3, pct_change: 300 });
     expect(res.most_discussed_posts[0]).toMatchObject({ post_id: "post-p1", comments_in_range: 3 });
-    expect(res.coverage.listener_freshness).toMatch(/^fresh/);
+    expect(res.coverage.listener_freshness).toMatch(/^current/);
+  });
+
+  it("dates listener freshness from the last successful check, not from failed search runs", () => {
+    // Production 2026-11-05: topic refreshes kept writing search runs while every monitor run was blocked
+    // at the Treg balance check, so the last real check was two weeks old.
+    const frozen = {
+      ...corpus,
+      freshness: {
+        ...corpus.freshness,
+        listenerLastSearchRunAt: new Date(NOW.getTime() - 2 * 3_600_000).toISOString(),
+        listenerLastMonitorAt: new Date(NOW.getTime() - 14 * 24 * 3_600_000).toISOString(),
+      },
+    };
+    const cov = summarizeSocialListening(frozen, { days: 30 }, NOW).coverage;
+    expect(cov.hours_since_last_successful_check).toBe(336);
+    expect(cov.listener_last_successful_check_at).toBe(frozen.freshness.listenerLastMonitorAt);
+    expect(cov.listener_freshness).toMatch(/^stale: last successful listener check was 336 hours ago/);
   });
 
   it("separates an empty dataset from no matches", () => {
