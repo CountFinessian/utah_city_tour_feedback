@@ -88,19 +88,20 @@ ${input.facts}
 CLAIMS (keep every id, you may rephrase the text, do not add ids):
 ${JSON.stringify(input.claims)}
 
-Write a 2 or 3 sentence summary of what changed between about two years ago and now. Then return the claims with the same ids.
+Write a 2 or 3 sentence summary of what changed between about two years ago and now. If THIS WEEK facts are present, end with one sentence on what the public is saying this week. Then return the claims with the same ids.
 Do not mention views, likes, followers, shares, or creator rankings. Do not invent counts, months, or issues.`,
   });
   return { summary: result.object.summary.trim(), claims: result.object.claims, model };
 }
 
-function factsFor(dashboard: ConversationDashboard): string {
+function factsFor(dashboard: ConversationDashboard, recentFacts?: string): string {
   const months = dashboard.months
     .filter((month) => month.total > 0)
     .map((month) => `${month.month} net=${netPoints(month.net)} comments=${month.total}`)
     .join("; ");
   const issues = dashboard.claims.map((claim) => `${claim.id}: ${claim.text}`).join("\n");
-  return `Range: ${dashboard.rangeLabel}\nMonths: ${months || "none"}\n${issues}`;
+  const recent = recentFacts ? `\nTHIS WEEK: ${recentFacts}` : "";
+  return `Range: ${dashboard.rangeLabel}\nMonths: ${months || "none"}\n${issues}${recent}`;
 }
 
 /**
@@ -113,6 +114,8 @@ export async function resolveConversationNarrative(
     now?: Date;
     cache: NarrativeCacheStore;
     generate?: NarrativeWriter | null;
+    /** Deterministic last-7-days facts (Live Pulse), so the daily brief reflects this week. */
+    recentFacts?: string;
   }
 ): Promise<ConversationNarrative> {
   const now = options.now || new Date();
@@ -128,7 +131,7 @@ export async function resolveConversationNarrative(
     };
   }
 
-  const facts = factsFor(dashboard);
+  const facts = factsFor(dashboard, options.recentFacts);
   const seed = dashboard.claims.map((claim) => ({ id: claim.id, text: claim.text }));
   const writer = options.generate === undefined && hasRelevanceModel() ? writeNarrativeWithModel : options.generate;
   if (writer) {

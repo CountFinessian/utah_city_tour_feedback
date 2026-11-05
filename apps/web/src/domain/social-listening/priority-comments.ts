@@ -1,6 +1,11 @@
 import { Comment, Post } from "./types";
 import { evaluateCommentImportance, ScoreCalculationResult } from "./importance-scoring";
 import { isAffiliatedComment } from "./affiliation";
+import { recencyWeight } from "./live-pulse";
+
+/** A comment keeps 55% of its rank forever; the other 45% halves every three weeks. */
+const PRIORITY_RECENCY_FLOOR = 0.55;
+const PRIORITY_HALF_LIFE_DAYS = 21;
 
 export interface PriorityCommentItem {
   id: string;
@@ -32,8 +37,10 @@ export function selectPriorityComments(
     maxTotal?: number;
     maxPerPost?: number;
     minScore?: number;
+    now?: Date;
   }
 ): PriorityCommentItem[] {
+  const nowMs = (options?.now ?? new Date()).getTime();
   const maxTotal = options?.maxTotal ?? 30;
   const maxPerPost = options?.maxPerPost ?? 5; // Enforce source diversity constraint
   const minScore = options?.minScore ?? 45;
@@ -45,7 +52,7 @@ export function selectPriorityComments(
   const eligible = comments.filter((c) => !c.dropped && !isAffiliatedComment(c, postMap.get(c.postId)));
 
   // Score any that don't have stored scores
-  const evaluated: Array<{ comment: Comment; score: number; evalResult: ScoreCalculationResult; post: Post }> = [];
+  const evaluated: Array<{ comment: Comment; score: number; rank: number; evalResult: ScoreCalculationResult; post: Post }> = [];
 
   for (const c of eligible) {
     const post = postMap.get(c.postId) || {
@@ -87,18 +94,24 @@ export function selectPriorityComments(
     }
 
     if (evalResult.importanceScore >= minScore) {
+      const created = new Date(c.createdAt || c.firstSeenAt).getTime();
+      const age = Number.isNaN(created) ? Infinity : nowMs - created;
+      const freshness = Number.isFinite(age) ? recencyWeight(age, PRIORITY_HALF_LIFE_DAYS) : 0;
       evaluated.push({
         comment: c,
         score: evalResult.importanceScore,
+        // Importance still leads, but a fresh comment outranks an equally important old one,
+        // so the list moves as new conversation arrives.
+        rank: evalResult.importanceScore * (PRIORITY_RECENCY_FLOOR + (1 - PRIORITY_RECENCY_FLOOR) * freshness),
         evalResult,
         post,
       });
     }
   }
 
-  // Sort descending by score, tie-break by likeCount and recency
+  // Sort by recency-weighted rank, tie-break by likeCount and recency
   evaluated.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
+    if (b.rank !== a.rank) return b.rank - a.rank;
     if (b.comment.likeCount !== a.comment.likeCount) return b.comment.likeCount - a.comment.likeCount;
     return b.comment.createdAt.localeCompare(a.comment.createdAt);
   });

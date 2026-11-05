@@ -526,7 +526,7 @@ export function buildConversationDashboard(input: {
       comments: input.comments,
       now,
     }),
-    priorityComments: selectPriorityComments(input.comments, input.posts),
+    priorityComments: selectPriorityComments(input.comments, input.posts, { now }),
     creatorContent: extractIndependentCreatorContent(input.posts, input.comments),
     emergingIssues: detectEmergingIssues(input.comments, input.posts),
   };

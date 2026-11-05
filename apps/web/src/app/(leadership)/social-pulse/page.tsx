@@ -24,6 +24,8 @@ import type {
 import type { PriorityCommentItem } from "@/domain/social-listening/priority-comments";
 import type { CreatorContentItem } from "@/domain/social-listening/creator-content";
 import type { EmergingIssue } from "@/domain/social-listening/emerging-issues";
+import type { LivePulse } from "@/domain/social-listening/live-pulse";
+import { LivePulsePanel, type ListenerHealthView } from "@/components/social/LivePulsePanel";
 
 export interface DashboardCommentItem {
   id: string;
@@ -54,7 +56,12 @@ export interface DashboardData {
   emergingIssues?: EmergingIssue[];
   intelligenceNarrative?: IntelligenceNarrativeData;
   backfillStats?: any;
+  livePulse?: LivePulse;
+  listenerHealth?: ListenerHealthView | null;
 }
+
+/** The dashboard is cached for 5 minutes server-side; poll at the same pace so an open tab stays current. */
+const REFRESH_MS = 5 * 60 * 1000;
 
 const TopicIntelligencePanel = dynamic(
   () => import("@/components/social/TopicIntelligencePanel").then((m) => m.TopicIntelligencePanel),
@@ -81,9 +88,9 @@ export default function SocialPulsePage() {
 
   useEffect(() => {
     let isMounted = true;
-    async function loadData() {
+    async function loadData(background = false) {
       try {
-        setLoading(true);
+        if (!background) setLoading(true);
         setError(null);
         // Required exact literal string for security/auth and dashboard tests
         const res = await fetch("/api/social-pulse/dashboard");
@@ -92,14 +99,19 @@ export default function SocialPulsePage() {
         if (!isMounted) return;
         setData(json);
       } catch (err: any) {
-        if (isMounted) setError(err.message || "Failed to load dashboard");
+        // A failed background refresh keeps the data already on screen.
+        if (isMounted && !background) setError(err.message || "Failed to load dashboard");
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted && !background) setLoading(false);
       }
     }
     loadData();
+    const refresh = setInterval(() => {
+      if (document.visibilityState === "visible") loadData(true);
+    }, REFRESH_MS);
     return () => {
       isMounted = false;
+      clearInterval(refresh);
     };
   }, []);
 
@@ -111,7 +123,7 @@ export default function SocialPulsePage() {
   const creatorContent = data?.creatorContent || [];
   const emergingIssues = data?.emergingIssues || [];
 
-  // Curated priority comments (fixed list up to 30, ranked in predetermined importance order)
+  // Curated priority comments (up to 30, ranked by importance weighted toward recent comments)
   const curatedPriorityComments = priorityComments.slice(0, 30);
 
   // Paginate creator content
@@ -178,6 +190,8 @@ export default function SocialPulsePage() {
         </div>
       ) : (
         <>
+          {data.livePulse && <LivePulsePanel pulse={data.livePulse} health={data.listenerHealth} />}
+
           {/* ========================================================================= */}
           {/* 2. CORE WORKSTATION TABS                                                  */}
           {/* Tab 1: Priority Comments                                                  */}
@@ -258,7 +272,7 @@ export default function SocialPulsePage() {
                     PRIORITY COMMENTS — WHAT LEADERSHIP SHOULD KNOW
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Curated collection of high-value public comments ranked in predetermined importance order.
+                    High-value public comments ranked by importance, weighted toward recent comments so the list moves as the conversation does.
                   </p>
                 </div>
 

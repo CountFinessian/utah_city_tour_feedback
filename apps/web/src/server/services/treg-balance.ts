@@ -10,6 +10,19 @@ const TREG_BASE = "https://treg.to";
 const DEFAULT_TEAM = "utah-city-intelligence";
 
 let cachedOrgId: string | null = null;
+let lastError: string | null = null;
+
+/** Why the latest balance read returned null (HTTP status, no secrets). Null after a good read. */
+export function lastTregBalanceError(): string | null {
+  return lastError;
+}
+
+function fail(message: string): null {
+  lastError = /HTTP 40[13]/.test(message)
+    ? `${message}. The TREG_TOKEN was rejected; it has likely expired. Create a new key at https://treg.to and update TREG_TOKEN in Vercel.`
+    : message;
+  return null;
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -90,7 +103,8 @@ async function getJson(fetchImpl: typeof fetch, path: string, token: string, org
 
 export async function readTregBalanceUsd(fetchImpl: typeof fetch = fetch): Promise<number | null> {
   const token = process.env.TREG_TOKEN || "";
-  if (!token) return null;
+  if (!token) return fail("TREG_TOKEN is not set");
+  lastError = null;
   try {
     let orgId = process.env.TREG_ORG_ID || cachedOrgId;
     if (!orgId) {
@@ -100,12 +114,11 @@ export async function readTregBalanceUsd(fetchImpl: typeof fetch = fetch): Promi
         const meBody = await getJson(fetchImpl, "/auth/me", token).catch((error: unknown) => error);
         orgId = meBody instanceof Error ? null : pickTregOrgId(meBody);
         if (!orgId) {
-          console.warn(
-            `[treg-balance] could not resolve org id; /orgs ${
-              orgsBody instanceof Error ? orgsBody.message : describeShape(orgsBody)
-            }; /auth/me ${meBody instanceof Error ? meBody.message : describeShape(meBody)}`
-          );
-          return null;
+          const detail = `could not resolve Treg org id; /orgs ${
+            orgsBody instanceof Error ? orgsBody.message : describeShape(orgsBody)
+          }; /auth/me ${meBody instanceof Error ? meBody.message : describeShape(meBody)}`;
+          console.warn(`[treg-balance] ${detail}`);
+          return fail(detail);
         }
       }
       cachedOrgId = orgId;
@@ -113,15 +126,20 @@ export async function readTregBalanceUsd(fetchImpl: typeof fetch = fetch): Promi
     const balance = parseTregBalanceUsd(
       await getJson(fetchImpl, `/orgs/${encodeURIComponent(orgId)}/balance?limit=1`, token, orgId)
     );
-    if (balance == null) console.warn("[treg-balance] balance body had no balance_usd/balance_micro");
+    if (balance == null) {
+      console.warn("[treg-balance] balance body had no balance_usd/balance_micro");
+      return fail("Treg balance response had no balance field");
+    }
     return balance;
   } catch (error) {
-    console.warn("[treg-balance] balance read failed:", error instanceof Error ? error.message : "unknown error");
-    return null;
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.warn("[treg-balance] balance read failed:", message);
+    return fail(`Treg balance read failed: ${message}`);
   }
 }
 
 /** Test hook. */
 export function resetTregOrgCache(): void {
   cachedOrgId = null;
+  lastError = null;
 }

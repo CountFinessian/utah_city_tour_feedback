@@ -14,8 +14,10 @@ name: Social Pulse listener
 # that already ran. It waits out an in-progress :17 run instead of cancelling it.
 on:
   schedule:
-    # Once every day at 04:17 UTC (9:17 PM Mountain Time)
-    - cron: "17 4 * * *"
+    # Every 6 hours so the Live Pulse stays current (~$0.04 Treg per run, 2026-10-22).
+    # Monitor checks are scheduled per post by activity, so extra runs mostly re-check hot posts.
+    # A run blocked at the Treg balance check returns 503 and fails this job, which emails the owner.
+    - cron: "17 */6 * * *"
   workflow_dispatch:
     inputs:
       mode:

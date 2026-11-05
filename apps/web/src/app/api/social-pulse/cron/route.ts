@@ -6,6 +6,8 @@ import { runBackfillDiscovery } from "@/server/services/backfill-discovery";
 import { runIgRepliesBackfill, runMonitorCycle, runReclassifyLegacy } from "@/server/services/monitor-cycle";
 import { runLookupDebug, runReferenceEval, runRelevanceReeval } from "@/server/services/relevance-jobs";
 import { refreshActiveTopics } from "@/server/services/topic-intelligence";
+import { lastTregBalanceError } from "@/server/services/treg-balance";
+import { recordListenerRun } from "@/server/services/listener-health";
 
 const RELEVANCE_MODES = new Set(["relevance-eval", "relevance-reeval", "lookup-debug"]);
 const HARVEST_MODES = new Set(["harvest-first-crawl", "acceptance-test"]);
@@ -80,12 +82,26 @@ export async function GET(request: Request) {
       if (mode !== "reclassify-legacy" && !process.env.TREG_TOKEN) {
         return NextResponse.json({ error: "TREG_TOKEN is not configured in this environment" }, { status: 503 });
       }
-      const result =
-        mode === "monitor"
-          ? await runMonitorCycle()
-          : mode === "ig-replies-backfill"
-            ? await runIgRepliesBackfill()
-            : await runReclassifyLegacy();
+      if (mode === "monitor") {
+        const monitor = await runMonitorCycle();
+        // A run that never reached Treg must not look healthy: record it and fail the job.
+        const blocked = monitor.stopped === "balance";
+        const balanceError = blocked
+          ? lastTregBalanceError() ||
+            (monitor.balanceUsd != null ? `Treg balance $${monitor.balanceUsd.toFixed(2)} is under the $1 minimum` : null)
+          : null;
+        await recordListenerRun({
+          at: new Date(),
+          stopped: monitor.stopped,
+          listened: !blocked,
+          error: balanceError,
+          newComments: monitor.newComments,
+        });
+        const body = balanceError ? { ...monitor, balanceError } : monitor;
+        console.log(`[CRON /api/social-pulse/cron] ${JSON.stringify(body)}`);
+        return NextResponse.json(body, { status: blocked ? 503 : 200 });
+      }
+      const result = mode === "ig-replies-backfill" ? await runIgRepliesBackfill() : await runReclassifyLegacy();
       console.log(`[CRON /api/social-pulse/cron] ${JSON.stringify(result)}`);
       return NextResponse.json(result);
     }

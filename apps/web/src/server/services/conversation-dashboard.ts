@@ -1,11 +1,17 @@
 import type { CommentFilter, ConversationDashboard } from "@/domain/social-listening/conversation-dashboard";
-import { buildConversationDashboard, selectDashboardComments } from "@/domain/social-listening/conversation-dashboard";
+import {
+  buildConversationDashboard,
+  isDashboardComment,
+  selectDashboardComments,
+} from "@/domain/social-listening/conversation-dashboard";
+import { buildLivePulse, type LivePulse } from "@/domain/social-listening/live-pulse";
 import type { Comment, Post, SocialPulseMetrics } from "@/domain/social-listening/types";
 import type { ConversationNarrative, NarrativeCacheStore, NarrativeWriter } from "@/server/intelligence/conversation-narrative";
 import { resolveConversationNarrative } from "@/server/intelligence/conversation-narrative";
 import { getSocialRepository } from "@/server/repositories/postgres-social-repository";
 import { narrativeCacheStore } from "@/server/services/dashboard-narrative-cache";
 import { calculateDeterministicSocialMetrics } from "@/server/analytics/social-metrics";
+import { isListenerStale, readListenerHealth, type ListenerHealth } from "@/server/services/listener-health";
 
 // Generous ceilings. Current volume is about 455 posts and 5400 comments.
 const POST_LIMIT = 2000;
@@ -15,6 +21,8 @@ export interface ConversationDashboardResponse extends ConversationDashboard {
   narrative: ConversationNarrative;
   metrics?: SocialPulseMetrics;
   creatorStats?: ReturnType<typeof import("@/server/services/creator-backfill").getLastCreatorBackfillResult>;
+  livePulse?: LivePulse;
+  listenerHealth?: (ListenerHealth & { stale: boolean }) | null;
 }
 
 async function loadCorpus(overrides?: {
@@ -77,10 +85,17 @@ export async function loadConversationDashboard(options?: {
   const now = options?.now || new Date();
   const { posts, comments, trackedPostCount } = await loadCorpus(options);
   const dashboard = buildConversationDashboard({ posts, comments, now, trackedPostCount });
+  const postById = new Map(posts.map((post) => [post.id, post]));
+  const livePulse = buildLivePulse({
+    posts,
+    comments: comments.filter((comment) => isDashboardComment(comment, postById.get(comment.postId))),
+    now,
+  });
   const narrative = await resolveConversationNarrative(dashboard, {
     now,
     cache: options?.cache || narrativeCacheStore(),
     generate: options?.generate,
+    recentFacts: livePulse.stale ? undefined : livePulse.brief,
   });
   const metrics = calculateDeterministicSocialMetrics({
     posts,
@@ -93,7 +108,18 @@ export async function loadConversationDashboard(options?: {
   }
   const backfillStats = (await import("@/server/services/comment-backfill")).getLastBackfillStats();
   const creatorStats = (await import("@/server/services/creator-backfill")).getLastCreatorBackfillResult();
-  const result: ConversationDashboardResponse = { ...dashboard, claims: narrative.claims, narrative, metrics, backfillStats, creatorStats };
+  const health = options?.listPosts ? null : await readListenerHealth();
+  const listenerHealth = health ? { ...health, stale: isListenerStale(health, now) } : null;
+  const result: ConversationDashboardResponse = {
+    ...dashboard,
+    claims: narrative.claims,
+    narrative,
+    metrics,
+    backfillStats,
+    creatorStats,
+    livePulse,
+    listenerHealth,
+  };
 
   if (isStandardCall) {
     inMemoryDashboardCache = {

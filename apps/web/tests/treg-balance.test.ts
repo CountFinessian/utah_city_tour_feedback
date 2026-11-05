@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { describeShape, parseTregBalanceUsd, pickTregOrgId, readTregBalanceUsd, resetTregOrgCache } from "@/server/services/treg-balance";
+import { describeShape, parseTregBalanceUsd, pickTregOrgId, readTregBalanceUsd, resetTregOrgCache, lastTregBalanceError } from "@/server/services/treg-balance";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -72,5 +72,29 @@ describe("treg balance", () => {
     expect(String((fetchImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0])).toBe(
       "https://treg.to/orgs/5/balance?limit=1"
     );
+  });
+});
+
+describe("treg balance errors", () => {
+  const saved = { ...process.env };
+  beforeEach(() => {
+    resetTregOrgCache();
+    process.env.TREG_TOKEN = "expired-token";
+    process.env.TREG_ORG_ID = "42";
+  });
+  afterEach(() => {
+    process.env = { ...saved };
+  });
+
+  it("explains a rejected token instead of failing silently", async () => {
+    const fetchImpl = vi.fn(async () => json({ detail: "not authenticated" }, 401)) as unknown as typeof fetch;
+    expect(await readTregBalanceUsd(fetchImpl)).toBeNull();
+    expect(lastTregBalanceError()).toMatch(/HTTP 401.*expired.*TREG_TOKEN/);
+  });
+
+  it("clears the error after a good read", async () => {
+    const fetchImpl = vi.fn(async () => json({ balance_usd: 12 })) as unknown as typeof fetch;
+    expect(await readTregBalanceUsd(fetchImpl)).toBe(12);
+    expect(lastTregBalanceError()).toBeNull();
   });
 });
