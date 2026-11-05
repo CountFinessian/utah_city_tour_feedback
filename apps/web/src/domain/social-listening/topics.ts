@@ -299,6 +299,8 @@ export interface CreateTopicRequest {
   keywords?: string[];
   /** If omitted, derived from the name and keywords. */
   searchQueries?: string[];
+  /** If omitted, every social platform and web source. */
+  platforms?: TopicSource[];
 }
 
 export const TOPIC_SEARCH_DEDUPE_HOURS_DEFAULT = 24;

@@ -49,6 +49,8 @@ export interface MonitorCycleResult {
   balanceUsd: number | null;
   discovered: number;
   firstCrawlCompleted: number;
+  /** Comments stored by first crawls in this run (kept and dropped rows). */
+  firstCrawlStored: number;
   checked: number;
   unchanged: number;
   harvested: number;
@@ -125,7 +127,19 @@ interface MonitorDeps {
     cursor?: DiscoveryQueryCursor[];
     stoppedEarly?: boolean;
   }>;
-  runFirstCrawl?: (budgetUsd: number, geminiMicro: number, deadlineAt: number) => Promise<{ completed: number }>;
+  runFirstCrawl?: (budgetUsd: number, geminiMicro: number, deadlineAt: number) => Promise<{ completed: number; stored?: number }>;
+  /** Catch-up: no discovery, and the discovery cursor and lastMonitorAt stay where the schedule left them. */
+  skipDiscovery?: boolean;
+  /** Overrides which unread posts the first-crawl phase reads, how many, and in what order. */
+  firstCrawlPlan?: {
+    postsPerCall: number;
+    include: (post: Post) => boolean;
+    compare?: (a: Post, b: Post) => number;
+    /** Share of the run window the first-crawl phase may use. Defaults to FIRST_CRAWL_WINDOW_FRACTION. */
+    windowFraction?: number;
+  };
+  /** Overrides the due-post selection for the check phase. */
+  selectQueue?: (posts: Post[], now: number) => Post[];
 }
 
 function countsOf(post: Post): StatCounts {
@@ -291,7 +305,11 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
   const balanceUsd = await d.getBalance();
   const startedAt = Date.now();
   const discoveryDeadline = phaseDeadline(startedAt, d.deadlineAt, DISCOVERY_WINDOW_FRACTION);
-  const crawlDeadline = phaseDeadline(startedAt, d.deadlineAt, FIRST_CRAWL_WINDOW_FRACTION);
+  const crawlDeadline = phaseDeadline(
+    startedAt,
+    d.deadlineAt,
+    deps.firstCrawlPlan?.windowFraction ?? FIRST_CRAWL_WINDOW_FRACTION
+  );
   const tracked = new Map<string, Post>();
   const remember = (post: Post) => {
     tracked.set(post.id, post);
@@ -303,6 +321,7 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
     balanceUsd,
     discovered: 0,
     firstCrawlCompleted: 0,
+    firstCrawlStored: 0,
     checked: 0,
     unchanged: 0,
     harvested: 0,
@@ -356,7 +375,7 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
   const since = cursors.lastMonitorAt || new Date(d.now - 3 * 3_600_000).toISOString();
   const resurfaced: Post[] = [];
   const discoveryStarted = Date.now();
-  if (!phaseOver(discoveryDeadline)) {
+  if (!deps.skipDiscovery && !phaseOver(discoveryDeadline)) {
     const discovery = d.runDiscovery
       ? await d.runDiscovery({
           since,
@@ -391,8 +410,10 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
     if (discovery.cursor) cursors.discovery = discovery.cursor;
   }
   base.phases.discoveryMs = Date.now() - discoveryStarted;
-  cursors.lastMonitorAt = new Date(d.now).toISOString();
-  await persistMonitorCursor();
+  if (!deps.skipDiscovery) {
+    cursors.lastMonitorAt = new Date(d.now).toISOString();
+    await persistMonitorCursor();
+  }
 
   const crawlStarted = Date.now();
   if (!phaseOver(crawlDeadline)) {
@@ -403,13 +424,20 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
           tregBudgetUsd: d.tregBudgetUsd,
           geminiBudgetMicro: Math.max(0, d.geminiBudgetMicro - gemini.spent),
           tregSpentUsd: d.tregSpent,
-          postsPerCall: 2,
+          postsPerCall: deps.firstCrawlPlan?.postsPerCall ?? 2,
+          include: deps.firstCrawlPlan?.include,
+          compare: deps.firstCrawlPlan?.compare,
           hasModel: d.hasModel,
+          // Same providers as the checks (production leaves these unset and uses the defaults).
+          fetchPage: deps.fetchPage,
+          classify: deps.classify,
+          listOfficialAccounts: deps.listOfficialAccounts,
         }).then((result) => {
           gemini.spent += result.geminiSpendMicro;
-          return { completed: result.completedPosts };
+          return { completed: result.completedPosts, stored: result.stored };
         });
     base.firstCrawlCompleted = first.completed;
+    base.firstCrawlStored = first.stored ?? 0;
   }
   base.phases.firstCrawlMs = Date.now() - crawlStarted;
 
@@ -426,7 +454,7 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
 
   const checksStarted = Date.now();
   const official = await d.listOfficialAccounts();
-  const due = selectDuePosts(posts, d.now, d.dueLimit);
+  const due = deps.selectQueue ? deps.selectQueue(posts, d.now) : selectDuePosts(posts, d.now, d.dueLimit);
   const seenDue = new Set(due.map((post) => post.id));
   const queue = [...resurfaced.filter((post) => post.firstFullCrawlCompletedAt && !seenDue.has(post.id)), ...due];
 
@@ -628,7 +656,7 @@ export async function runMonitorCycle(deps: MonitorDeps = {}): Promise<MonitorCy
   }
 
   base.phases.checksMs = Date.now() - checksStarted;
-  await persistMonitorCursor();
+  if (!deps.skipDiscovery) await persistMonitorCursor();
   return finish(over() || "done");
 }
 

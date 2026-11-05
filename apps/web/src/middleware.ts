@@ -29,6 +29,8 @@ const LEADERSHIP_APIS = [
   "/api/social-pulse/dashboard",
   "/api/social-pulse/comments",
   "/api/social-pulse/topics",
+  "/api/social-pulse/issues",
+  "/api/social-pulse/discovery",
   "/api/owned-social/admin",
   "/api/owned-social/posts",
   "/api/owned-social/dashboard",

@@ -229,6 +229,30 @@ Response: `{ ok, outcomes, backfill, alerts }`. `ok` is false when a renewal fai
 
 Returns `{ ok, outcomes, backfill }`. `ok` reflects renewal failures only: backfill errors appear in `backfill` but do not fail the response. Unknown modes return 400.
 
+## 6c. Social Pulse review and coverage (leader)
+
+See `docs/SOCIAL-PULSE-OPERATIONS.md`.
+
+### `GET /api/social-pulse/issues`
+Needs-review queue (questions, complaints, opportunities from the last 30 days), open issues, resolved
+issues with history, and a map of comment → issue. `Cache-Control: private, no-store`.
+
+### `POST /api/social-pulse/issues`
+Body `{ action, ... }`:
+- `promote` `{ commentId, title, owner? }`: create an issue from a comment (canonical id).
+- `attach` `{ issueId, commentId }`: add a later mention (idempotent).
+- `update` `{ issueId, owner?, status? }`: status `open` | `in_progress` | `resolved`.
+- `resolve` `{ issueId, resolution? }`, `reopen` `{ issueId }`.
+- `review` `{ commentId, status }`: `reviewed` or `dismissed`, removes it from Needs review.
+
+### `GET /api/social-pulse/discovery`
+External conversations for the narrative presets that exist as topics. Empty until a leader creates them.
+
+### Cron modes (`/api/social-pulse/cron`, `CRON_SECRET`)
+- `monitor`: records listener health and sends failed / missed / recovered alerts.
+- `catchup`: one bounded call of the outage catch-up pass (503 when blocked at the Treg balance check).
+- `watchdog`: daily check from Vercel cron; alerts when runs stopped or none succeeded in 24 hours.
+
 ## 7. Webhooks
 
 ### `/api/webhooks/resend`

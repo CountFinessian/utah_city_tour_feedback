@@ -1296,6 +1296,14 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+/** A subset of the known sources, or every source when none (or nothing valid) is given. */
+function requestedPlatforms(value: unknown): TopicSource[] {
+  const all = ALL_TOPIC_SOURCES();
+  if (!Array.isArray(value)) return all;
+  const picked = all.filter((source) => value.includes(source));
+  return picked.length ? picked : all;
+}
+
 export async function createTopic(req: CreateTopicRequest): Promise<TopicDefinition> {
   const parsed = createTopicSchema.safeParse({
     name: typeof req?.name === "string" ? req.name.trim() : "",
@@ -1341,7 +1349,7 @@ export async function createTopic(req: CreateTopicRequest): Promise<TopicDefinit
     endsOn: data.endsOn,
     keywords,
     searchQueries,
-    platforms: ALL_TOPIC_SOURCES(),
+    platforms: requestedPlatforms(req?.platforms),
     enabled: true,
     createdAt: stamp,
     updatedAt: stamp,
