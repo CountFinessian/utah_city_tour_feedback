@@ -129,7 +129,7 @@ Asks the AI analyst a question about the tour debriefs.
 - **Authentication:** Leader session (middleware returns `401` without a session, `403` for hosts).
 - **Service:** `answerAnalystQuestion`
 - **Model:** Claude (`ANTHROPIC_MODEL`, default `claude-sonnet-4-6`) when `ANTHROPIC_API_KEY` is set, then Gemini as a fallback after a fast error; Gemini only when it is the sole key.
-- **Time limit:** one model attempt of up to 25 s (`ANALYST_MODEL_TIMEOUT_MS`), 45 s across attempts (`ANALYST_TOTAL_BUDGET_MS`); route `maxDuration` is 60 s. A second model is tried only after a fast error, never after a timeout. Answers are capped at 600 output tokens (`ANALYST_MAX_OUTPUT_TOKENS`), about 180 words plus citations.
+- **Time limit:** one model attempt of up to 25 s (`ANALYST_MODEL_TIMEOUT_MS`), 45 s across attempts (`ANALYST_TOTAL_BUDGET_MS`); route `maxDuration` is 60 s. A second model is tried only after a fast error, never after a timeout. Claude answers are capped at 600 output tokens (`ANALYST_MAX_OUTPUT_TOKENS`), about 180 words plus citations. Gemini is not capped, because its thinking tokens count against the limit.
 - **Request Body:**
   ```json
   {
