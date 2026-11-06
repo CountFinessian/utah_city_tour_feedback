@@ -1,5 +1,4 @@
 import type { Observation } from "@/domain/observation";
-import type { Digest } from "@/server/reporting/digest";
 import { ANALYST_SYSTEM_PROMPT } from "@/server/analyst/analyst-prompt";
 import { corpusContext, toAnalystRecord } from "@/server/analyst/analyst-context";
 
@@ -20,22 +19,15 @@ function computeFingerprint(observations: Observation[]): string {
   return `${observations.length}:${newestTimestamp}`;
 }
 
-export function formatCorpusForCache(observations: Observation[], digest: Digest): string {
-  // Same record shape as the direct prompt. "today" is sent per question, not cached.
+export function formatCorpusForCache(observations: Observation[]): string {
+  // Same record shape as the direct prompt. "today" and the authoritative counts (which depend on
+  // today's date) are sent with each question, not cached.
   const { today: _today, ...context } = corpusContext(observations);
   void _today;
 
   const payload = {
     knowledgeBase: "Utah City Tour Debrief Corpus",
     context,
-    allTimeMetrics: {
-      note: "Computed over every debrief regardless of date. Do not use for date-scoped questions.",
-      averageSentiment: digest.avgSentiment,
-      intentFunnel: digest.intentFunnel,
-      topObjections: digest.topObjections,
-      topAmenities: digest.amenityRanking,
-      recurringQuestions: digest.topQuestions,
-    },
     debriefs: observations.map(toAnalystRecord),
   };
 
@@ -48,7 +40,6 @@ export function formatCorpusForCache(observations: Observation[], digest: Digest
  */
 export async function getOrSetContextCache(
   observations: Observation[],
-  digest: Digest,
 ): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!apiKey || observations.length === 0) return null;
@@ -61,7 +52,7 @@ export async function getOrSetContextCache(
     return activeCache.name;
   }
 
-  const corpusText = formatCorpusForCache(observations, digest);
+  const corpusText = formatCorpusForCache(observations);
 
   // Google Gemini Context Cache strictly requires at least 32,768 tokens (~130,000 chars).
   // For corpora under 32k tokens, skip the API call to save latency and avoid 400 Bad Request errors.

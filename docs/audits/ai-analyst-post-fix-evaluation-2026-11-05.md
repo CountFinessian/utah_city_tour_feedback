@@ -2,7 +2,7 @@
 
 Evaluates branch `analyst-reliability-fixes` (worktree `utah_city_analyst_fixes`, base `43362e8`, uncommitted) after the first three audit fixes: model timeout and abort, honest fallback, and a richer payload. Nothing was merged or deployed. Follows `docs/audits/ai-analyst-quality-audit-2026-11-05.md` (in the main checkout).
 
-> **Update:** fixes 1 and 2 were then applied, Claude was made the primary model, and all 31 questions were re-run twice. Score 45% → 63–65%, fallbacks 44% → 0%. Three aggregate questions now return confident wrong numbers. The updated verdict is in **Addenda 1 and 2** near the end, and it supersedes the pilot verdict above them.
+> **Update:** fixes 1–3 were then applied, Claude was made the primary model, and all 31 questions were re-run after each step. Score 45% → 84%, fallbacks 44% → 0%, and every count, share, ranking, trend and date-window question is now exact. The updated verdict is in **Addenda 1–3** near the end, and it supersedes the pilot verdict above them.
 
 ## Read this first: what was and wasn't tested
 
@@ -383,6 +383,54 @@ The same confident errors repeat:
 3. Watch the server logs for `[analyst] serving keyword fallback` and `[analyst] answer hit maxOutputTokens` during the first week.
 
 The pilot verdict in Addendum 1 is unchanged: a narrow supervised pilot (single-topic lookups, totals, one month or one day) is fine. Count, share, ranking, trend and date-window questions wait for fix 3.
+
+## Addendum 3: fix 3, code-computed counts (2026-11-06)
+
+### Change
+- The analyst now receives `authoritativeCounts` (`apps/web/src/server/analyst/analyst-counts.ts`), computed by code from the same live debriefs in America/Denver dates:
+  - totals by month and by day;
+  - last 7 / last 30 days, this month and last month, each with IDs;
+  - intent overall and by month;
+  - sentiment average and distribution;
+  - the share of debriefs with any objection;
+  - per objection type and per amenity: debriefs vs mentions, by month, by intent (objections) or reaction (amenities), with IDs;
+  - host ranking;
+  - questions asked more than once.
+- New prompt rule 4: take every count, share, average, ranking, trend or date-window number from this block, never recount, never call mentions debriefs, and keep suspected test records in the official denominators.
+- `allTimeMetrics` (digest figures that could conflict) is removed from both the direct payload and the Gemini cache corpus. On the cached path the counts travel with each question.
+
+### Result (run A‴ cold plus two cold repeats, fresh snapshot, identical ground truth, `claude-sonnet-4-6`)
+
+| | Run A″ (before fix 3) | **Run A‴ (fix 3)** |
+|---|---|---|
+| Score | 39/62 (63%) | **52/62 (84%)**: 23 correct, 6 partial, 2 failed |
+| Count, share, ranking, trend and date-window questions | wrong on P03, P04, P07, P14, P16, P24, P25 | **all exact**, and identical in every repeat |
+| Fallbacks | 0/46 | 0/46 |
+| Latency | p50 15.7 s, max 20.5 s | p50 15.1 s, p90 19.3 s, max 20.8 s |
+| Input tokens per request | about 18.7k | about 23.4k (+25%; the counts block) |
+| Answers hitting the 600-token cap | 11/46 | 7/46 |
+
+Questions that flipped to exact:
+- **P03:** size/layout "7 debriefs, 9 mentions", and "18 (45%)" with any objection.
+- **P04:** "September 2026 (5 debriefs): zero price objections; October 2 of 12".
+- **P07:** "7 of 40".
+- **P13:** distribution 17/15/7/1.
+- **P14:** "9 debriefs … (Oct 31 – Nov 6)".
+- **P15:** 0 → 2 of 12 → 4 of 7.
+- **P16:** "18 of 40 (45%)".
+- **P24:** Host A 16, Host B 10.
+- **P25:** 4.
+- **P26:** 25 hot / 7 warm / 1 cold.
+
+P01 dropped its wrong intent breakdown. P17 now says correctly that no question was asked more than once (11 questions in 7 debriefs). **P21 no longer invents October figures**; it asks the user to restate the question.
+
+### What still loses points
+1. **Paraphrases in quotation marks:** P04, P08, P17 (two), P27 in run A‴, plus one in a repeat. Of 51 quoted strings, 41 are verbatim in a cited record. This is fix 5: require verbatim quotes, or flag quotes that are not found in the cited records.
+2. **Follow-ups (P20, P21):** both are honest requests to clarify, but neither can answer without conversation history (fix 6).
+3. **Free-text topics are still model-counted:** walkability (P05) is labelled "my own count" and misses the "walking space" record. P09 (120 vs 220 Bend) is still inference. Both are outside what structured counts can answer.
+
+### Updated pilot guidance
+With fix 3 deployed, count, share, ranking, trend and date-window questions can join the pilot. Users should still check quoted phrases against the Evidence panel and restate follow-ups in full.
 
 ## Artefacts and cleanup
 - The harness (`eval.mjs`, `ground_truth.py`, stub providers, synthetic generator) lived in the session scratchpad, isolated from app code.
