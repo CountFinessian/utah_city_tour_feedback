@@ -7,7 +7,7 @@ reviewers turn comments into tracked issues.
 
 | What | Where | When (UTC) |
 |---|---|---|
-| Monitor run (discovery, first reads, due checks) | GitHub Actions `social-pulse-listener.yml` → `/api/social-pulse/cron?mode=monitor` | `17 */6 * * *` (every 6 hours, every day; GitHub often starts late) |
+| Monitor run (discovery, first reads, due checks) | GitHub Actions `social-pulse-listener.yml` → `/api/social-pulse/cron?mode=monitor` | `17 */6 * * *` requested; in practice GitHub starts about one slot a day (09:00–15:00 UTC) |
 | Topic refresh (advisory) | same workflow, after a monitor run | same |
 | Watchdog | Vercel cron (`apps/web/vercel.json`) → `/api/social-pulse/cron?mode=watchdog` | `0 15 * * *` (8 AM MST / 9 AM MDT) |
 
@@ -15,8 +15,8 @@ Alerts go through the existing ops mail path (`sendOpsAlertEmail`, Resend) to `S
 
 - **failed**: a scheduled monitor run could not reach Treg (rejected key, low balance) or crashed. The
   GitHub job also fails, which emails the workflow owner as before.
-- **missed**: a run arrived more than 12 hours after the previous one, so at least one slot was skipped.
-- **watchdog**: no run in 12 hours, or no successful check in 24 hours (catches GitHub not scheduling at all).
+- **missed**: a run arrived more than 30 hours after the previous one, so a whole day was skipped.
+- **watchdog**: no run in 30 hours, or no successful check in 30 hours (catches GitHub not scheduling at all).
 - **recovered**: the first success after an alert.
 
 The same kind of alert repeats at most once a day. State lives in `app_settings.social_listener_health`
