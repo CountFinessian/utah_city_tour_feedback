@@ -11,6 +11,7 @@ describe("context-cache", () => {
         hostName: "Aiden",
         prospectFirstName: "Young",
         prospectLastName: "Couple",
+        prospectEmail: "young.couple@example.test",
         transcript: "Loved the pool, worried about parking fee.",
         source: "live",
         createdAt: "2026-09-01T12:00:00Z",
@@ -48,14 +49,25 @@ describe("context-cache", () => {
     };
 
     const corpus = formatCorpusForCache(mockObservations, mockDigest);
-    expect(corpus).toContain("Utah City 120 & 220 Bend Resident Debrief Corpus");
+    expect(corpus).toContain("Utah City Tour Debrief Corpus");
     expect(corpus).toContain("Aiden");
     expect(corpus).toContain("parking");
     expect(corpus).toContain("pool");
+    expect(corpus).not.toContain("example.test");
 
     const parsed = JSON.parse(corpus);
-    expect(parsed.totalRecordedDebriefs).toBe(1);
-    expect(parsed.residentDebriefTranscripts).toHaveLength(1);
-    expect(parsed.residentDebriefTranscripts[0].residentOrHost).toBe("Young Couple");
+    expect(parsed.context.totalDebriefs).toBe(1);
+    expect(parsed.context.timezone).toBe("America/Denver");
+    expect(parsed.context.today).toBeUndefined();
+    expect(parsed.debriefs).toHaveLength(1);
+    expect(parsed.debriefs[0]).toMatchObject({
+      id: "obs_1",
+      capturedAt: "2026-09-01 06:00",
+      host: "Aiden",
+      visitor: "Young Couple",
+      intent: "warm",
+      extraction: "keyword_fallback",
+      questionsAsked: ["Is parking included?"],
+    });
   });
 });
