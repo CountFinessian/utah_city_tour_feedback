@@ -8,8 +8,10 @@ import {
   errorRedirect,
   handleTokenRequest,
   issueCode,
-  oauthClients,
   protectedResourceMetadata,
+  redirectTarget,
+  registerClient,
+  resolveClients,
   signConsent,
   validateAuthorizeRequest,
   verifyConsent,
@@ -77,6 +79,12 @@ function redirect(location: string): Response {
   return new Response(null, { status: 303, headers: { Location: location, "Cache-Control": "no-store" } });
 }
 
+/** CSP form-action source for the post-Allow redirect: the https origin, or a native app's scheme. */
+function formActionSource(redirectUri: string): string {
+  const u = new URL(redirectUri);
+  return u.origin !== "null" ? u.origin : u.protocol;
+}
+
 function consentPage(client: OAuthClient, params: AuthorizeParams, name: string, consent: string): Response {
   const hidden = [
     ["response_type", "code"],
@@ -97,9 +105,10 @@ function consentPage(client: OAuthClient, params: AuthorizeParams, name: string,
 <p>Signed in as <strong>${esc(name)}</strong>. ${esc(client.name)} is asking for <strong>read-only</strong> access to:</p>
 <ul><li>Tour feedback: objections, questions, themes, and excerpts</li><li>Social listening comments and sentiment</li><li>Official account posts</li></ul>
 <p>Prospect names, emails, and phone numbers are never shared. Access stops if your leader role is removed.</p>
+${client.selfRegistered ? `<p>The app named itself <strong>${esc(client.name)}</strong>. After you click Allow you return to <strong>${esc(redirectTarget(params.redirectUri))}</strong>. Only continue if you started this connection yourself.</p>` : ""}
 <form method="post"><div class="row">${hidden}<button class="deny" name="decision" value="deny">Cancel</button><button class="allow" name="decision" value="allow">Allow</button></div></form>`,
     200,
-    new URL(params.redirectUri).origin,
+    formActionSource(params.redirectUri),
   );
 }
 
@@ -136,14 +145,14 @@ export async function handleAuthorize(request: Request, deps: OAuthHttpDeps = {}
     input = url.searchParams;
   }
 
-  const clients = oauthClients(deps.env);
+  const clients = await resolveClients(input.get("client_id"), deps.env, config.tokenSecret, now);
   const v = validateAuthorizeRequest(input, clients, `${config.appUrl}/api/mcp`);
   if (!v.ok && v.fatal) return page("Cannot connect", `<h1>Cannot connect.</h1><p>${esc(v.message)}</p>`, 400);
   if (!v.ok) return redirect(errorRedirect(v.redirectUri, v.state, v.error, v.description, config.appUrl));
 
   const session = await (deps.session ?? defaultSession)(request);
   if (!session) {
-    if (request.method === "POST") return page("Signed out", "<h1>Your session ended.</h1><p>Start the connection again from Grok.</p>", 401);
+    if (request.method === "POST") return page("Signed out", "<h1>Your session ended.</h1><p>Start the connection again from your AI app.</p>", 401);
     const back = `${url.pathname}?${PARAM_NAMES.filter((n) => url.searchParams.has(n)).map((n) => `${n}=${encodeURIComponent(url.searchParams.get(n)!)}`).join("&")}`;
     return redirect(`/login?from=${encodeURIComponent(back)}`);
   }
@@ -155,7 +164,7 @@ export async function handleAuthorize(request: Request, deps: OAuthHttpDeps = {}
     return page("Try again", "<h1>Could not check your account.</h1><p>Try again in a minute.</p>", 503);
   }
   if (!account || !isLeader(account.role)) {
-    log({ event: "mcp_oauth_consent", outcome: "not_leader", client: v.client.id });
+    log({ event: "mcp_oauth_consent", outcome: "not_leader", client: logClient(v.client.id) });
     return page("Leader access required", "<h1>Leader access required.</h1><p>Only Utah City leaders can connect AI tools to this data.</p>", 403);
   }
 
@@ -164,19 +173,24 @@ export async function handleAuthorize(request: Request, deps: OAuthHttpDeps = {}
   }
 
   if (!(await verifyConsent(input.get("consent"), account.id, v.params, config.tokenSecret, now))) {
-    return page("Expired", "<h1>This approval page expired.</h1><p>Start the connection again from Grok.</p>", 400);
+    return page("Expired", "<h1>This approval page expired.</h1><p>Start the connection again from your AI app.</p>", 400);
   }
   if (input.get("decision") !== "allow") {
-    log({ event: "mcp_oauth_consent", outcome: "denied", client: v.client.id, user_id: account.id });
+    log({ event: "mcp_oauth_consent", outcome: "denied", client: logClient(v.client.id), user_id: account.id });
     return redirect(errorRedirect(v.params.redirectUri, v.params.state, "access_denied", "The user cancelled.", config.appUrl));
   }
   const code = await issueCode(v.params, session.email, config.tokenSecret, now);
-  log({ event: "mcp_oauth_consent", outcome: "allowed", client: v.client.id, user_id: account.id });
+  log({ event: "mcp_oauth_consent", outcome: "allowed", client: logClient(v.client.id), user_id: account.id });
   const back = new URL(v.params.redirectUri);
   back.searchParams.set("code", code);
   if (v.params.state !== null) back.searchParams.set("state", v.params.state);
   back.searchParams.set("iss", config.appUrl);
   return redirect(back.toString());
+}
+
+/** Self-registered client ids are long signed blobs; logs keep only a marker. */
+function logClient(clientId: string | null): string | null {
+  return clientId && clientId.startsWith("ucmcpd_") ? "self-registered" : clientId;
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store", Pragma: "no-cache", "Access-Control-Allow-Origin": "*" };
@@ -212,18 +226,19 @@ export async function handleToken(request: Request, deps: OAuthHttpDeps = {}): P
   }
 
   const lookup = deps.lookupUser ?? defaultLookup;
+  const now = Math.floor((deps.now?.() ?? new Date()).getTime() / 1000);
   const result = await handleTokenRequest(form, {
     secret: config.tokenSecret,
-    clients: oauthClients(deps.env),
+    clients: await resolveClients(form.get("client_id"), deps.env, config.tokenSecret, now),
     revokedTokenIds: config.revokedTokenIds,
     lookupRole: async (email) => {
       const account = await lookup(email);
       return account ? String(account.role ?? "") || "host" : null;
     },
     isLeader,
-    now: Math.floor((deps.now?.() ?? new Date()).getTime() / 1000),
+    now,
   });
-  log({ event: "mcp_oauth_token", grant: form.get("grant_type"), client: form.get("client_id"), outcome: result.ok ? "issued" : result.error, token_id: result.ok ? result.tokenId : undefined });
+  log({ event: "mcp_oauth_token", grant: form.get("grant_type"), client: logClient(form.get("client_id")), outcome: result.ok ? "issued" : result.error, token_id: result.ok ? result.tokenId : undefined });
   if (!result.ok) return fail(result.status, result.error, result.error_description);
   return new Response(JSON.stringify(result.body), { status: 200, headers: JSON_HEADERS });
 }
@@ -238,4 +253,34 @@ export function handleProtectedResourceMetadata(deps: OAuthHttpDeps = {}): Respo
   return new Response(JSON.stringify(protectedResourceMetadata(readMcpConfig(deps.env).appUrl)), {
     headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" },
   });
+}
+
+/** RFC 7591 dynamic client registration. Public, stateless: the client_id is a signed blob (see core.ts). */
+export async function handleRegister(request: Request, deps: OAuthHttpDeps = {}): Promise<Response> {
+  const config = readMcpConfig(deps.env);
+  const log = deps.log ?? mcpLog;
+  const fail = (status: number, error: string, error_description: string) =>
+    new Response(JSON.stringify({ error, error_description }), { status, headers: JSON_HEADERS });
+  if (!config.tokenSecret) return fail(503, "temporarily_unavailable", "MCP sign-in is not configured.");
+  const text = await request.text();
+  if (text.length > 8 * 1024) return fail(413, "invalid_client_metadata", "Request too large.");
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(text);
+  } catch {
+    return fail(400, "invalid_client_metadata", "Body must be JSON client metadata.");
+  }
+  const now = Math.floor((deps.now?.() ?? new Date()).getTime() / 1000);
+  const result = await registerClient(metadata, config.tokenSecret, now);
+  if (!result.ok) {
+    log({ event: "mcp_oauth_register", outcome: result.error });
+    return fail(400, result.error, result.error_description);
+  }
+  log({
+    event: "mcp_oauth_register",
+    outcome: "registered",
+    client_name: result.body.client_name,
+    redirect_targets: (result.body.redirect_uris as string[]).map(redirectTarget),
+  });
+  return new Response(JSON.stringify(result.body), { status: 201, headers: JSON_HEADERS });
 }

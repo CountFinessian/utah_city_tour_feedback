@@ -5,6 +5,7 @@ import {
   handleAuthorizationServerMetadata,
   handleAuthorize,
   handleProtectedResourceMetadata,
+  handleRegister,
   handleToken,
   type OAuthHttpDeps,
 } from "@/server/mcp/oauth/http";
@@ -110,6 +111,7 @@ describe("discovery metadata", () => {
       issuer: APP,
       authorization_endpoint: `${APP}/api/mcp/oauth/authorize`,
       token_endpoint: `${APP}/api/mcp/oauth/token`,
+      registration_endpoint: `${APP}/api/mcp/oauth/register`,
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: ["mcp:read"],
@@ -128,6 +130,7 @@ describe("discovery metadata", () => {
     for (const path of [
       "/api/mcp/oauth/authorize",
       "/api/mcp/oauth/token",
+      "/api/mcp/oauth/register",
       "/.well-known/oauth-authorization-server",
       "/.well-known/oauth-protected-resource",
       "/.well-known/oauth-protected-resource/api/mcp",
@@ -413,6 +416,116 @@ describe("clients and logs", () => {
     const text = JSON.stringify(logs);
     expect(logs.some((l) => l.event === "mcp_oauth_token")).toBe(true);
     expect(text).not.toMatch(/ucmcp[cprk]?_[A-Za-z0-9_-]{10,}/);
+    expect(text).not.toContain("@example.com");
+  });
+});
+
+describe("self-registered clients (URL-only connectors)", () => {
+  const register = async (metadata: unknown, d = deps()) => {
+    const res = await handleRegister(
+      new Request(`${APP}/api/mcp/oauth/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(metadata) }),
+      d,
+    );
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  };
+  const GROK_APP_CB = "https://grok.com/connectors/oauth/new-callback";
+
+  it("registers, signs in a leader, issues working tokens, and refreshes", async () => {
+    users["leader@example.com"].role = "leader";
+    const reg = await register({ client_name: "Grok", redirect_uris: [GROK_APP_CB], grant_types: ["authorization_code", "refresh_token"], token_endpoint_auth_method: "client_secret_post" });
+    expect(reg.status).toBe(201);
+    expect(reg.body).toMatchObject({ client_name: "Grok", redirect_uris: [GROK_APP_CB], token_endpoint_auth_method: "none" });
+    const clientId = String(reg.body.client_id);
+    expect(clientId).toMatch(/^ucmcpd_/);
+
+    const page = await handleAuthorize(new Request(authorizeUrl({ client_id: clientId, redirect_uri: GROK_APP_CB })), deps());
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain("The app named itself <strong>Grok</strong>");
+    expect(html).toContain("you return to <strong>grok.com</strong>");
+
+    const allow = await handleAuthorize(post(formFields(html), "allow"), deps());
+    expect(allow.status).toBe(303);
+    const loc = new URL(allow.headers.get("location")!);
+    expect(loc.origin + loc.pathname).toBe(GROK_APP_CB);
+    const code = loc.searchParams.get("code")!;
+    expect(code.length).toBeLessThan(1000);
+
+    const tok = await handleToken(tokenRequest({ grant_type: "authorization_code", code, code_verifier: VERIFIER, client_id: clientId, redirect_uri: GROK_APP_CB }), deps());
+    const body = (await tok.json()) as Record<string, string>;
+    expect(tok.status).toBe(200);
+    expect(body.access_token).toMatch(/^ucmcp_/);
+    const mcp = await handleMcpHttpRequest(
+      new Request(`${APP}/api/mcp`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${body.access_token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      }),
+      { env: { MCP_TOKEN_SECRET: SECRET, MCP_APP_URL: APP }, lookupUser: async (e) => users[e] ?? null, loadCorpus: async () => corpus, now: () => NOW, log: () => {} },
+    );
+    expect(mcp.status).toBe(200);
+
+    const refreshed = await handleToken(tokenRequest({ grant_type: "refresh_token", refresh_token: body.refresh_token, client_id: clientId }), deps());
+    expect(refreshed.status).toBe(200);
+    // A code or refresh token from one registration cannot be redeemed by the built-in client or another registration.
+    const other = String((await register({ redirect_uris: [GROK_APP_CB] })).body.client_id);
+    expect((await handleToken(tokenRequest({ grant_type: "refresh_token", refresh_token: body.refresh_token, client_id: other }), deps())).status).toBe(400);
+    expect((await handleToken(tokenRequest({ grant_type: "refresh_token", refresh_token: body.refresh_token, client_id: CLIENT }), deps())).status).toBe(400);
+  });
+
+  it("accepts native-app callbacks and lets the Allow redirect reach them", async () => {
+    const reg = await register({ client_name: "Grok Desktop", redirect_uris: ["ai.x.grok:/oauth/callback"] });
+    expect(reg.status).toBe(201);
+    const page = await handleAuthorize(new Request(authorizeUrl({ client_id: String(reg.body.client_id), redirect_uri: "ai.x.grok:/oauth/callback" })), deps());
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-security-policy")).toContain("form-action 'self' ai.x.grok:");
+    expect(await page.text()).toContain("you return to <strong>ai.x.grok:</strong>");
+  });
+
+  it("rejects unsafe or malformed registrations", async () => {
+    for (const bad of [
+      {},
+      { redirect_uris: [] },
+      { redirect_uris: ["javascript:alert(1)"] },
+      { redirect_uris: ["http://evil.example/cb"] },
+      { redirect_uris: ["https://a.example/cb#frag"] },
+      { redirect_uris: ["data:text/html,hi"] },
+      { redirect_uris: ["https://a.example/1", "https://a.example/2", "https://a.example/3", "https://a.example/4", "https://a.example/5"] },
+      { redirect_uris: ["https://a.example/cb"], grant_types: ["client_credentials"] },
+      { redirect_uris: ["https://a.example/cb"], response_types: ["token"] },
+    ]) {
+      const res = await register(bad);
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+    }
+    expect((await register({ redirect_uris: ["http://127.0.0.1:33418/cb"] })).status).toBe(201);
+    const res = await handleRegister(new Request(`${APP}/api/mcp/oauth/register`, { method: "POST", body: "not json" }), deps());
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses tampered client ids, other redirect URIs, and host accounts", async () => {
+    const clientId = String((await register({ client_name: "Grok", redirect_uris: [GROK_APP_CB] })).body.client_id);
+    const [payload, sig] = clientId.slice(7).split(".");
+    const forgedPayload = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(payload, "base64url").toString()), r: ["https://evil.example/cb"] })).toString("base64url");
+    const forged = `ucmcpd_${forgedPayload}.${sig}`;
+    const f = await handleAuthorize(new Request(authorizeUrl({ client_id: forged, redirect_uri: "https://evil.example/cb" })), deps());
+    expect(f.status).toBe(400);
+    expect(f.headers.get("location")).toBeNull();
+
+    const elsewhere = await handleAuthorize(new Request(authorizeUrl({ client_id: clientId, redirect_uri: "https://evil.example/cb" })), deps());
+    expect(elsewhere.status).toBe(400);
+    expect(elsewhere.headers.get("location")).toBeNull();
+
+    // A registration signed with another secret (or before a rotation) is unknown.
+    const stale = String((await register({ redirect_uris: [GROK_APP_CB] }, deps({ env: { MCP_TOKEN_SECRET: "a-different-secret-0123456789abcdefghijkl" } }))).body.client_id);
+    expect((await handleAuthorize(new Request(authorizeUrl({ client_id: stale, redirect_uri: GROK_APP_CB })), deps())).status).toBe(400);
+
+    expect((await handleAuthorize(new Request(authorizeUrl({ client_id: clientId, redirect_uri: GROK_APP_CB })), deps({ session: HOST }))).status).toBe(403);
+  });
+
+  it("keeps self-registered client ids out of logs", () => {
+    const text = JSON.stringify(logs);
+    expect(logs.some((l) => l.event === "mcp_oauth_register" && l.outcome === "registered")).toBe(true);
+    expect(text).not.toMatch(/ucmcpd_[A-Za-z0-9_-]{10,}/);
     expect(text).not.toContain("@example.com");
   });
 });

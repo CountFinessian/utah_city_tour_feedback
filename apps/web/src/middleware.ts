@@ -98,6 +98,8 @@ export async function middleware(req: NextRequest) {
     // /token checks codes, PKCE, and the role. The discovery documents are public metadata.
     pathname === "/api/mcp/oauth/authorize" ||
     pathname === "/api/mcp/oauth/token" ||
+    // Dynamic client registration: public, grants nothing without a leader's consent.
+    pathname === "/api/mcp/oauth/register" ||
     pathname === "/.well-known/oauth-authorization-server" ||
     pathname === "/.well-known/oauth-protected-resource" ||
     pathname === "/.well-known/oauth-protected-resource/api/mcp" ||
