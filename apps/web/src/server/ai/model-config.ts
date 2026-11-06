@@ -55,18 +55,36 @@ export function getGoogleModel(modelName?: string) {
   return google(modelName || GOOGLE_MODELS[0]);
 }
 
+/**
+ * Claude is the primary model whenever ANTHROPIC_API_KEY is set; Gemini is used when it is the only
+ * key. Social Pulse relevance, comment classification and audio transcription stay on Gemini
+ * (see relevanceModel, commentClassifyModel and transcription.ts).
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function llmModel(): any {
-  if (hasGoogleKey()) {
-    return getGoogleModel();
-  }
   if (hasAnthropicKey()) return anthropic(ANTHROPIC_MODEL);
+  if (hasGoogleKey()) return getGoogleModel();
   return GATEWAY_MODEL;
 }
 
+/**
+ * Every configured model, primary first. Callers that retry on a fast error (an outage, an
+ * exhausted credit balance, a retired model id) move on to the next provider instead of
+ * dropping to a heuristic.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function llmModelChain(): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chain: any[] = [];
+  if (hasAnthropicKey()) chain.push(anthropic(ANTHROPIC_MODEL));
+  if (hasGoogleKey()) chain.push(...GOOGLE_MODELS.map((m) => getGoogleModel(m)));
+  if (chain.length === 0) chain.push(GATEWAY_MODEL);
+  return chain;
+}
+
 export function llmLabel(): string | null {
-  if (hasGoogleKey()) return `google:${GOOGLE_MODEL}`;
   if (hasAnthropicKey()) return `anthropic:${ANTHROPIC_MODEL}`;
+  if (hasGoogleKey()) return `google:${GOOGLE_MODEL}`;
   if (hasGateway()) return `gateway:${GATEWAY_MODEL}`;
   return null;
 }

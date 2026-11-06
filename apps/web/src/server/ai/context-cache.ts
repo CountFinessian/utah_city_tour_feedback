@@ -1,6 +1,7 @@
 import type { Observation } from "@/domain/observation";
 import type { Digest } from "@/server/reporting/digest";
 import { ANALYST_SYSTEM_PROMPT } from "@/server/analyst/analyst-prompt";
+import { corpusContext, toAnalystRecord } from "@/server/analyst/analyst-context";
 
 type ActiveCache = {
   name: string;
@@ -20,32 +21,22 @@ function computeFingerprint(observations: Observation[]): string {
 }
 
 export function formatCorpusForCache(observations: Observation[], digest: Digest): string {
-  const residentRecords = observations.map((o) => {
-    const prospectName = [o.prospectFirstName, o.prospectLastName].filter(Boolean).join(" ");
-    return {
-      residentOrHost: prospectName || o.hostName || "Host",
-      host: o.hostName,
-      prospect: prospectName || undefined,
-      email: o.prospectEmail,
-      summary: o.extraction.summary,
-      transcript: o.transcript,
-      objections: o.extraction.objections.map((obj) => `${obj.type}: ${obj.detail}`),
-      amenities: o.extraction.amenities.map((a) => `${a.name} (${a.reaction}): ${a.detail}`),
-      sentiment: o.extraction.overallSentiment,
-    };
-  });
+  // Same record shape as the direct prompt. "today" is sent per question, not cached.
+  const { today: _today, ...context } = corpusContext(observations);
+  void _today;
 
   const payload = {
-    knowledgeBase: "Utah City 120 & 220 Bend Resident Debrief Corpus",
-    totalRecordedDebriefs: observations.length,
-    highLevelMetrics: {
+    knowledgeBase: "Utah City Tour Debrief Corpus",
+    context,
+    allTimeMetrics: {
+      note: "Computed over every debrief regardless of date. Do not use for date-scoped questions.",
       averageSentiment: digest.avgSentiment,
       intentFunnel: digest.intentFunnel,
       topObjections: digest.topObjections,
       topAmenities: digest.amenityRanking,
       recurringQuestions: digest.topQuestions,
     },
-    residentDebriefTranscripts: residentRecords,
+    debriefs: observations.map(toAnalystRecord),
   };
 
   return JSON.stringify(payload, null, 2);

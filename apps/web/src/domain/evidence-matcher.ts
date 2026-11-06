@@ -44,7 +44,7 @@ export function matchesTerm(haystack: string, term: string): boolean {
   return false;
 }
 
-const STOPWORDS = new Set([
+export const EVIDENCE_STOPWORDS: ReadonlySet<string> = new Set([
   "about", "after", "all", "also", "and", "are", "because", "been", "before",
   "being", "between", "both", "but", "came", "come", "could", "did", "does",
   "each", "even", "for", "from", "had", "has", "have", "having", "here",
@@ -92,7 +92,7 @@ export function extractCleanExcerpt(transcript: string, terms: string[], fallbac
     if (t.includes(" ")) {
       exactPhrases.push(t);
       t.split(/[\s,;—–-]+/)
-        .filter((w) => w.length >= 3 && !STOPWORDS.has(w))
+        .filter((w) => w.length >= 3 && !EVIDENCE_STOPWORDS.has(w))
         .forEach((w) => conceptWords.add(w));
     } else if (t.length >= 3) {
       conceptWords.add(t);

@@ -3,6 +3,8 @@ import { AnalystRequestSchema, answerAnalystQuestion } from "@/server/analyst/an
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// The model call is bounded at 45 s inside the service (ANALYST_TOTAL_BUDGET_MS); leave headroom for the DB read.
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);

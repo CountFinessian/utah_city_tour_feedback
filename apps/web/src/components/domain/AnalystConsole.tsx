@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, Loader2, Send, Sparkles } from "lucide-react";
+import { AlertTriangle, Bot, Loader2, Send, Sparkles } from "lucide-react";
 import { ConfidenceBadge } from "./CommandComponents";
 import { EvidencePopover, type EvidenceItem } from "./EvidencePopover";
 
 type AnalystResponse = {
   answer: string;
+  /** "fallback" = the AI model was not used or did not answer; the answer is a keyword search. */
+  mode?: "llm" | "fallback";
+  fallbackReason?: "no_llm_configured" | "empty_corpus" | "model_timeout" | "model_error";
   confidence: "low" | "medium" | "high";
   sampleSize: number;
   evidence: EvidenceItem[];
@@ -20,6 +23,13 @@ type AnalystResponse = {
 type MessageItem = {
   question: string;
   response: AnalystResponse;
+};
+
+const FALLBACK_NOTICE: Record<NonNullable<AnalystResponse["fallbackReason"]>, string> = {
+  no_llm_configured: "AI analyst is not configured.",
+  empty_corpus: "No debriefs have been captured yet.",
+  model_timeout: "AI analyst did not respond in time.",
+  model_error: "AI analyst is unavailable right now.",
 };
 
 const prompts = [
@@ -129,6 +139,19 @@ export function AnalystConsole() {
                       </span>
                     )}
                   </div>
+
+                  {item.mode === "fallback" && (
+                    <p
+                      role="status"
+                      className="mt-3 flex items-start gap-2 rounded-[8px] border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+                    >
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                      <span>
+                        {FALLBACK_NOTICE[item.fallbackReason ?? "model_error"]} Showing a keyword search, not an AI
+                        analysis. Counts here are word matches.
+                      </span>
+                    </p>
+                  )}
 
                   <div className="mt-3 text-base leading-relaxed text-command-ink whitespace-pre-wrap font-normal">
                     {item.answer}
