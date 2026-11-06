@@ -172,6 +172,11 @@ describe("model payload (fix 3)", () => {
     expect(payload.context.timezone).toBe("America/Denver");
     expect(payload.context.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(payload.context.totalDebriefs).toBe(4);
+    expect(payload.allTimeMetrics).toBeUndefined();
+    expect(payload.authoritativeCounts).toMatchObject({ debriefs: 4, anyObjection: { debriefs: 3 } });
+    expect(payload.authoritativeCounts.byDay["2026-10-29"]).toBe(1); // t-1 is Oct 30 in UTC
+    expect(payload.authoritativeCounts.objections[0]).toMatchObject({ type: "parking", debriefs: 2, mentions: 2 });
+    expect(call.system).toContain("take the numbers from authoritativeCounts exactly");
 
     const byId = Object.fromEntries(payload.debriefs.map((d: { id: string }) => [d.id, d]));
     expect(byId["t-1"]).toMatchObject({
