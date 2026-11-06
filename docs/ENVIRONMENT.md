@@ -25,7 +25,7 @@ The app uses a priority cascade — it tries providers in order and falls back g
 | `GOOGLE_MODEL` | No | `gemini-3.8-flash` | Gemini model for leadership summaries, extraction, and other non-comment calls. |
 | `ANALYST_MODEL_TIMEOUT_MS` | No | `25000` | AI Analyst: maximum wait for one model call. The call is aborted (not left running) when it expires. |
 | `ANALYST_TOTAL_BUDGET_MS` | No | `45000` | AI Analyst: total time for all model attempts on one question. Keep below the route's 60 s `maxDuration`. |
-| `ANALYST_MAX_OUTPUT_TOKENS` | No | `600` | AI Analyst: cap on answer length. Latency grows about 27 ms per output token, so raising this brings back timeouts. |
+| `ANALYST_MAX_OUTPUT_TOKENS` | No | `600` | AI Analyst: cap on Claude answer length (not applied to Gemini, whose thinking tokens count against it). Latency grows about 27 ms per output token, so raising this brings back timeouts. |
 | `ANTHROPIC_API_KEY` | No | — | Anthropic Claude API key. When set, Claude is the primary model for extraction, structuring, narratives and the AI Analyst. The analyst falls back to Gemini after a fast Claude error (for example an exhausted credit balance). |
 | `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Anthropic model identifier. |
 | `AI_GATEWAY_API_KEY` | No | — | Vercel AI Gateway credentials. Also checks `VERCEL_OIDC_TOKEN`. |

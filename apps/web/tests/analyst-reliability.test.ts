@@ -194,14 +194,29 @@ describe("model payload (fix 3)", () => {
 });
 
 describe("answer length cap and clock times (post-evaluation fixes)", () => {
-  it("caps output tokens on every model call and asks for a short answer", async () => {
+  it("caps output tokens on Claude and asks for a short answer", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key-not-real";
+    try {
+      mockGenerate.mockResolvedValueOnce({ text: "One debrief mentions the trail.\nCITED_OBSERVATIONS: [t-4]" } as never);
+
+      await answerAnalystQuestion("Which visitors liked the trail connection?");
+
+      expect(calls()).toHaveLength(1);
+      expect((calls()[0] as Call & { maxOutputTokens?: number }).maxOutputTokens).toBe(600);
+      expect(calls()[0].system).toContain("180 words or fewer");
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+  });
+
+  it("does not cap Gemini, whose thinking tokens count against the cap", async () => {
     mockGenerate.mockResolvedValueOnce({ text: "One debrief mentions the trail.\nCITED_OBSERVATIONS: [t-4]" } as never);
 
-    await answerAnalystQuestion("Which visitors liked the trail connection?");
+    await answerAnalystQuestion("Which visitors praised the trail connection?");
 
     expect(calls()).toHaveLength(1);
-    expect((calls()[0] as Call & { maxOutputTokens?: number }).maxOutputTokens).toBe(600);
-    expect(calls()[0].system).toContain("180 words or fewer");
+    expect((calls()[0].model as { provider?: string }).provider).toMatch(/^google/);
+    expect((calls()[0] as Call & { maxOutputTokens?: number }).maxOutputTokens).toBeUndefined();
   });
 
   it("keeps capture times in the answer", async () => {

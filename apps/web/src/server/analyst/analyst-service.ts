@@ -44,9 +44,11 @@ const DEFAULT_TOTAL_BUDGET_MS = 45_000;
 /** Do not start another attempt with less time than this left. */
 const MIN_ATTEMPT_MS = 3_000;
 /**
- * Latency grows with output length (about 27 ms per output token on the evaluation runs), so long
- * answers were what hit the timeout. 600 tokens holds the 180-word answer the prompt asks for plus
- * the citation line, and keeps a full-length answer near 17 s.
+ * Claude only. Latency grows with output length (about 27 ms per output token on the evaluation
+ * runs), so long answers were what hit the timeout. 600 tokens holds the 180-word answer the prompt
+ * asks for plus the citation line, and keeps a full-length answer near 17 s.
+ * Not applied to Gemini: Gemini 3.x counts its thinking tokens against maxOutputTokens, and a
+ * 600-token cap cut production answers off after about ten words.
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 600;
 
@@ -433,7 +435,7 @@ export async function answerWithOneShotRAG(
               model,
               temperature: 0.1,
               maxRetries: 0,
-              maxOutputTokens,
+              // No cap on Gemini: its thinking tokens count against maxOutputTokens and cut answers short.
               prompt: `Today is ${context.today} (${context.timezone}). User Question: ${question}\n\nAnswer directly from the debrief corpus in at most 180 words. Debrief dates are capturedAt in ${context.timezone}. If asked "how many", count the debriefs explicitly and give the denominator. Cite visitor names when known (never call the host a resident or visitor), quote their specific feedback, and write clean plain text with no asterisks. At the end on a new line, output: CITED_OBSERVATIONS: [id1, id2] with only the IDs of observations used. If no observations were used or there is insufficient evidence, output: CITED_OBSERVATIONS: []`,
               providerOptions: {
                 google: {
@@ -466,7 +468,7 @@ export async function answerWithOneShotRAG(
               model,
               temperature: 0.1,
               maxRetries: 0,
-              maxOutputTokens,
+              maxOutputTokens: isGoogleModel(model) ? undefined : maxOutputTokens,
               system: ANALYST_SYSTEM_PROMPT,
               prompt: JSON.stringify(payload, null, 2),
             },
