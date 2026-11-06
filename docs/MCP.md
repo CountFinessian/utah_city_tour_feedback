@@ -138,11 +138,13 @@ Generic `mcpServers` JSON (Cursor and similar):
 { "mcpServers": { "utah-city": { "type": "http", "url": "https://www.utahcity.app/api/mcp", "headers": { "Authorization": "Bearer <token>" } } } }
 ```
 
-### OAuth sign-in (Grok on grok.com)
+### OAuth sign-in (Grok, Claude, ChatGPT, and other connector apps)
 
-Clients that cannot take a pasted token sign in through OAuth 2.1 (authorization code + PKCE S256, public client, no secret). The user signs in with their normal Utah City account, sees a consent page, and clicks **Allow**. Only accounts whose current role is leader can approve, exchange a code, or refresh.
+Clients that cannot take a pasted token sign in through OAuth 2.1 (authorization code + PKCE S256, public client, no secret). The user signs in with their normal Utah City account, sees a consent page, and clicks **Allow**. Only accounts whose current role is leader can approve, exchange a code, or refresh. Any email works; what matters is that the account exists in Utah City (Settings → People) with the **leader** role.
 
-Grok: grok.com/connectors → **New Connector** → **Custom** → URL `https://www.utahcity.app/api/mcp`, then fill the OAuth form:
+**URL only (default).** Add a custom connector with `https://www.utahcity.app/api/mcp` and nothing else. The app finds the sign-in endpoints through discovery and registers itself (RFC 7591, `POST /api/mcp/oauth/register`). Registration is open and stores nothing: the returned `client_id` is a signed blob holding the app's name and callback URIs (https, loopback http, or a native app's private-use scheme). It grants nothing by itself. The consent page tells the leader the name the app gave itself and where Allow will send them. Rotating `MCP_TOKEN_SECRET` invalidates every registration along with every token.
+
+**Manual client ID (if an app asks for one).** Grok: grok.com/connectors → **New Connector** → **Custom** → URL `https://www.utahcity.app/api/mcp`, then fill the OAuth form:
 
 | Field | Value |
 |---|---|
@@ -156,6 +158,7 @@ Grok: grok.com/connectors → **New Connector** → **Custom** → URL `https://
 Endpoints and lifetimes:
 
 - Discovery: `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/api/mcp`. 401s from `/api/mcp` carry `resource_metadata` pointing at the latter.
+- Registration: `/api/mcp/oauth/register` (advertised as `registration_endpoint`). Up to 4 redirect URIs per registration; `javascript:`, `data:`, `file:`, non-loopback `http:`, and fragments are refused.
 - Access tokens are ordinary `ucmcp_` tokens that last 24 hours, so every MCP request still re-checks the role.
 - Refresh tokens last 30 days and rotate. One approval can be refreshed for at most 90 days, then the user signs in again.
 - Codes last 5 minutes and are bound to the client, redirect URI, and PKCE challenge.

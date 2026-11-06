@@ -10,6 +10,12 @@
  * Nothing is stored server-side. Codes, refresh tokens, and consent-form tokens are HMAC-signed blobs keyed
  * with MCP_TOKEN_SECRET under their own domain prefix, so none of them can pass as another kind or as an
  * access token. Codes live 5 minutes and are bound to the client, redirect URI, and PKCE challenge.
+ *
+ * Clients that only take a server URL (Grok's connector form, Claude, ChatGPT) register themselves first
+ * (RFC 7591 dynamic client registration). The issued client_id is itself a signed blob holding the client's
+ * name and redirect URIs, so registration stores nothing either. Registration grants no access on its own:
+ * every connection still needs a leader to sign in and click Allow on a consent page that shows where the
+ * code will be sent.
  */
 import { signMcpToken } from "../tokens";
 
@@ -21,7 +27,7 @@ export const GRANT_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
 export const CODE_TTL_SECONDS = 5 * 60;
 export const CONSENT_TTL_SECONDS = 10 * 60;
 
-export type OAuthClient = { id: string; name: string; redirectUris: string[] };
+export type OAuthClient = { id: string; name: string; redirectUris: string[]; selfRegistered?: boolean };
 
 /**
  * Registered clients. Grok's custom-connector callback is not in xAI's docs; these are the URIs Grok has been
@@ -66,6 +72,32 @@ function isAllowedRedirectUri(uri: string): boolean {
   }
 }
 
+/** Schemes a self-registered native app may never use as its callback. */
+const BLOCKED_SCHEMES = new Set(["javascript:", "data:", "file:", "vbscript:", "about:", "blob:", "filesystem:", "ftp:", "ws:", "wss:", "http:", "mailto:", "tel:", "sms:"]);
+
+/**
+ * Self-registered clients: https (or loopback http), or a native app's private-use scheme
+ * (RFC 8252, e.g. `com.example.app:/callback`). No fragments, nothing that runs script or opens files.
+ */
+export function isAllowedSelfRegisteredRedirectUri(uri: string): boolean {
+  if (typeof uri !== "string" || uri.length > 300) return false;
+  if (isAllowedRedirectUri(uri)) return true;
+  try {
+    const u = new URL(uri);
+    if (u.hash || BLOCKED_SCHEMES.has(u.protocol)) return false;
+    return /^[a-z][a-z0-9+.-]{1,62}:$/.test(u.protocol);
+  } catch {
+    return false;
+  }
+}
+
+/** Where the browser goes after Allow, for the consent page: a host name, or a native app's scheme. */
+export function redirectTarget(uri: string): string {
+  const u = new URL(uri);
+  if (u.protocol === "https:" || u.protocol === "http:") return u.host;
+  return `${u.protocol}//${u.host}`.replace(/\/\/$/, "");
+}
+
 // ---------- signed blobs ----------
 
 function b64u(bytes: Uint8Array): string {
@@ -84,8 +116,8 @@ function unb64u(text: string): Uint8Array {
   return out;
 }
 
-type BlobKind = "code" | "refresh" | "consent";
-const PREFIX: Record<BlobKind, string> = { code: "ucmcpc_", refresh: "ucmcpr_", consent: "ucmcpk_" };
+type BlobKind = "code" | "refresh" | "consent" | "client";
+const PREFIX: Record<BlobKind, string> = { code: "ucmcpc_", refresh: "ucmcpr_", consent: "ucmcpk_", client: "ucmcpd_" };
 
 async function key(kind: BlobKind, secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
@@ -131,6 +163,81 @@ function randomId(): string {
 
 export async function sha256b64u(text: string): Promise<string> {
   return b64u(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))));
+}
+
+// ---------- dynamic client registration (RFC 7591) ----------
+
+export const SELF_REGISTERED_CLIENT_TTL_SECONDS = 5 * 365 * 24 * 60 * 60;
+const MAX_REDIRECT_URIS = 4;
+type ClientClaims = { n: string; r: string[]; iat: number; exp: number };
+
+export type RegistrationResult =
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; error: "invalid_redirect_uri" | "invalid_client_metadata"; error_description: string };
+
+function cleanName(value: unknown): string {
+  const text = typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim() : "";
+  return text.slice(0, 60) || "AI app";
+}
+
+export async function registerClient(metadata: unknown, secret: string, now: number): Promise<RegistrationResult> {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return { ok: false, error: "invalid_client_metadata", error_description: "Send client metadata as a JSON object." };
+  }
+  const m = metadata as Record<string, unknown>;
+  const uris = m.redirect_uris;
+  if (!Array.isArray(uris) || uris.length === 0 || uris.length > MAX_REDIRECT_URIS || !uris.every((u) => typeof u === "string")) {
+    return { ok: false, error: "invalid_redirect_uri", error_description: `redirect_uris must list 1 to ${MAX_REDIRECT_URIS} URIs.` };
+  }
+  const bad = (uris as string[]).find((u) => !isAllowedSelfRegisteredRedirectUri(u));
+  if (bad !== undefined) return { ok: false, error: "invalid_redirect_uri", error_description: `Redirect URI not allowed: ${String(bad).slice(0, 120)}` };
+  const grantTypes = m.grant_types;
+  if (grantTypes !== undefined && (!Array.isArray(grantTypes) || !grantTypes.includes("authorization_code") || grantTypes.some((g) => g !== "authorization_code" && g !== "refresh_token"))) {
+    return { ok: false, error: "invalid_client_metadata", error_description: "Supported grant_types: authorization_code, refresh_token." };
+  }
+  const responseTypes = m.response_types;
+  if (responseTypes !== undefined && (!Array.isArray(responseTypes) || responseTypes.some((r) => r !== "code"))) {
+    return { ok: false, error: "invalid_client_metadata", error_description: "Supported response_types: code." };
+  }
+  const name = cleanName(m.client_name);
+  const redirectUris = [...new Set(uris as string[])];
+  const clientId = await sign("client", { n: name, r: redirectUris, iat: now, exp: now + SELF_REGISTERED_CLIENT_TTL_SECONDS } satisfies ClientClaims, secret);
+  return {
+    ok: true,
+    body: {
+      client_id: clientId,
+      client_id_issued_at: now,
+      client_name: name,
+      redirect_uris: redirectUris,
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      // Public client: PKCE instead of a secret, whatever auth method was asked for.
+      token_endpoint_auth_method: "none",
+      scope: OAUTH_SCOPE,
+    },
+  };
+}
+
+/** Built-in and env clients, plus the self-registered client named by `clientId` when its signature checks out. */
+export async function resolveClients(
+  clientId: string | null | undefined,
+  env: Record<string, string | undefined> | undefined,
+  secret: string,
+  now: number,
+): Promise<Map<string, OAuthClient>> {
+  const clients = oauthClients(env);
+  if (clientId && clientId.startsWith(PREFIX.client)) {
+    const claims = await verify<ClientClaims>("client", clientId, secret, now);
+    if (claims && typeof claims.n === "string" && Array.isArray(claims.r) && claims.r.every((u) => typeof u === "string" && isAllowedSelfRegisteredRedirectUri(u))) {
+      clients.set(clientId, { id: clientId, name: claims.n, redirectUris: claims.r, selfRegistered: true });
+    }
+  }
+  return clients;
+}
+
+/** Codes and refresh tokens hold a short reference to self-registered clients, whose ids are long. */
+async function clientRef(clientId: string): Promise<string> {
+  return clientId.startsWith(PREFIX.client) ? `d:${await sha256b64u(clientId)}` : clientId;
 }
 
 // ---------- authorization request ----------
@@ -222,7 +329,7 @@ export async function issueCode(params: AuthorizeParams, email: string, secret: 
   const claims: CodeClaims = {
     jti: randomId(),
     sub: email.trim().toLowerCase(),
-    cid: params.clientId,
+    cid: await clientRef(params.clientId),
     ru: params.redirectUri,
     cc: params.codeChallenge,
     scope: params.scope,
@@ -285,7 +392,7 @@ async function grant(email: string, clientId: string, authTime: number, deps: To
   const refresh: RefreshClaims = {
     jti: randomId(),
     sub: email,
-    cid: clientId,
+    cid: await clientRef(clientId),
     scope: OAUTH_SCOPE,
     auth: authTime,
     exp: Math.min(deps.now + REFRESH_TOKEN_TTL_SECONDS, grantEnds),
@@ -307,10 +414,11 @@ export async function handleTokenRequest(form: URLSearchParams, deps: TokenDeps)
   const grantType = form.get("grant_type");
   const clientId = form.get("client_id") || "";
   if (!deps.clients.has(clientId)) return tokenError(401, "invalid_client", "Unknown client_id.");
+  const ref = await clientRef(clientId);
 
   if (grantType === "authorization_code") {
     const claims = await verify<CodeClaims>("code", form.get("code"), deps.secret, deps.now);
-    if (!claims || claims.cid !== clientId) return tokenError(400, "invalid_grant", "The authorization code is invalid or expired.");
+    if (!claims || claims.cid !== ref) return tokenError(400, "invalid_grant", "The authorization code is invalid or expired.");
     const redirectUri = form.get("redirect_uri");
     if (redirectUri !== null && redirectUri !== claims.ru) return tokenError(400, "invalid_grant", "redirect_uri does not match.");
     const verifier = form.get("code_verifier") || "";
@@ -323,7 +431,7 @@ export async function handleTokenRequest(form: URLSearchParams, deps: TokenDeps)
 
   if (grantType === "refresh_token") {
     const claims = await verify<RefreshClaims>("refresh", form.get("refresh_token"), deps.secret, deps.now);
-    if (!claims || claims.cid !== clientId) return tokenError(400, "invalid_grant", "The refresh token is invalid or expired.");
+    if (!claims || claims.cid !== ref) return tokenError(400, "invalid_grant", "The refresh token is invalid or expired.");
     if (deps.revokedTokenIds.has(claims.jti)) return tokenError(400, "invalid_grant", "The refresh token was revoked.");
     return grant(claims.sub, clientId, claims.auth, deps);
   }
@@ -338,6 +446,7 @@ export function authorizationServerMetadata(appUrl: string) {
     issuer: appUrl,
     authorization_endpoint: `${appUrl}/api/mcp/oauth/authorize`,
     token_endpoint: `${appUrl}/api/mcp/oauth/token`,
+    registration_endpoint: `${appUrl}/api/mcp/oauth/register`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
