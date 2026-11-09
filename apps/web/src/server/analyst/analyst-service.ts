@@ -7,6 +7,7 @@ import { buildDigest, buildNarrativeGuardrail } from "@/server/reporting/digest"
 import { getOrSetContextCache, invalidateContextCache } from "@/server/ai/context-cache";
 import { ANALYST_SYSTEM_PROMPT } from "@/server/analyst/analyst-prompt";
 import { corpusContext, localDate, toAnalystRecord } from "@/server/analyst/analyst-context";
+import { authoritativeCounts } from "@/server/analyst/analyst-counts";
 import type { EvidenceItem } from "@/components/domain/EvidencePopover";
 import { matchesTerm, buildEvidenceItem, EVIDENCE_STOPWORDS } from "@/domain/evidence-matcher";
 
@@ -388,26 +389,20 @@ export async function answerWithOneShotRAG(
   const maxOutputTokens = Math.round(envMs("ANALYST_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS));
   const deadline = startTime + envMs("ANALYST_TOTAL_BUDGET_MS", DEFAULT_TOTAL_BUDGET_MS);
 
-  const digest = buildDigest(observations);
   const terms = keywordTerms(question);
   const { items: keywordEvidence } = evidenceFor(observations, terms);
   const context = corpusContext(observations, now);
+  const counts = authoritativeCounts(observations, now);
 
   // Gemini context cache: only when Gemini is the primary model, and only once the corpus passes
   // Gemini's minimum cache size. With Claude primary, Gemini is a fallback and gets the direct payload.
-  const contextCacheName = hasAnthropicKey() ? null : await getOrSetContextCache(observations, digest);
+  const contextCacheName = hasAnthropicKey() ? null : await getOrSetContextCache(observations);
 
   const payload = {
     userQuestion: question,
     context,
+    authoritativeCounts: counts,
     debriefs: observations.map(toAnalystRecord),
-    allTimeMetrics: {
-      note: "Computed over every debrief regardless of date. Do not use for date-scoped questions.",
-      averageSentiment: digest.avgSentiment,
-      intentFunnel: digest.intentFunnel,
-      topObjectionSignals: digest.topObjections,
-      topAmenitySignals: digest.amenityRanking,
-    },
   };
 
   // Claude first when configured, then Gemini. A timeout stops the loop (see below); a fast error,
@@ -436,7 +431,7 @@ export async function answerWithOneShotRAG(
               temperature: 0.1,
               maxRetries: 0,
               // No cap on Gemini: its thinking tokens count against maxOutputTokens and cut answers short.
-              prompt: `Today is ${context.today} (${context.timezone}). User Question: ${question}\n\nAnswer directly from the debrief corpus in at most 180 words. Debrief dates are capturedAt in ${context.timezone}. If asked "how many", count the debriefs explicitly and give the denominator. Cite visitor names when known (never call the host a resident or visitor), quote their specific feedback, and write clean plain text with no asterisks. At the end on a new line, output: CITED_OBSERVATIONS: [id1, id2] with only the IDs of observations used. If no observations were used or there is insufficient evidence, output: CITED_OBSERVATIONS: []`,
+              prompt: `Today is ${context.today} (${context.timezone}). User Question: ${question}\n\nAnswer directly from the debrief corpus in at most 180 words. Debrief dates are capturedAt in ${context.timezone}. For any count, share, average, ranking, trend or date window, quote the authoritative counts below exactly instead of counting, and give the denominator and period. Cite visitor names when known (never call the host a resident or visitor), quote their specific feedback, and write clean plain text with no asterisks. At the end on a new line, output: CITED_OBSERVATIONS: [id1, id2] with only the IDs of observations used. If no observations were used or there is insufficient evidence, output: CITED_OBSERVATIONS: []\n\nAuthoritative counts (computed by code from the cached debriefs): ${JSON.stringify(counts)}`,
               providerOptions: {
                 google: {
                   cachedContent: contextCacheName,
